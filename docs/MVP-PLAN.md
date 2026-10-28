@@ -1,6 +1,6 @@
 # Hive MVP Plan — a shared brain for many Hermes instances
 
-> Status: proposal, Oct 27 2026. Companion to `DESIGN-NOTES.md` and `GLOSSARY.md`.
+> Status: approved to start M0, Oct 27 2026 (see §9 for settled decisions). Companion to `DESIGN-NOTES.md` and `GLOSSARY.md`.
 > Scope: one host (Mac Studio) running the Hive next to ASF; any Hermes instance on the LAN/Tailscale connects with a URL + token.
 
 **Goal:** Give every Hermes instance in the team the Entire Brain feature set — brief before a task, hand-written and distilled facts with verifiable sources, hybrid search over facts/history/docs/conversations, global facts, non-code docs, a dashboard — backed by ONE shared, governed store instead of one local store per developer.
@@ -255,16 +255,14 @@ Decide after M5 shows whether the agents actually ask code-structure questions o
 
 ---
 
-## 9. Open questions (need Jon)
+## 9. Decisions (settled Oct 27, 2026)
 
-1. **Name.** `hive` is the working name; the repo needs one before M0.
-2. **Postgres:** separate compose stack from ASF (my recommendation — independent lifecycle, ASF's uninstall script does label-based discovery and shouldn't ever see hive volumes), or share ASF's instance?
-3. **Fact agent default:** `hermes -z` (subscription, cost visible via `--usage-file`) vs. an Anthropic API key in the hive (metered, simpler to run unattended on the Studio). Both pluggable; which is default?
-4. **Embeddings:** local Ollama `nomic-embed-text` on the Studio (free, 768-d, ~fine for this) vs. an API embedder. Ollama is the recommendation.
-5. **Curator:** you, for all shared-scope candidates, via the dashboard. OK for MVP?
-6. **Experiment corpus:** ASF repo + its docs is the obvious choice (big, real, you know the answers). Agree?
-
----
+1. **Repo:** `github.com/bennybrau/hive` (private). Product name still open; `hive` is the working name.
+2. **Postgres:** separate compose stack from ASF. Never share ASF's instance.
+3. **Fact agent default:** `hermes -z … --usage-file` on Jon's Claude subscription; cost captured per call into `llm_calls`. API-key and Ollama runners stay pluggable, not default.
+4. **Embeddings:** local Ollama `nomic-embed-text` on the Mac Studio.
+5. **Curator:** Jon, alone, for all shared-scope candidates in the MVP.
+6. **Experiment corpus:** the ASF repo (`agentic-software-factory`), its docs, and Jon's past Hermes sessions on it; the ~15 questions are about ASF.
 
 ## 10. First concrete steps (M0)
 
