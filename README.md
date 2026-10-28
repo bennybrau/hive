@@ -50,10 +50,24 @@ Connect a Hermes: see [plugins/hive/README.md](plugins/hive/README.md).
 scripts/test.sh          # service: vitest against the compose Postgres (throwaway hive_test db)
 scripts/test-plugin.sh   # Hermes plugin: pytest against Hermes' own MemoryProvider code
 pnpm typecheck
+scripts/redeploy.sh      # rebuild + restart the hive container after code changes
 ```
+
+## Meaning search (Ollama)
+
+Embeddings come from Ollama running natively on the host (Metal GPU), reached from the container at
+`host.docker.internal:11434`:
+
+```bash
+brew install ollama && ollama serve        # or the Ollama app
+ollama pull nomic-embed-text
+```
+
+Without it the Hive still works, keyword-only; `/v1/status` shows `embeddings.state`.
 
 ## Status
 
-M0 (skeleton) done: compose stack (pgvector Postgres + service), full MVP schema, bearer-token
-instances, `/health`, `/v1/status`, `setup.sh`, and a Hermes plugin stub with a `hive_status` tool.
-Next: M1 (facts, episodes, hybrid search). See `docs/MVP-PLAN.md`.
+- **M0** done: compose stack, full schema, bearer-token instances, `/health`, `/v1/status`, `setup.sh`, plugin stub.
+- **M1** done: remember / list / retract facts, episodes, hybrid recall + search, background embed worker,
+  cost ledger rows for embeddings. API: [docs/API.md](docs/API.md). Latency: `apps/hive/bench/recall.ts`.
+- Next: **M2**, the real Hermes plugin (prefetch → recall, sync_turn → episodes, `hive_remember` / `hive_recall` tools).

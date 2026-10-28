@@ -26,6 +26,11 @@ describe("migrations", () => {
     expect(ext.rowCount).toBe(1);
   });
 
+  it("pool connections run with pgvector iterative scan (filtered vector queries don't come back short)", async () => {
+    const { rows } = await pool.query("show hnsw.iterative_scan");
+    expect(rows[0]["hnsw.iterative_scan"]).toBe("relaxed_order");
+  });
+
   it("is idempotent", async () => {
     expect(await migrate(pool)).toEqual([]);
   });

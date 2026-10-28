@@ -33,6 +33,13 @@ services:
       DATABASE_URL: postgres://hive:${POSTGRES_PASSWORD}@postgres:5432/hive
       HIVE_HOST: 0.0.0.0
       HIVE_PORT: 8800
+      # Ollama runs natively on the host (Metal GPU); empty OLLAMA_URL = keyword-only search.
+      OLLAMA_URL: ${OLLAMA_URL-http://host.docker.internal:11434}
+      HIVE_EMBED_MODEL: ${HIVE_EMBED_MODEL:-nomic-embed-text}
+      HIVE_VECTOR_MIN_SIM: ${HIVE_VECTOR_MIN_SIM:-0.55}
+    # Docker Desktop (Mac) resolves host.docker.internal to the host itself. Do NOT add
+    # extra_hosts: host-gateway here - it overrides that with the bridge IP and Ollama
+    # (bound to 127.0.0.1) becomes unreachable. On a Linux host, set OLLAMA_URL in .env instead.
     # HIVE_BIND=0.0.0.0 (or a Tailscale IP) in .env to let other machines' Hermes connect.
     ports:
       - "${HIVE_BIND:-127.0.0.1}:${HIVE_PORT:-8800}:8800"

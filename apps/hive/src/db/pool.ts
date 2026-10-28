@@ -2,8 +2,11 @@ import pg from "pg";
 
 export type Pool = pg.Pool;
 
-export function createPool(databaseUrl: string): pg.Pool {
-  return new pg.Pool({ connectionString: databaseUrl, max: 10 });
+export function createPool(databaseUrl: string, max = 10): pg.Pool {
+  // pgvector >= 0.8: keep scanning the HNSW graph until enough rows pass the WHERE clause
+  // (scope/status filters), instead of returning fewer than LIMIT. Set as a startup parameter,
+  // not a query on "connect", so it can't race the first real query on the connection.
+  return new pg.Pool({ connectionString: databaseUrl, max, options: "-c hnsw.iterative_scan=relaxed_order" });
 }
 
 /** Map pg / socket errors to an action the operator can take. */

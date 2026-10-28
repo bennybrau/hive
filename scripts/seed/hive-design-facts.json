@@ -1,0 +1,182 @@
+[
+ {
+  "text": "The Hive runs as its own docker compose project (`hive`) with its own Postgres volume, separate from ASF's stack.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "ASF's uninstall script finds containers and volumes by label, so the Hive must never share ASF's Postgres.",
+  "kind": "invariant",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Postgres for the Hive is exposed on host port 5544 because ASF's Postgres already uses 5432.",
+  "kind": "gotcha",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Meaning search uses Ollama's nomic-embed-text model running natively on the host, producing 768-dimension vectors.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Keyword search must keep working when Ollama is down; un-embedded facts are still findable by keyword.",
+  "kind": "invariant",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "The hot path (recall, search) makes no LLM calls; only a local query embedding of about 5 ms.",
+  "kind": "invariant",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Distillation of facts from sessions runs through `hermes -z --usage-file` on Jon's Claude subscription so every token is logged.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Every LLM or embedding call the Hive makes is written to the llm_calls table with tokens and estimated cost.",
+  "kind": "invariant",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Jon is the sole curator in the MVP: shared-scope candidates need his approval before other assistants use them.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Facts written by a curator into shared scope are active immediately and logged as a self-approve review.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Personal-scope facts are active immediately and are never visible to other users.",
+  "kind": "invariant",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Facts have one of three origins: authored by a person, distilled from a session, or ingested from a repo or record.",
+  "kind": "system",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Ingested facts are ground truth: active immediately and retracted automatically if their source disappears.",
+  "kind": "invariant",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "A fact's identity is a hash of its normalised text plus scope, so remembering the same statement twice dedupes.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Retracted and superseded facts are kept as history; nothing is deleted.",
+  "kind": "invariant",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Instance tokens are stored only as sha256 hashes and can be revoked by setting revoked_at.",
+  "kind": "system",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Each Hermes instance connects with HIVE_URL and HIVE_TOKEN via the `hive` memory-provider plugin.",
+  "kind": "system",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "The Hermes plugin lives at plugins/hive because Hermes uses the plugin directory name as the provider name.",
+  "kind": "gotcha",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Hermes' own venv has no pytest and must not be modified; scripts/test-plugin.sh builds a side venv instead.",
+  "kind": "gotcha",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "The plugin is tested in CI against hermes-agent pinned at HERMES_REF; bumping it is a deliberate change.",
+  "kind": "convention",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "The experiment corpus for the token-savings test is the ASF repo, its docs, and Jon's past Hermes sessions on it.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "The MVP's success measure is tokens saved per question minus the Hive's own background spend, measured with Hive on vs off.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Code graph features (symbol references, impact analysis) are out of the MVP; file-level locus only.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Entire Graph, which is MIT licensed, is the preferred way to add code-graph features later instead of writing a parser.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Recall returns at most 10 active facts by default, fused from keyword and meaning results with reciprocal rank fusion.",
+  "kind": "system",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Meaning hits below the cosine similarity floor HIVE_VECTOR_MIN_SIM are dropped so unrelated facts never pad a recall.",
+  "kind": "system",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Keyword search ORs the words of a question so natural questions match facts containing only some of the words.",
+  "kind": "system",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Searching conversations and session history only returns the caller's own episodes in the MVP.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Non-code documents under docs/ (PDF, Word, Excel, PowerPoint, Markdown) are ingested in milestone M3.",
+  "kind": "decision",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ },
+ {
+  "text": "Jon's PR style is linear history: one branch per change off main, rebased and squash-merged.",
+  "kind": "convention",
+  "scope": "repo",
+  "repo_key": "gh/bennybrau/hive"
+ }
+]
