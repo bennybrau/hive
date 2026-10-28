@@ -51,6 +51,7 @@ scripts/test.sh          # service: vitest against the compose Postgres (throwaw
 scripts/test-plugin.sh   # Hermes plugin: pytest against Hermes' own MemoryProvider code
 pnpm typecheck
 scripts/redeploy.sh      # rebuild + restart the hive container after code changes
+scripts/e2e-plugin.sh    # real Hermes session through the plugin against the running hive (one model call)
 ```
 
 ## Meaning search (Ollama)
@@ -70,4 +71,7 @@ Without it the Hive still works, keyword-only; `/v1/status` shows `embeddings.st
 - **M0** done: compose stack, full schema, bearer-token instances, `/health`, `/v1/status`, `setup.sh`, plugin stub.
 - **M1** done: remember / list / retract facts, episodes, hybrid recall + search, background embed worker,
   cost ledger rows for embeddings. API: [docs/API.md](docs/API.md). Latency: `apps/hive/bench/recall.ts`.
-- Next: **M2**, the real Hermes plugin (prefetch → recall, sync_turn → episodes, `hive_remember` / `hive_recall` tools).
+- **M2** done: the Hermes plugin (`plugins/hive`, see its README): gated once-per-session prefetch,
+  turn + session episodes, `hive_recall` / `hive_remember` / `hive_search` / `hive_retract` / `hive_status`.
+  Live check: `scripts/e2e-plugin.sh`.
+- Next: **M3**, curator review (approve candidates), verify against the repo, docs ingestion.

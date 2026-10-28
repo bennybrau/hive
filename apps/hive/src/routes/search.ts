@@ -9,7 +9,7 @@ type Source = (typeof SOURCES)[number];
  * If the embedder is down, both endpoints answer keyword-only and say so in `mode`.
  */
 export function searchRoutes(app: FastifyInstance, deps: SearchDeps): void {
-  app.get<{ Querystring: { q: string; repo_key?: string; k?: number } }>(
+  app.get<{ Querystring: { q: string; repo_key?: string; k?: number; min_sim?: number } }>(
     "/v1/recall",
     {
       schema: {
@@ -20,14 +20,19 @@ export function searchRoutes(app: FastifyInstance, deps: SearchDeps): void {
             q: { type: "string", minLength: 1, maxLength: 2000 },
             repo_key: { type: "string" },
             k: { type: "integer", minimum: 1, maximum: 50, default: 10 },
+            // Strict gate for prefetch: drop any hit (keyword matches included) whose cosine
+            // similarity to the question is below this. Un-embedded rows are kept.
+            min_sim: { type: "number", minimum: 0, maximum: 1 },
           },
         },
       },
     },
     async (req) => {
-      const { q, repo_key, k } = req.query;
+      const { q, repo_key, k, min_sim } = req.query;
       const qvec = await embedQuery(deps.embedder, q);
-      const facts = await searchFacts(deps, req.instance!, { q, repoKey: repo_key, k: k ?? 10, statuses: ["active"], qvec });
+      const facts = await searchFacts(deps, req.instance!, {
+        q, repoKey: repo_key, k: k ?? 10, statuses: ["active"], qvec, minSimilarity: min_sim,
+      });
       return { mode: qvec ? "hybrid" : "keyword", facts };
     },
   );

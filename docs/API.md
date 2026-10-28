@@ -32,7 +32,10 @@ your own `personal:<user>`. Other users' personal facts are never returned.
 
 ## Recall and search (hot path: SQL + one local query embedding, no LLM)
 
-- `GET /v1/recall?q=&repo_key=&k=10` — active facts only. `{mode: hybrid|keyword, facts:[{...fact, anchors, score, matched:[keyword|meaning], similarity}]}`.
+- `GET /v1/recall?q=&repo_key=&k=10&min_sim=` — active facts only. `{mode: hybrid|keyword, facts:[{...fact, anchors, score, matched:[keyword|meaning], similarity}]}`.
+  `min_sim` is a strict gate (the plugin's prefetch uses 0.62): every hit, keyword matches included, must have
+  cosine similarity ≥ `min_sim` to the question. Rows not embedded yet can't be judged and are kept.
+  Keyword hits on embedded rows now report their `similarity` too.
 - `GET /v1/search?q=&source=all|fact,conversation,history,doc&repo_key=&k=20&include_candidates=false` —
   `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id|path, ...}]}`.
   `conversation` = turn episodes, `history` = session episodes; both only YOUR user's episodes. `doc` fills in M3.

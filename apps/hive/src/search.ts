@@ -41,11 +41,17 @@ interface Ranked {
   similarity: number | null;
 }
 
-/** Reciprocal rank fusion of a keyword list and a meaning list (ids in rank order). */
-export function fuse(keyword: string[], meaning: { id: string; similarity: number }[], k: number): Ranked[] {
+/**
+ * Reciprocal rank fusion of a keyword list and a meaning list (each in rank order), best first.
+ * Keyword hits carry their own similarity when the row is embedded, so a strict gate can judge them too.
+ */
+export function fuse(
+  keyword: { id: string; similarity: number | null }[],
+  meaning: { id: string; similarity: number }[],
+): Ranked[] {
   const acc = new Map<string, Ranked>();
-  keyword.forEach((id, i) => {
-    acc.set(id, { id, score: 1 / (RRF_K + i + 1), matched: ["keyword"], similarity: null });
+  keyword.forEach(({ id, similarity }, i) => {
+    acc.set(id, { id, score: 1 / (RRF_K + i + 1), matched: ["keyword"], similarity });
   });
   meaning.forEach(({ id, similarity }, i) => {
     const prev = acc.get(id);
@@ -56,7 +62,17 @@ export function fuse(keyword: string[], meaning: { id: string; similarity: numbe
       prev.similarity = similarity;
     } else acc.set(id, { id, score: add, matched: ["meaning"], similarity });
   });
-  return [...acc.values()].sort((a, b) => b.score - a.score).slice(0, k);
+  return [...acc.values()].sort((a, b) => b.score - a.score);
+}
+
+/**
+ * Strict relevance gate (used by prefetch, where every injected line is replayed on every later
+ * turn): keep a hit only if the model judges it close enough. Rows with no similarity (not yet
+ * embedded, or keyword-only mode) can't be judged and are kept.
+ */
+export function passesGate(r: Ranked, minSimilarity: number | undefined): boolean {
+  if (minSimilarity === undefined || r.similarity === null) return true;
+  return r.similarity >= minSimilarity;
 }
 
 interface Spec {
@@ -72,16 +88,21 @@ async function hybridIds(
   q: string,
   qvec: string | null,
   k: number,
+  strictSimilarity?: number,
 ): Promise<Ranked[]> {
   const pool = deps.pool;
   const [where, params] = spec.filter;
   const depth = Math.max(k * 3, 30); // look deeper than k so fusion has material
-  const kw = pool.query<{ id: string }>(
-    `select t.id from ${spec.table} t
+  const vecParam = `$${params.length + 2}`;
+  const kwSim = qvec
+    ? `case when t.embedding is null then null else 1 - (t.embedding <=> ${vecParam}::vector) end`
+    : "null::float8";
+  const kw = pool.query<{ id: string; similarity: number | null }>(
+    `select t.id, ${kwSim} as similarity from ${spec.table} t
      where t.${spec.tsv} @@ ${TSQUERY} and ${where}
      order by ts_rank_cd(t.${spec.tsv}, ${TSQUERY}) desc
      limit ${depth}`,
-    [q, ...params],
+    qvec ? [q, ...params, qvec] : [q, ...params],
   );
   const vec = qvec
     ? pool.query<{ id: string; similarity: number }>(
@@ -93,10 +114,11 @@ async function hybridIds(
       )
     : null;
   const [kwRows, vecRows] = await Promise.all([kw, vec]);
+  const keyword = kwRows.rows.map((r) => ({ id: r.id, similarity: r.similarity === null ? null : Number(r.similarity) }));
   const meaning = (vecRows?.rows ?? [])
     .map((r) => ({ id: r.id, similarity: Number(r.similarity) }))
     .filter((r) => r.similarity >= deps.minSimilarity);
-  return fuse(kwRows.rows.map((r) => r.id), meaning, k);
+  return fuse(keyword, meaning).filter((r) => passesGate(r, strictSimilarity)).slice(0, k);
 }
 
 function byRank<T extends { id: string }>(ranked: Ranked[], rows: T[]) {
@@ -117,11 +139,11 @@ export interface FactHit extends Fact {
 export async function searchFacts(
   deps: SearchDeps,
   who: Instance,
-  opts: { q: string; repoKey?: string; k: number; statuses: string[]; qvec: string | null },
+  opts: { q: string; repoKey?: string; k: number; statuses: string[]; qvec: string | null; minSimilarity?: number },
 ): Promise<FactHit[]> {
   const [scopeSql, scopeParams] = readableScopes(who, opts.repoKey, 3, "t.scope");
   const filter: [string, unknown[]] = [`t.status = any($2) and ${scopeSql}`, [opts.statuses, ...scopeParams]];
-  const ranked = await hybridIds(deps, { table: "facts", tsv: "text_tsv", filter }, opts.q, opts.qvec, opts.k);
+  const ranked = await hybridIds(deps, { table: "facts", tsv: "text_tsv", filter }, opts.q, opts.qvec, opts.k, opts.minSimilarity);
   if (ranked.length === 0) return [];
   const { rows } = await deps.pool.query<Fact & { anchors: number }>(
     `select ${FACT_COLUMNS.split(", ").map((c) => "f." + c).join(", ")},
