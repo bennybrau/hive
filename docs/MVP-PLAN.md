@@ -57,7 +57,7 @@ hive/
       test/
     web/                      # React dashboard (Vite), served by hive at /
   plugins/
-    hermes-memory-hive/       # Python MemoryProvider plugin
+    hive/                     # Python MemoryProvider plugin (dir name = provider name)
       plugin.yaml
       __init__.py
       README.md
@@ -149,7 +149,7 @@ Hot path (`/v1/recall`, `/v1/brief` without `--llm`) is pure SQL: FTS + vector +
 
 ---
 
-## 4. Hermes plugin (`plugins/hermes-memory-hive`)
+## 4. Hermes plugin (`plugins/hive`)
 
 Implements `agent.memory_provider.MemoryProvider` (Hermes' seam; see `~/.hermes/hermes-agent/agent/memory_provider.py`). Modeled on the bundled `retaindb` plugin: background thread, write-behind queue, never block a turn.
 
