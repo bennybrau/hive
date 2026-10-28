@@ -1,0 +1,6 @@
+name: hive
+version: 0.0.1
+description: "Hive - shared, governed team memory. M0 stub: connection check only."
+requires_env:
+  - HIVE_URL
+  - HIVE_TOKEN
