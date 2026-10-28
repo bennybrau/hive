@@ -1,0 +1,275 @@
+# Hive MVP Plan — a shared brain for many Hermes instances
+
+> Status: proposal, Oct 27 2026. Companion to `DESIGN-NOTES.md` and `GLOSSARY.md`.
+> Scope: one host (Mac Studio) running the Hive next to ASF; any Hermes instance on the LAN/Tailscale connects with a URL + token.
+
+**Goal:** Give every Hermes instance in the team the Entire Brain feature set — brief before a task, hand-written and distilled facts with verifiable sources, hybrid search over facts/history/docs/conversations, global facts, non-code docs, a dashboard — backed by ONE shared, governed store instead of one local store per developer.
+
+**Architecture:** A TypeScript service (`hive`) owning Postgres (facts, episodes, docs, FTS + pgvector) and the cold-path jobs (distill, verify, ingest). A thin Python Hermes memory-provider plugin (`plugins/memory/hive`) that calls it over HTTP: hot path on `prefetch`, fire-and-forget on `sync_turn`, tools for `remember / recall / brief / search / review`. A small React dashboard served by the same service.
+
+**Tech stack:** Node 22 + TypeScript, Fastify, Postgres 16 + pgvector, Drizzle (or Kysely) migrations, docker compose; embeddings from local Ollama (`nomic-embed-text`) so search-by-meaning costs nothing; distillation via a pluggable "fact agent" command (default `hermes -z … --usage-file` so every cold-path token is accounted for); React + Vite dashboard; Python plugin using stdlib `urllib` only (no new Hermes deps).
+
+Why TS for the service: same stack and ops patterns as ASF (compose, registry-owns-DB, `secret://`, setup.sh), and it's where Jon is fastest. Why Python for the plugin: that's the only language Hermes plugins come in.
+
+---
+
+## 0. What "MVP" means here
+
+**In:**
+1. Brief — relevant facts + code locations + likely tests for a task, injected before the agent starts.
+2. Facts — `remember` by hand; `distill` from past sessions; `verify` each fact's anchors against the repo.
+3. Search — keyword (Postgres FTS/BM25-ish) and meaning (pgvector) across facts, session history, docs, and raw conversation.
+4. Global facts — scope `global` applies in every repo; scope `repo:<key>` otherwise.
+5. Non-code docs — `.md`, `.pdf`, `.docx`, `.xlsx`, `.pptx` under each repo's `docs/`.
+6. Dashboard — web UI: facts by scope/status, review queue, provenance view, search.
+7. Multi-instance — N Hermes instances, each identified by user + instance, sharing one store with a review gate before anything reaches shared scope.
+8. **Token accounting** — every LLM call the hive makes is logged with cost; an experiment harness measures tokens-to-answer with vs. without the hive.
+
+**Out (explicitly deferred):**
+- Code graph / impact analysis / dead-code (Entire Graph). MVP does file-level locus via `git ls-files` + ripgrep anchors. See §8 for the cheap path to add Graph later.
+- Teams, Entra SSO, RBAC beyond one shared bearer token per instance. Scope model is present; enforcement is "token can read everything, write only to its own personal scope + propose to shared."
+- ASF deploy seam / auto-recording built things. ASF integration is one webhook in M5.
+- Nightly synthesis digest. Contradiction detection stays manual (review queue shows "similar existing fact").
+- Graph visualization. Dashboard is lists + detail pages.
+
+---
+
+## 1. Repo and layout
+
+New repo `~/dev/hive` (name is still open — see §9). Not inside ASF; depends on nothing in ASF.
+
+```
+hive/
+  docker-compose.yml          # postgres(pgvector), hive, ollama (optional, profile)
+  .env.example
+  package.json                # pnpm workspace
+  apps/
+    hive/                     # Fastify service + jobs
+      src/
+        index.ts
+        config.ts
+        db/ (schema.ts, migrate.ts, migrations/)
+        routes/ (health.ts, episodes.ts, facts.ts, search.ts, brief.ts, review.ts, docs.ts, repos.ts)
+        jobs/ (distill.ts, verify.ts, ingest-repo.ts, ingest-docs.ts, embed.ts)
+        search/ (fts.ts, vector.ts, hybrid.ts)
+        agent/ (fact-agent.ts, prompts/distill.md, prompts/brief.md)
+        auth.ts
+      test/
+    web/                      # React dashboard (Vite), served by hive at /
+  plugins/
+    hermes-memory-hive/       # Python MemoryProvider plugin
+      plugin.yaml
+      __init__.py
+      README.md
+      tests/
+  scripts/ (setup.sh, dev.sh, experiment/)
+  docs/ (API.md, DATA-MODEL.md, EXPERIMENT.md)
+```
+
+---
+
+## 2. Data model (Postgres)
+
+Keep the glossary's Episode → Claim → Page chain, but **no Pages in MVP**: a fact *is* the unit the agent reads. Pages come when fact count makes them necessary.
+
+```sql
+-- who is talking
+instances   (id, name, user_id, token_hash, created_at, last_seen_at)
+
+-- immutable evidence
+episodes    (id, kind ENUM('turn','session','repo_snapshot','doc','asf_run'),
+             instance_id, user_id, session_id, repo_key, ref,        -- ref = commit sha / doc path / run id
+             content TEXT, content_tsv TSVECTOR, embedding VECTOR(768),
+             metadata JSONB, created_at)
+
+-- governed unit
+facts       (id UUID, text TEXT, kind ENUM('decision','invariant','gotcha','preference','convention','system'),
+             scope TEXT,            -- 'global' | 'repo:<key>' | 'personal:<user_id>'
+             locus TEXT[],          -- paths/globs/symbols this applies to
+             origin ENUM('authored','distilled','ingested'),
+             status ENUM('candidate','active','superseded','retracted'),
+             confidence REAL, supersedes UUID NULL,
+             author_user_id, author_instance_id,
+             valid_from TIMESTAMPTZ, valid_to TIMESTAMPTZ NULL,
+             recorded_at TIMESTAMPTZ, expired_at TIMESTAMPTZ NULL,
+             content_hash TEXT UNIQUE,              -- dedupe: content-derived id (EB pattern)
+             text_tsv TSVECTOR, embedding VECTOR(768))
+
+-- provenance: a fact points at ≥1 anchors
+anchors     (id, fact_id, episode_id NULL, repo_key, commit_sha NULL, path NULL, line_start NULL, line_end NULL,
+             quote TEXT NULL,                       -- the exact text the fact was derived from
+             verify_status ENUM('unverified','verified','drifted','missing','unverifiable_here'),
+             verified_at)
+
+-- repos the hive knows
+repos       (key PRIMARY KEY, local_path, remote_url, default_branch, last_ingested_sha, last_ingested_at)
+
+-- docs chunks (from docs/ + README + md anywhere)
+doc_chunks  (id, repo_key, path, chunk_index, content, content_tsv, embedding, sha, ingested_at)
+
+-- review decisions
+reviews     (id, fact_id, reviewer_user_id, action ENUM('approve','fix','reject'), note, new_text NULL, created_at)
+
+-- every LLM call the hive makes
+llm_calls   (id, job ENUM('distill','brief','embed','verify'), model, input_tokens, output_tokens,
+             cached_tokens, est_cost_usd, duration_ms, episode_id NULL, created_at)
+```
+
+Rules encoded in the service, not the DB:
+- `origin=ingested` → `status=active` immediately (ground truth). `verify` failing moves it to `retracted` with a note.
+- `origin∈{authored,distilled}` and `scope=personal:*` → `active` immediately (your notes are yours).
+- `origin∈{authored,distilled}` and `scope∈{global, repo:*}` → `candidate` until a review `approve`s it. One curator (Jon) approves in MVP.
+- Retract cascades: facts whose only anchor is a purged episode are retracted too.
+
+---
+
+## 3. HTTP API (the contract the plugin and dashboard both use)
+
+Bearer token per instance. All JSON.
+
+```
+GET  /health
+POST /v1/episodes                 # sync_turn / session end: {kind, session_id, repo_key?, content, metadata}
+POST /v1/facts                    # remember: {text, kind?, scope, locus?, anchors?} -> fact (status per rules)
+GET  /v1/facts?scope=&status=&repo_key=&q=
+POST /v1/facts/:id/retract
+POST /v1/facts/:id/review         # {action: approve|fix|reject, new_text?, note}
+GET  /v1/recall?q=&repo_key=&k=10&scope=global,repo:x,personal:u   # facts only, hybrid, <200ms target
+GET  /v1/search?q=&source=fact|history|doc|conversation|all&k=20   # everything
+POST /v1/brief                    # {task, repo_key, changed_paths?} -> {facts[], locations[], tests[], gotchas[]}
+POST /v1/repos                    # register {key, local_path|remote_url}
+POST /v1/repos/:key/ingest        # enqueue ingest (docs + file index + git log)
+POST /v1/jobs/distill             # {session_id?|episode_ids?|since?} enqueue
+POST /v1/jobs/verify              # {repo_key?} enqueue
+GET  /v1/stats                    # counts by scope/status/origin; llm_calls cost rollup
+GET  /v1/review/queue             # candidates with "similar existing" hints
+```
+
+Hot path (`/v1/recall`, `/v1/brief` without `--llm`) is pure SQL: FTS + vector + scope filter + RRF merge. No model calls. Measured in M1 with `autocannon`, target p95 < 200 ms on 10k facts.
+
+---
+
+## 4. Hermes plugin (`plugins/hermes-memory-hive`)
+
+Implements `agent.memory_provider.MemoryProvider` (Hermes' seam; see `~/.hermes/hermes-agent/agent/memory_provider.py`). Modeled on the bundled `retaindb` plugin: background thread, write-behind queue, never block a turn.
+
+| Hook | What it does |
+|---|---|
+| `is_available()` | `HIVE_URL` + `HIVE_TOKEN` set |
+| `initialize()` | read `hermes_home`, `user_id`, `agent_context`; detect current repo key from cwd (`git remote get-url origin` → `gh/<owner>/<repo>`); skip writes when `agent_context != "primary"` |
+| `system_prompt_block()` | static: "You have a shared team memory. Cite facts by id. Use `hive_remember` for durable decisions…" |
+| `queue_prefetch(q)` / `prefetch(q)` | background `GET /v1/recall` with scopes `global, repo:<key>, personal:<user>`; returns a compact block `[hive:fact:<id8>] text (scope, verified)` — **this is the token-saving injection** |
+| `sync_turn()` | `POST /v1/episodes {kind:'turn'}` from a queue thread |
+| `on_session_end(messages)` | `POST /v1/episodes {kind:'session'}` then `POST /v1/jobs/distill {episode_id}` |
+| `on_memory_write()` | mirror MEMORY.md/USER.md writes as `scope=personal` facts |
+| `get_tool_schemas()` | `hive_recall`, `hive_remember`, `hive_brief`, `hive_search`, `hive_review`, `hive_status` |
+| `recall_status()` | count injected last turn (shows up in the CLI indicator) |
+
+Config via `hermes memory setup` schema: `HIVE_URL`, `HIVE_TOKEN` (secret), `HIVE_DEFAULT_SCOPE` (`repo`|`global`).
+
+Install path for any Hermes instance: `hermes plugins install <path-or-git>` then `memory.provider: hive` in config.yaml. Documented in the plugin README with the three commands and nothing else.
+
+---
+
+## 5. Milestones
+
+Each milestone ends with something Jon can run. Estimates are focused-work days, not calendar.
+
+### M0 — Skeleton (1–2 d)
+- Repo, pnpm workspace, compose with `pgvector/pgvector:pg16`, Fastify `/health`, migrations runner, `instances` table + bearer auth, `.env.example`, `scripts/setup.sh` (generate token, bring stack up, print `HIVE_URL`/`HIVE_TOKEN`).
+- **Verify:** `docker compose up -d && curl -H "Authorization: Bearer $T" :8800/health` → `{ok:true, db:"up"}`. Second instance token works; bogus token 401.
+
+### M1 — Facts + episodes + hybrid search (2–3 d)
+- `episodes`, `facts`, `anchors` tables. `POST /v1/facts` (remember) with content-hash dedupe + scope rules. `POST /v1/episodes`. FTS via `tsvector` + GIN; embeddings via Ollama `nomic-embed-text` in an `embed` job (facts and episodes embedded async; search degrades to FTS-only until embedded — EB's "lexical must always work" rule). `GET /v1/recall` and `/v1/search` with RRF merge, scope filter.
+- **Verify:** seed 50 facts from `DESIGN-NOTES.md` by script; `recall?q="who owns payments"` returns the right one by FTS and by a paraphrase (vector). `autocannon` p95 < 200 ms. Unit tests for scope rules and dedupe.
+
+### M2 — Hermes plugin (2 d)
+- Plugin per §4, with a stdlib-only HTTP client and a write-behind queue. Tests with a fake HTTP server (pytest, pattern from `tests/agent/test_memory_provider.py`).
+- Install on THIS Mac's Hermes and on the Mac Studio's Hermes; both point at the Studio.
+- **Verify:** instance A runs `hive_remember "we deploy to Cloud Run"` (scope global → candidate). Curator approves via `curl`. Instance B's next turn shows `[hive:fact:…]` in prefetch and the agent cites it. `hermes memory status` shows provider active.
+
+### M3 — Repo + docs ingest, locus, verify (3 d)
+- `repos` registration; `ingest-repo` job: `git ls-files`, README/`docs/**`, `git log --since` → `repo_snapshot` episodes + `doc_chunks`. Doc extraction: `.md` native, `.pdf` via `pdftotext` (poppler, already on the Mac), `.docx` via `mammoth`, `.xlsx` via `xlsx`, `.pptx` via `pptx-parser` (or shell to `soffice --convert-to txt`). Scanned PDF → "no text layer", indexed as nothing (EB behavior).
+- `verify` job: for each anchor with `path`+`quote`, re-read at `HEAD` of `repos.local_path`; `verified` if quote still present at/near the line, `drifted` if elsewhere in file, `missing` if gone; authored facts without anchors → `unverifiable_here`. Missing on an `ingested` fact → retract.
+- Locus: `remember` and `distill` accept/derive `locus[]`; `recall` boosts facts whose locus overlaps `changed_paths` (from `git status --porcelain` in the plugin).
+- **Verify:** register `~/dev/agentic-software-factory`; ingest; `search?q=GATE_POLICY&source=doc` hits the settings doc. Edit a quoted line → `verify` flips the anchor to `drifted`; `git checkout` → `verified`.
+
+### M4 — Distill (cold path) + review queue + dashboard (3–4 d)
+- `fact-agent.ts`: pluggable command, default `hermes -z "<prompt>" --usage-file <tmp>` (subscription-billed, cost captured), alt `claude -p`, alt Ollama. Prompt is EB's gate adapted: durable / useful weeks later / not already in README or code / resolved not pending; max 5 facts per chunk; **default output: nothing**. Output JSON facts with `quote` anchors into the source episode. Every run writes `llm_calls`.
+- Dedupe on write against existing facts by hash, then by vector similarity > 0.92 → attach as extra anchor to the existing fact instead of a new candidate (M0 pattern).
+- `GET /v1/review/queue` with "similar existing fact" hints. Review endpoint.
+- Dashboard (React): Facts (filter scope/status/origin/kind, detail with anchors + verify status + supersedes chain), Review queue (Approve / Fix / Reject inline), Search, Repos, Stats (fact counts, cost rollup from `llm_calls`). Served at `/` by the hive.
+- **Verify:** end a real Hermes session that contained a decision; within a minute the queue shows a candidate quoting the turn; approve; it's recalled by another instance. Dashboard shows the cost of that distill.
+
+### M5 — Brief + experiment harness + ASF hook (2–3 d)
+- `POST /v1/brief {task, repo_key, changed_paths}`: facts (recall), locations (FTS over `doc_chunks` + file index for the task's nouns), tests (files matching `*test*` near matched locations), gotchas (facts kind=gotcha for the locus). Pure SQL by default; `--llm` option to rewrite into prose is off in MVP. Plugin injects a brief on the first turn of a session when a repo is detected.
+- `scripts/experiment/`: `questions.json` (≈15 questions about ASF: who owns / how do I call / why did we / where is), `run.sh` runs each through `hermes -z --usage-file` twice — provider off, provider on — and writes `results.csv` (tokens in/out, est cost, correct Y/N by a rubric, cited fact ids). `report.py` prints the comparison. This is the PoC's deliverable: **a number**.
+- ASF hook: on ASF run completion, ASF POSTs `{kind:'asf_run', repo_key, ref, content: plan.md+review.md}` as an episode; distill picks it up like any session. One webhook, no ASF code beyond a settings key and a `fetch`.
+- **Verify:** `report.py` shows tokens and correctness for both arms. Whatever the number is, that's the result.
+
+### M6 — Harden for other people (1–2 d)
+- `setup.sh` on the Mac Studio (compose up, Ollama model pull, create curator + N instance tokens, print install snippet for each Hermes). Tailscale or LAN URL. Backup = `pg_dump` cron.
+- Secret scrub on the plugin side is already done by Hermes before `sync_turn`; document it. `HIVE_NO_SYNC=1` kill switch.
+
+Total: ~15–18 focused days for M0–M6.
+
+---
+
+## 6. Token-cost thesis and how M5 tests it
+
+Where the hive is supposed to save tokens:
+1. **Prefetch replaces exploration.** An agent asked "how do gates get relaxed in ASF" without the hive reads `settings.ts`, grep output, maybe a doc — 5–30k input tokens. With the hive it gets 3 facts (≈300 tokens) and maybe opens one file.
+2. **Extraction is once, cold, and shared.** The LLM pass that produces a fact runs once per episode on the Studio, not once per developer per session.
+3. **Count is a cost.** Recall returns ≤10 facts, locus-boosted. If prefetch is bloating prompts, that shows in the experiment as higher input tokens on the "on" arm — the harness would catch that.
+
+Measure: `hermes --usage-file` per question, both arms, same model. Also record hive-side `llm_calls` cost over the same period so the comparison is honest: *per-question savings × questions − cold-path spend*.
+
+---
+
+## 7. How the Entire Brain feature list maps
+
+| EB feature | MVP | Where |
+|---|---|---|
+| Brief before a task | yes | M5 `/v1/brief` + plugin first-turn injection |
+| Remember by hand / distill from sessions / verify anchors | yes | M1 `remember`, M4 `distill`, M3 `verify` |
+| Search facts/history/docs/conversations by keyword or meaning | yes | M1 `/v1/search` sources: fact, history (session episodes), doc, conversation (turn episodes) |
+| Code find / impact / regressions (Graph) | **no** | file-level locus only; §8 |
+| Terminal dashboard / offline graph view | partial | web dashboard M4; no graph view |
+| Global facts | yes | `scope=global`, labelled `(global)` in prefetch |
+| PDF / Word / Excel / PowerPoint under docs/ | yes | M3 ingest-docs |
+| Workspaces (multi-repo) | yes, implicitly | one hive, many `repo_key`s, recall unions global + current repo |
+| Webhooks on fact change | cheap, M4 | `fact.recorded/retracted` POST, HMAC signed, for ASF/Slack later |
+
+What the MVP has that EB doesn't: many instances, one store; review gate between personal and shared scope; cost ledger.
+
+---
+
+## 8. Code graph later (the deferred piece)
+
+Options when it's time, cheapest first:
+1. **Run Entire Graph as an external ingester.** `entire graph` is MIT and emits JSON records. A `jobs/ingest-graph.ts` that shells to it per repo and stores symbol → file/line as `locus` metadata would give "find code" and "what references X" without writing a parser. Impact analysis comes along.
+2. `ctags`/tree-sitter directly in Node (`web-tree-sitter`) for symbol index only.
+3. Build nothing; keep ripgrep anchors.
+
+Decide after M5 shows whether the agents actually ask code-structure questions or mostly "why/who/how".
+
+---
+
+## 9. Open questions (need Jon)
+
+1. **Name.** `hive` is the working name; the repo needs one before M0.
+2. **Postgres:** separate compose stack from ASF (my recommendation — independent lifecycle, ASF's uninstall script does label-based discovery and shouldn't ever see hive volumes), or share ASF's instance?
+3. **Fact agent default:** `hermes -z` (subscription, cost visible via `--usage-file`) vs. an Anthropic API key in the hive (metered, simpler to run unattended on the Studio). Both pluggable; which is default?
+4. **Embeddings:** local Ollama `nomic-embed-text` on the Studio (free, 768-d, ~fine for this) vs. an API embedder. Ollama is the recommendation.
+5. **Curator:** you, for all shared-scope candidates, via the dashboard. OK for MVP?
+6. **Experiment corpus:** ASF repo + its docs is the obvious choice (big, real, you know the answers). Agree?
+
+---
+
+## 10. First concrete steps (M0)
+
+1. `mkdir ~/dev/hive && git init`; pnpm workspace; `apps/hive` Fastify hello; `docker-compose.yml` with pgvector.
+2. Migration 0001: `instances`, `episodes`, `facts`, `anchors`, `repos`, `doc_chunks`, `reviews`, `llm_calls` (all at once; cheap now).
+3. Bearer auth middleware + `scripts/setup.sh` that mints the first token.
+4. `curl /health` green from this Mac against the Studio over Tailscale.
+5. Stub plugin that only implements `is_available` + `initialize` + `hive_status` tool hitting `/health`, so the Hermes side is wired on day one.
