@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyLoggerOptions } from "fastify";
 import type pg from "pg";
 import { bearerAuth, confineWorker } from "./auth.js";
+import { DistillNotifier } from "./distill.js";
 import type { Embedder } from "./embed.js";
 import type { EmbedWorker } from "./jobs/embed.js";
 import { episodeRoutes } from "./routes/episodes.js";
@@ -11,6 +12,7 @@ import { healthRoutes } from "./routes/health.js";
 import { searchRoutes } from "./routes/search.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { statusRoutes } from "./routes/status.js";
+import { workerRoutes } from "./routes/worker.js";
 
 export interface AppOptions {
   version: string;
@@ -23,6 +25,12 @@ export interface AppOptions {
   repos?: RepoDeps | null;
   /** Encrypts stored secrets; null = the agent credential can't be set (503). */
   secretKey?: Buffer | null;
+  /** Longest a distill claim long-polls before answering 204 (default 25 s). */
+  distillClaimWaitMs?: number;
+  /** Lease on a claimed distill job (default 600 s). */
+  distillLeaseSeconds?: number;
+  /** Wakes waiting claims when an episode arrives; one is made when omitted. */
+  distillNotifier?: DistillNotifier;
 }
 
 export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
@@ -32,6 +40,7 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
   const embedder = opts.embedder ?? null;
   const worker = opts.worker ?? null;
   const onWrite = () => worker?.kick();
+  const notifier = opts.distillNotifier ?? new DistillNotifier();
 
   healthRoutes(app, pool, opts.version);
   // Everything under /v1 requires a bearer token.
@@ -40,9 +49,21 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
     v1.addHook("onRequest", confineWorker);
     statusRoutes(v1, pool, { version: opts.version, embedModel: embedder?.model ?? null, worker });
     factRoutes(v1, pool, onWrite);
-    episodeRoutes(v1, pool, onWrite);
+    episodeRoutes(v1, pool, () => {
+      onWrite();
+      notifier.kick();
+    });
     reviewRoutes(v1, pool, onWrite);
     settingsRoutes(v1, pool, opts.secretKey ?? null);
+    workerRoutes(v1, {
+      pool,
+      embedder,
+      secretKey: opts.secretKey ?? null,
+      notifier,
+      claimWaitMs: opts.distillClaimWaitMs ?? 25_000,
+      leaseSeconds: opts.distillLeaseSeconds ?? 600,
+      onWrite,
+    });
     searchRoutes(v1, { pool, embedder, minSimilarity: opts.minSimilarity ?? 0.55 });
     if (opts.repos) repoRoutes(v1, pool, opts.repos);
   });

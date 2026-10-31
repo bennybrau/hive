@@ -21,6 +21,8 @@ export interface Config {
   maxCommits: number;
   /** Encrypts stored secrets (the agent credential); null = those can't be set. */
   secretKey: Buffer | null;
+  /** How long a claimed distill job belongs to its worker before it can be re-queued. */
+  distillLeaseSeconds: number;
 }
 
 function num(env: NodeJS.ProcessEnv, key: string, dflt: number, ok: (n: number) => boolean): number {
@@ -63,5 +65,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     repoSyncMinutes: num(env, "HIVE_REPO_SYNC_MINUTES", 15, (n) => n >= 0),
     maxCommits: num(env, "HIVE_MAX_COMMITS", 2000, (n) => Number.isInteger(n) && n > 0),
     secretKey: secretKey(env),
+    distillLeaseSeconds: num(env, "HIVE_DISTILL_LEASE_SECONDS", 600, (n) => Number.isInteger(n) && n > 0),
   };
 }

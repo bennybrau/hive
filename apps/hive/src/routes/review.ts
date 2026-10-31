@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 import { ConflictError, FACT_COLUMNS, reviewFact, type Fact, type ReviewInput } from "../facts.js";
+import { readableScopes } from "../scope.js";
 
 /** Cosine floor for "a fact like this already exists" hints in the queue. */
 const SIMILAR_MIN = 0.85;
@@ -31,8 +32,9 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
     async (req, reply) => {
       if (!curatorOnly(req, reply)) return reply;
       const qs = req.query;
-      const params: unknown[] = [];
-      const where = ["status = 'candidate'"];
+      // Distilled personal facts are candidates too; a curator never sees another user's.
+      const [scopeSql, params] = readableScopes(req.instance!, undefined, 1);
+      const where = ["status = 'candidate'", scopeSql];
       if (qs.scope) {
         params.push(qs.scope);
         where.push(`scope = $${params.length}`);

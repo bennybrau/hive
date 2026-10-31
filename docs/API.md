@@ -35,7 +35,8 @@ your own `personal:<user>`. Other users' personal facts are never returned.
 
 ## Review (curator only; members get 403)
 
-Shared-scope facts from members (and, later, distill) start as `candidate` and are not recalled until a curator decides.
+Shared-scope facts from members, and every distilled fact, start as `candidate` and are not recalled until a curator decides.
+The queue only lists scopes the curator can read (never another user's personal facts).
 
 - `GET /v1/review/queue?scope=&origin=&limit=20` — candidates, oldest first (`scope` as stored, e.g. `repo:<key>`;
   `origin`: `authored | distilled | ingested`; `limit` ≤ 100). Each is `{...fact, supersedes, anchors, similar}`:
@@ -61,6 +62,26 @@ malformed key stops the service at startup) and are never returned or logged.
   credential, e.g. a `claude setup-token` OAuth token. Replaces any earlier one. `204`; `503 {error: "HIVE_SECRET_KEY is not set"}`
   without a key. A lost or changed key only means setting the credential again.
 - `GET /v1/settings` — curator or member. `{agent_credential: {present, set_at}}` (`set_at` null when not set).
+
+## Worker (worker tokens only; members and curators get 403)
+
+The fact-agent container distills `session` and `asf_run` episodes into candidate facts. Every such episode enqueues
+one distill job on insert (`turn` episodes don't). A claim leases the job for `HIVE_DISTILL_LEASE_SECONDS` (default 600);
+an expired lease puts it back in the queue, and after 3 attempts (expired or failed) it is `failed` for good.
+
+- `POST /v1/worker/distill/claim` → `200 {job:{id, attempts, lease_until}, episode:{id, kind, repo_key, content}, prompt_version, credential}`,
+  oldest job first. Long-polls up to 25 s (re-checks every second, woken at once by a new episode), then `204`.
+  `503 {error: "agent credential not set"}` (nothing claimed) when no credential is stored or `HIVE_SECRET_KEY` is unset.
+- `POST /v1/worker/distill/:id/complete` `{facts:[{text, kind, scope, quote, locus?}] (≤ 20), usage:{model, input_tokens,
+  output_tokens, cache_read_tokens, cost_usd, duration_ms}}` → `{result:{prompt_version, created:[ids], anchored:[ids], dropped:[{text, reason}]}}`.
+  Dropped: `quote_not_in_episode` (the quote, whitespace collapsed, isn't in the episode) and `scope_not_allowed`
+  (only `global`, `repo:<episode repo_key>`, `personal:<episode user>`). A fact with the same text as an existing one, or
+  cosine > 0.92 to a candidate/active fact in its scope (when embeddings are on), gets an `{episode_id, quote, repo_key}`
+  anchor instead of a new row; the rest become `origin: distilled`, `status: candidate` facts authored by the episode's
+  user, with that anchor. Writes one `llm_calls` row (`job: distill`); the job is `done` with `result` stored.
+  404 no such job, 409 when the caller doesn't hold the claim.
+- `POST /v1/worker/distill/:id/fail` `{error}` → `{job:{id, status, attempts, error}}`: back to `queued`, or `failed`
+  after the 3rd attempt. 404 / 409 as above.
 
 ## Episodes (raw evidence)
 
