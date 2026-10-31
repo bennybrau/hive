@@ -261,7 +261,10 @@ Decide after M5 shows whether the agents actually ask code-structure questions o
 
 1. **Repo:** `github.com/bennybrau/hive` (private). Product name still open; `hive` is the working name.
 2. **Postgres:** separate compose stack from ASF. Never share ASF's instance.
-3. **Fact agent default:** `hermes -z … --usage-file` on Jon's Claude subscription; cost captured per call into `llm_calls`. API-key and Ollama runners stay pluggable, not default.
+3. **Fact agent default:** ~~`hermes -z` on the host~~ → **revised (M4 planning):** `claude -p` inside a `hive-worker` container, on a Claude subscription OAuth token (`claude setup-token`) that a curator stores through the API and the worker receives per job. Cost captured per call into `llm_calls`. Ollama and API-key runners stay pluggable; `hermes -z` remains a host-only runner.
+3a. **Shipped as images, runs anywhere:** Hive is installed as published images (`ghcr.io/bennybrau/hive`, `hive-worker`, multi-arch), never from source, the same way ASF ships `asf-*`; together they form one platform that runs on any Docker host, including a cloud VM. Implications: config and secrets from env / `*_FILE`, stateless service containers, Postgres local or managed (pgvector), repos registered by URL and cloned into a volume (the `~/dev` mount stays a developer option), Ollama as an optional container, HTTPS via a Caddy profile or the host's load balancer. Tracked in M6: #23 images, #24 install.sh, #30 platform compose, #31 repos by URL, #32 cloud readiness.
+
+Milestones and issues for M4–M6: https://github.com/bennybrau/hive/milestones
 4. **Embeddings:** local Ollama `nomic-embed-text` on the Mac Studio.
 5. **Curator:** Jon, alone, for all shared-scope candidates in the MVP.
 6. **Experiment corpus:** the ASF repo (`agentic-software-factory`), its docs, and Jon's past Hermes sessions on it; the ~15 questions are about ASF.
