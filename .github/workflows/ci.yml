@@ -49,18 +49,10 @@ jobs:
   plugin:
     name: hermes plugin (pytest vs pinned hermes-agent)
     runs-on: ubuntu-latest
-    env:
-      # Hermes commit the plugin is tested against. Bump deliberately when Hermes' MemoryProvider changes.
-      HERMES_REF: 66605471e9f
-      HERMES_AGENT_DIR: ${{ github.workspace }}/.hermes-agent
+    # The Hermes commit the plugin is tested against is plugins/hive/HERMES_REF (bump deliberately when
+    # Hermes' MemoryProvider changes). With no Hermes on the runner, test-plugin.sh provisions that commit
+    # itself: the same path the ASF worker takes, so CI proves it.
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - name: checkout hermes-agent @ HERMES_REF
-        run: |
-          git clone --filter=blob:none https://github.com/NousResearch/hermes-agent.git "$HERMES_AGENT_DIR"
-          git -C "$HERMES_AGENT_DIR" checkout --quiet "$HERMES_REF"
-      - name: install hermes-agent (locked)
-        working-directory: ${{ env.HERMES_AGENT_DIR }}
-        run: uv sync --frozen
       - run: scripts/test-plugin.sh

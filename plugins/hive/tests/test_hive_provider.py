@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import socketserver
 import subprocess
 import sys
 import threading
@@ -83,6 +84,15 @@ class FakeHive:
         return [r for r in self.requests if r["path"] == path]
 
 
+class _LoopbackServer(ThreadingHTTPServer):
+    """HTTPServer.server_bind does a reverse-DNS lookup (socket.getfqdn) of the bind address. On some hosts
+    (macOS + uv's standalone Python) that takes ~35 s. Loopback-only test server: skip it."""
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+
+
 @pytest.fixture()
 def fake():
     state = FakeHive()
@@ -108,7 +118,7 @@ def fake():
         def log_message(self, *a):
             pass
 
-    srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+    srv = _LoopbackServer(("127.0.0.1", 0), H)
     threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.02}, daemon=True).start()
     state.url = f"http://127.0.0.1:{srv.server_address[1]}"
     yield state
