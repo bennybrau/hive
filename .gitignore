@@ -10,3 +10,6 @@ __pycache__/
 .venv/
 .hermes-run/
 coverage/
+
+# rendered copies of docs (regenerate with md_to_pdf)
+docs/*.pdf
