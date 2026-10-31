@@ -302,6 +302,7 @@ class HiveMemoryProvider(MemoryProvider):
         self._injected: dict[str, set[str]] = {}  # session_id -> fact ids already injected
         self._last_count: Optional[int] = None
         self._curator: Optional[bool] = None  # cached after the first successful /v1/status
+        self._curator_key: Optional[tuple[str, str]] = None  # (url, token) the cached role belongs to
 
     @property
     def name(self) -> str:
@@ -318,7 +319,9 @@ class HiveMemoryProvider(MemoryProvider):
 
     def initialize(self, session_id: str, **kwargs) -> None:
         self._client = HiveClient(get_secret("HIVE_URL", "") or "", get_secret("HIVE_TOKEN", "") or "")
-        self._curator = None
+        # Keep a role learned at registration time if it was for this same Hive and token.
+        if self._curator_key != (self._client.base_url, self._client.token):
+            self._curator = None
         self._session_id = session_id
         self._agent_context = kwargs.get("agent_context") or "primary"
         cwd = kwargs.get("cwd") or os.getcwd()
@@ -435,13 +438,23 @@ class HiveMemoryProvider(MemoryProvider):
         """Whether this instance's token is a curator's. Errors count as "not curator" and aren't cached."""
         if self._curator is not None:
             return self._curator
-        if self._client is None:
+        # Hermes asks for the tool schemas when it registers the provider (MemoryManager.add_provider), which
+        # builds its tool routing table, BEFORE initialize(). Answer from the env then too, or hive_review is
+        # left out of the routes while later schema lists include it, and the model's call fails "Unknown tool".
+        client = self._client or self._env_client()
+        if client is None:
             return False
-        res = self._client.get("/v1/status", timeout=PREFETCH_TIMEOUT_S)
+        res = client.get("/v1/status", timeout=PREFETCH_TIMEOUT_S)
         if not res.get("ok"):
             return False
         self._curator = (res.get("instance") or {}).get("role") == "curator"
+        self._curator_key = (client.base_url, client.token)
         return self._curator
+
+    @staticmethod
+    def _env_client() -> Optional["HiveClient"]:
+        url, token = get_secret("HIVE_URL", "") or "", get_secret("HIVE_TOKEN", "") or ""
+        return HiveClient(url, token) if url and token else None
 
     def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs) -> str:
         if self._client is None:

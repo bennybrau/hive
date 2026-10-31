@@ -438,6 +438,36 @@ def test_review_tool_hidden_when_status_fails_and_retried_later(monkeypatch, fak
     assert "hive_review" in _names(p)  # a failure isn't cached
 
 
+def _registered_like_hermes(monkeypatch, url, tmp_path):
+    """Hermes' own startup order (agent_init): add_provider() builds the tool routes, THEN initialize_all()."""
+    from agent.memory_manager import MemoryManager
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.setenv("HIVE_URL", url)
+    monkeypatch.setenv("HIVE_TOKEN", GOOD)
+    monkeypatch.setenv("HIVE_REPO_KEY", "gh/acme/api")
+    mm = MemoryManager()
+    mm.add_provider(hive.HiveMemoryProvider())
+    mm.initialize_all(session_id="s1", hermes_home=str(tmp_path), platform="cli", agent_context="primary")
+    return mm
+
+
+def test_curator_review_tool_is_routed_when_registered_before_initialize(monkeypatch, fake, tmp_path):
+    fake.role = "curator"
+    mm = _registered_like_hermes(monkeypatch, fake.url, tmp_path)
+    assert "hive_review" in [s["name"] for s in mm.get_all_tool_schemas()]
+    assert mm.has_tool("hive_review")  # was offered but unrouted: the model's call failed "Unknown tool"
+    out = json.loads(mm.handle_tool_call("hive_review", {"action": "list"}))
+    assert out.get("ok") is not False, out
+    assert len(fake.last("/v1/status")) == 1  # role learned at registration is kept through initialize()
+
+
+def test_member_never_gets_a_review_route(monkeypatch, fake, tmp_path):
+    mm = _registered_like_hermes(monkeypatch, fake.url, tmp_path)
+    assert not mm.has_tool("hive_review")
+    assert "hive_review" not in [s["name"] for s in mm.get_all_tool_schemas()]
+
+
 def test_review_by_a_member_is_refused_without_calling_the_api(monkeypatch, fake):
     p = _provider(monkeypatch, fake.url)
     out = call(p, "hive_review", action="list")
