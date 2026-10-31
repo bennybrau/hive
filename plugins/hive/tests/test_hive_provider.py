@@ -41,6 +41,8 @@ class FakeHive:
         self.facts = [F1, F2, F3]
         self.overrides: dict[str, tuple[int, dict]] = {}
         self.url = ""
+        self.role = "member"
+        self.queue: list[dict] = []
 
     def handle(self, method, path, body, auth):
         u = urllib.parse.urlparse(path)
@@ -51,7 +53,16 @@ class FakeHive:
         if u.path in self.overrides:
             return self.overrides[u.path]
         if u.path == "/v1/status":
-            return 200, {"instance": {"name": "t", "user_id": "jon", "role": "member"}, "counts": {"facts": 3}}
+            return 200, {"instance": {"name": "t", "user_id": "jon", "role": self.role}, "counts": {"facts": 3}}
+        if u.path == "/v1/review/queue":
+            if self.role != "curator":
+                return 403, {"error": "only a curator can review facts"}
+            return 200, {"candidates": self.queue[: int(q.get("limit", 20))]}
+        if u.path.endswith("/review") and method == "POST":
+            if self.role != "curator":
+                return 403, {"error": "only a curator can review facts"}
+            status = {"approve": "active", "fix": "active", "reject": "retracted"}[body["action"]]
+            return 200, {"fact": {"id": u.path.split("/")[3], "status": status}, "merged_into": None}
         if u.path == "/v1/recall":
             k = int(q.get("k", 10))
             facts = [f for f in self.facts if f["similarity"] >= float(q.get("min_sim", 0))][:k]
@@ -358,6 +369,111 @@ def test_retract_needs_a_full_id(monkeypatch, fake):
     out = call(p, "hive_retract", id=F1["id"], reason="wrong")
     assert out == {"ok": True, "id": F1["id"], "status": "retracted"}
     assert fake.last(f"/v1/facts/{F1['id']}/retract")[0]["body"] == {"reason": "wrong"}
+
+
+def test_remember_passes_supersedes_and_rejects_a_short_id(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    out = call(p, "hive_remember", text="Use vitest 2, never jest.", kind="convention", scope="global",
+               supersedes="11111111")
+    assert not out["ok"] and "supersedes" in out["error"]
+    assert fake.last("/v1/facts") == []
+    call(p, "hive_remember", text="Use vitest 2, never jest.", kind="convention", scope="global", supersedes=F1["id"])
+    assert fake.last("/v1/facts")[0]["body"] == {"text": "Use vitest 2, never jest.", "kind": "convention",
+                                                 "scope": "global", "supersedes": F1["id"]}
+
+
+def test_a_superseding_fact_is_one_prefetch_line(monkeypatch, fake):
+    fake.facts = [{**F1, "supersedes": F2["id"]}]
+    block = _provider(monkeypatch, fake.url).prefetch("tests?")
+    assert block.splitlines()[1:] == ["- [hive:11111111] Use vitest, never jest. (global, convention)"]
+
+
+# --- review (curator only) ------------------------------------------------------------
+
+C1 = {"id": "55555555-aaaa-bbbb-cccc-000000000005", "text": "Use vitest 2.", "kind": "convention", "scope": "global",
+      "status": "candidate", "supersedes": F1["id"],
+      "anchors": [{"id": "a1", "quote": "vitest 2", "episode_snippet": "...we moved to vitest 2..."}],
+      "similar": [{**F1, "similarity": 0.912}]}
+C2 = {"id": "66666666-aaaa-bbbb-cccc-000000000006", "text": "Deploys need a tag.", "kind": "system",
+      "scope": "repo:gh/acme/api", "status": "candidate", "supersedes": None, "anchors": [], "similar": []}
+
+
+def _names(p):
+    return [s["name"] for s in p.get_tool_schemas()]
+
+
+def test_review_tool_offered_to_curators_only(monkeypatch, fake):
+    assert "hive_review" not in _names(_provider(monkeypatch, fake.url))
+    fake.role = "curator"
+    p = _provider(monkeypatch, fake.url)
+    assert _names(p)[-1] == "hive_review"
+    _names(p)
+    assert len(fake.last("/v1/status")) == 2  # one per provider: the role is cached
+
+
+def test_member_role_is_cached_too_after_a_successful_status_call(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    assert "hive_review" not in _names(p)
+    assert "hive_review" not in _names(p)
+    assert len(fake.last("/v1/status")) == 1  # a successful "member" result is cached too
+
+
+def test_review_tool_hidden_when_status_fails_and_retried_later(monkeypatch, fake):
+    fake.role = "curator"
+    fake.overrides["/v1/status"] = (500, {"error": "boom"})
+    p = _provider(monkeypatch, fake.url)
+    assert "hive_review" not in _names(p)
+    assert "hive_review" not in _names(_provider(monkeypatch, "http://127.0.0.1:9"))
+    del fake.overrides["/v1/status"]
+    assert "hive_review" in _names(p)  # a failure isn't cached
+
+
+def test_review_by_a_member_is_refused_without_calling_the_api(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    out = call(p, "hive_review", action="list")
+    assert not out["ok"] and "curator" in out["error"]
+    assert fake.last("/v1/review/queue") == []
+
+
+def test_review_list_is_compact(monkeypatch, fake):
+    fake.role = "curator"
+    fake.queue = [C1, C2]
+    out = call(_provider(monkeypatch, fake.url), "hive_review", action="list")
+    assert out == {"ok": True, "candidates": [
+        {"id": C1["id"], "id8": "55555555", "text": "Use vitest 2.", "kind": "convention", "scope": "global",
+         "supersedes": "11111111", "similar": ["[11111111] Use vitest, never jest. (0.91)"]},
+        {"id": C2["id"], "id8": "66666666", "text": "Deploys need a tag.", "kind": "system",
+         "scope": "repo:gh/acme/api", "supersedes": None, "similar": []},
+    ]}
+    assert fake.last("/v1/review/queue")[0]["query"] == {"limit": "20"}
+
+
+def test_review_actions_send_the_right_bodies(monkeypatch, fake):
+    fake.role = "curator"
+    p = _provider(monkeypatch, fake.url)
+    path = f"/v1/facts/{C1['id']}/review"
+    assert call(p, "hive_review", action="approve", id=C1["id"]) == {"ok": True, "id": C1["id"], "status": "active"}
+    assert call(p, "hive_review", action="fix", id=C1["id"], new_text="Use vitest 2.1.")["status"] == "active"
+    assert call(p, "hive_review", action="reject", id=C1["id"], note="dup")["status"] == "retracted"
+    assert [r["body"] for r in fake.last(path)] == [
+        {"action": "approve"}, {"action": "fix", "new_text": "Use vitest 2.1."}, {"action": "reject", "note": "dup"}]
+
+
+def test_review_reports_a_merge(monkeypatch, fake):
+    fake.role = "curator"
+    fake.overrides[f"/v1/facts/{C1['id']}/review"] = (
+        200, {"fact": {"id": C1["id"], "status": "retracted"}, "merged_into": {"id": F1["id"], "status": "active"}})
+    out = call(_provider(monkeypatch, fake.url), "hive_review", action="fix", id=C1["id"], new_text="Use vitest, never jest.")
+    assert out == {"ok": True, "id": C1["id"], "status": "retracted", "merged_into": F1["id"]}
+
+
+def test_review_rejects_short_ids_missing_fix_text_and_bad_actions_locally(monkeypatch, fake):
+    fake.role = "curator"
+    p = _provider(monkeypatch, fake.url)
+    assert "full candidate id" in call(p, "hive_review", action="approve", id="55555555")["error"]
+    assert "new_text" in call(p, "hive_review", action="fix", id=C1["id"])["error"]
+    assert "action must be" in call(p, "hive_review", action="delete", id=C1["id"])["error"]
+    assert [r for r in fake.requests if r["path"].endswith("/review")] == []
 
 
 def test_search_hits_are_slim_and_say_where(monkeypatch, fake):

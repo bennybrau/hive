@@ -11,7 +11,7 @@ What it does each turn:
   * sync_turn  - after the reply: POST the turn to /v1/episodes (Hermes already runs this on its
                  background worker and has redacted secrets).
   * session end- POST the whole transcript as a `session` episode (input for M4 distill).
-Tools: hive_recall, hive_remember, hive_search, hive_retract, hive_status.
+Tools: hive_recall, hive_remember, hive_search, hive_retract, hive_status; hive_review for curators only.
 
 Config (env, via `hermes memory setup` or the profile's .env):
   HIVE_URL               e.g. http://studio.local:8800                     (required)
@@ -48,6 +48,8 @@ DEFAULT_PREFETCH_MIN_SIM = 0.62
 FACT_KINDS = ["decision", "invariant", "gotcha", "preference", "convention", "system"]
 MAX_TOOL_OUTPUT_CHARS = 1500  # per tool result inside a session transcript
 MAX_SESSION_CHARS = 3_500_000  # service limit is 4M
+REVIEW_QUEUE_LIMIT = 20
+FULL_ID = re.compile(r"[0-9a-fA-F-]{36}")
 
 
 # --------------------------------------------------------------------------- helpers
@@ -228,6 +230,7 @@ _SCHEMAS = [
                 "repo_key": {"type": "string", "description": "Override the detected repo for scope=repo."},
                 "path": {"type": "string", "description": "Source file this fact is about (provenance)."},
                 "quote": {"type": "string", "description": "Exact text from that file or conversation that supports it."},
+                "supersedes": {"type": "string", "description": "When correcting a fact you were shown, pass its full id as supersedes."},
             },
             "required": ["text", "kind"],
         },
@@ -264,6 +267,24 @@ _SCHEMAS = [
     },
 ]
 
+# Offered only to curators (see HiveMemoryProvider._is_curator); the server answers 403 to anyone else.
+_REVIEW_SCHEMA = {
+    "name": "hive_review",
+    "description": "Curator only: review candidate facts waiting for approval before other assistants see them. "
+                   "action=list shows the queue (oldest first) with each candidate's full id, the fact it would "
+                   "supersede and similar active facts. approve / fix (with new_text) / reject need the full id.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["list", "approve", "fix", "reject"]},
+            "id": {"type": "string", "description": "Full candidate id (36 chars) from action=list."},
+            "note": {"type": "string", "description": "Why (recorded with the decision)."},
+            "new_text": {"type": "string", "description": "action=fix: the corrected statement."},
+        },
+        "required": ["action"],
+    },
+}
+
 
 # --------------------------------------------------------------------------- provider
 
@@ -280,6 +301,7 @@ class HiveMemoryProvider(MemoryProvider):
         self._lock = threading.Lock()
         self._injected: dict[str, set[str]] = {}  # session_id -> fact ids already injected
         self._last_count: Optional[int] = None
+        self._curator: Optional[bool] = None  # cached after the first successful /v1/status
 
     @property
     def name(self) -> str:
@@ -296,6 +318,7 @@ class HiveMemoryProvider(MemoryProvider):
 
     def initialize(self, session_id: str, **kwargs) -> None:
         self._client = HiveClient(get_secret("HIVE_URL", "") or "", get_secret("HIVE_TOKEN", "") or "")
+        self._curator = None
         self._session_id = session_id
         self._agent_context = kwargs.get("agent_context") or "primary"
         cwd = kwargs.get("cwd") or os.getcwd()
@@ -406,14 +429,26 @@ class HiveMemoryProvider(MemoryProvider):
     # -- tools --------------------------------------------------------------------
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
-        return list(_SCHEMAS)
+        return list(_SCHEMAS) + ([_REVIEW_SCHEMA] if self._is_curator() else [])
+
+    def _is_curator(self) -> bool:
+        """Whether this instance's token is a curator's. Errors count as "not curator" and aren't cached."""
+        if self._curator is not None:
+            return self._curator
+        if self._client is None:
+            return False
+        res = self._client.get("/v1/status", timeout=PREFETCH_TIMEOUT_S)
+        if not res.get("ok"):
+            return False
+        self._curator = (res.get("instance") or {}).get("role") == "curator"
+        return self._curator
 
     def handle_tool_call(self, tool_name: str, args: dict[str, Any], **kwargs) -> str:
         if self._client is None:
             return json.dumps({"ok": False, "error": "hive provider not initialized"})
         handler = {
             "hive_recall": self._tool_recall, "hive_remember": self._tool_remember, "hive_search": self._tool_search,
-            "hive_retract": self._tool_retract, "hive_status": self._tool_status,
+            "hive_retract": self._tool_retract, "hive_status": self._tool_status, "hive_review": self._tool_review,
         }.get(tool_name)
         if handler is None:
             return json.dumps({"ok": False, "error": f"unknown hive tool {tool_name}"})
@@ -460,6 +495,11 @@ class HiveMemoryProvider(MemoryProvider):
             body["anchors"] = [anchor]
             if args.get("path"):
                 body["locus"] = [args["path"]]
+        if args.get("supersedes"):
+            sup = str(args["supersedes"]).strip()
+            if not FULL_ID.fullmatch(sup):
+                return {"ok": False, "error": "supersedes needs the full fact id (36 chars) - get it from hive_recall"}
+            body["supersedes"] = sup
         res = self._client.post("/v1/facts", body)  # type: ignore[union-attr]
         if not res.get("ok"):
             return res
@@ -472,18 +512,58 @@ class HiveMemoryProvider(MemoryProvider):
 
     def _tool_retract(self, args: dict[str, Any]) -> dict[str, Any]:
         fid = str(args.get("id", "")).strip()
-        if not re.fullmatch(r"[0-9a-fA-F-]{36}", fid):
+        if not FULL_ID.fullmatch(fid):
             return {"ok": False, "error": "need the full fact id (36 chars) - get it from hive_recall"}
         res = self._client.post(f"/v1/facts/{fid}/retract", {"reason": args.get("reason", "")})  # type: ignore[union-attr]
         if not res.get("ok"):
             return res
         return {"ok": True, "id": fid, "status": (res.get("fact") or {}).get("status")}
 
+    def _tool_review(self, args: dict[str, Any]) -> dict[str, Any]:
+        if not self._is_curator():
+            return {"ok": False, "error": "only a curator can review facts"}
+        action = str(args.get("action", "")).strip()
+        if action == "list":
+            res = self._client.get("/v1/review/queue", {"limit": REVIEW_QUEUE_LIMIT})  # type: ignore[union-attr]
+            if not res.get("ok"):
+                return res
+            return {"ok": True, "candidates": [_slim_candidate(c) for c in res.get("candidates", [])]}
+        if action not in ("approve", "fix", "reject"):
+            return {"ok": False, "error": "action must be list, approve, fix or reject"}
+        fid = str(args.get("id", "")).strip()
+        if not FULL_ID.fullmatch(fid):
+            return {"ok": False, "error": "need the full candidate id (36 chars) - get it from hive_review action=list"}
+        body: dict[str, Any] = {"action": action}
+        if action == "fix":
+            new_text = str(args.get("new_text") or "").strip()
+            if not new_text:
+                return {"ok": False, "error": "fix needs new_text"}
+            body["new_text"] = new_text
+        if args.get("note"):
+            body["note"] = str(args["note"])
+        res = self._client.post(f"/v1/facts/{fid}/review", body)  # type: ignore[union-attr]
+        if not res.get("ok"):
+            return res
+        out = {"ok": True, "id": fid, "status": (res.get("fact") or {}).get("status")}
+        if res.get("merged_into"):
+            out["merged_into"] = res["merged_into"].get("id")
+        return out
+
 
 def _slim_fact(f: dict[str, Any]) -> dict[str, Any]:
     """What the model needs from a fact, nothing more (tool output is tokens too)."""
     return {k: f.get(k) for k in ("id", "text", "kind", "scope", "status", "similarity", "verify", "near_changes")
             if f.get(k) is not None}
+
+
+def _slim_candidate(c: dict[str, Any]) -> dict[str, Any]:
+    """A review-queue candidate without anchors or snippets: the full id to act on, id8 to cite."""
+    fid = str(c.get("id", ""))
+    sup = c.get("supersedes")
+    return {"id": fid, "id8": fid[:8], "text": c.get("text"), "kind": c.get("kind"), "scope": c.get("scope"),
+            "supersedes": str(sup)[:8] if sup else None,
+            "similar": [f"[{str(s.get('id', ''))[:8]}] {s.get('text', '')} ({float(s.get('similarity') or 0):.2f})"
+                        for s in c.get("similar") or []]}
 
 
 def _slim_hit(h: dict[str, Any]) -> dict[str, Any]:
