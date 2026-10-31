@@ -2,7 +2,8 @@ import { createHash, randomBytes } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
 
-export type Role = "curator" | "member";
+export const ROLES = ["member", "curator", "worker"] as const;
+export type Role = (typeof ROLES)[number];
 
 export interface Instance {
   id: string;
@@ -64,4 +65,18 @@ export function bearerAuth(pool: pg.Pool) {
     }
     req.instance = instance;
   };
+}
+
+/** A worker token (the fact-agent container) may only reach its own endpoints and /v1/status. */
+export async function confineWorker(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if (req.instance?.role !== "worker") return;
+  const path = req.url.split("?", 1)[0]!;
+  if (path === "/v1/status" || path.startsWith("/v1/worker/")) return;
+  return reply.code(403).send({ error: "worker tokens can only use /v1/worker/*" });
+}
+
+export function workerOnly(req: FastifyRequest, reply: FastifyReply): boolean {
+  if (req.instance!.role === "worker") return true;
+  reply.code(403).send({ error: "only a worker token can use this endpoint" });
+  return false;
 }

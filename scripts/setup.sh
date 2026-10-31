@@ -37,6 +37,15 @@ if [ ! -f .env ]; then
 else
   echo "keeping existing .env"
 fi
+if ! grep -qE '^HIVE_SECRET_KEY=.+' .env; then
+  KEY="$(openssl rand -hex 32)"
+  if grep -q '^HIVE_SECRET_KEY=' .env; then
+    sed -i.bak "s/^HIVE_SECRET_KEY=.*/HIVE_SECRET_KEY=${KEY}/" .env && rm -f .env.bak
+  else
+    printf '\nHIVE_SECRET_KEY=%s\n' "$KEY" >> .env
+  fi
+  echo "added HIVE_SECRET_KEY to .env"
+fi
 set -a; . ./.env; set +a
 
 echo "building and starting the stack..."

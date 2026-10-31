@@ -3,6 +3,10 @@
 All `/v1/*` endpoints need `Authorization: Bearer <HIVE_TOKEN>`. JSON in, JSON out.
 Who you are (instance, user, role) always comes from the token, never from the body.
 
+Roles (`mint-token --role`): `member` (default), `curator`, and `worker`, the fact-agent container. A worker token
+may only use `/v1/worker/*` and `/v1/status`; every other `/v1` call is a 403
+`{error: "worker tokens can only use /v1/worker/*"}`.
+
 ## Health and status
 
 - `GET /health` — public. `{ok, db, version}`; 503 when Postgres is down.
@@ -47,6 +51,16 @@ Shared-scope facts from members (and, later, distill) start as `candidate` and a
     `retracted` with `status_note: "merged into <id>"`, and `merged_into` is that fact (activated if it was a
     candidate). 409 if that fact is `retracted` or `superseded`.
   - `reject` → `retracted`, `status_note: "rejected: <note>"` (or `"rejected"`), `valid_to = now()`.
+
+## Settings
+
+Values are stored AES-256-GCM encrypted under `HIVE_SECRET_KEY` (or `HIVE_SECRET_KEY_FILE`; 64 hex chars, a
+malformed key stops the service at startup) and are never returned or logged.
+
+- `PUT /v1/settings/agent-credential` `{credential}` (1–4096 chars) — curator (403 otherwise). The fact agent's
+  credential, e.g. a `claude setup-token` OAuth token. Replaces any earlier one. `204`; `503 {error: "HIVE_SECRET_KEY is not set"}`
+  without a key. A lost or changed key only means setting the credential again.
+- `GET /v1/settings` — curator or member. `{agent_credential: {present, set_at}}` (`set_at` null when not set).
 
 ## Episodes (raw evidence)
 

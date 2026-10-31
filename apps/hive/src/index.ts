@@ -33,6 +33,7 @@ const app = buildApp(pool, {
   embedder,
   worker,
   minSimilarity: config.vectorMinSimilarity,
+  secretKey: config.secretKey,
   repos: { roots: { root: config.reposRoot, hostRoot: config.reposHostRoot }, sync: repoSync },
 });
 await app.listen({ host: config.host, port: config.port });

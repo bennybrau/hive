@@ -1,9 +1,9 @@
 /**
  * Mint an instance token. Prints the token ONCE; only its hash is stored.
- *   node dist/cli/mint-token.js --name jon-macbook --user jon [--role curator]
+ *   node dist/cli/mint-token.js --name jon-macbook --user jon [--role member|curator|worker]
  */
 import { parseArgs } from "node:util";
-import { createInstance, type Role } from "../auth.js";
+import { createInstance, ROLES, type Role } from "../auth.js";
 import { loadConfig } from "../config.js";
 import { migrate } from "../db/migrate.js";
 import { createPool, describeDbError } from "../db/pool.js";
@@ -18,11 +18,11 @@ const { values } = parseArgs({
 });
 
 if (!values.name || !values.user) {
-  console.error("usage: mint-token --name <instance-name> --user <user-id> [--role member|curator] [--json]");
+  console.error(`usage: mint-token --name <instance-name> --user <user-id> [--role ${ROLES.join("|")}] [--json]`);
   process.exit(2);
 }
-if (values.role !== "member" && values.role !== "curator") {
-  console.error(`--role must be member or curator, got ${values.role}`);
+if (!(ROLES as readonly string[]).includes(values.role)) {
+  console.error(`--role must be one of ${ROLES.join(", ")}, got ${values.role}`);
   process.exit(2);
 }
 

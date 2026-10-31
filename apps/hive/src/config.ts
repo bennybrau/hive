@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { parseSecretKey } from "./secrets.js";
+
 export interface Config {
   databaseUrl: string;
   host: string;
@@ -16,6 +19,8 @@ export interface Config {
   repoSyncMinutes: number;
   /** First ingest of a repo reads at most this many recent commits. */
   maxCommits: number;
+  /** Encrypts stored secrets (the agent credential); null = those can't be set. */
+  secretKey: Buffer | null;
 }
 
 function num(env: NodeJS.ProcessEnv, key: string, dflt: number, ok: (n: number) => boolean): number {
@@ -24,6 +29,20 @@ function num(env: NodeJS.ProcessEnv, key: string, dflt: number, ok: (n: number) 
   const n = Number(raw);
   if (!ok(n)) throw new Error(`${key} is invalid: ${raw}`);
   return n;
+}
+
+/** HIVE_SECRET_KEY, else the contents of HIVE_SECRET_KEY_FILE; malformed or unreadable fails startup, unset is null. */
+function secretKey(env: NodeJS.ProcessEnv): Buffer | null {
+  if (env.HIVE_SECRET_KEY) return parseSecretKey(env.HIVE_SECRET_KEY);
+  const file = env.HIVE_SECRET_KEY_FILE;
+  if (!file) return null;
+  let hex: string;
+  try {
+    hex = readFileSync(file, "utf8").trim();
+  } catch (err) {
+    throw new Error(`HIVE_SECRET_KEY_FILE can't be read: ${(err as Error).message}`);
+  }
+  return parseSecretKey(hex);
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -43,5 +62,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     reposHostRoot: env.HIVE_REPOS_HOST_ROOT || env.HIVE_REPOS_ROOT || process.cwd(),
     repoSyncMinutes: num(env, "HIVE_REPO_SYNC_MINUTES", 15, (n) => n >= 0),
     maxCommits: num(env, "HIVE_MAX_COMMITS", 2000, (n) => Number.isInteger(n) && n > 0),
+    secretKey: secretKey(env),
   };
 }
