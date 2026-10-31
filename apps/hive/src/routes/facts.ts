@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
-import { createFact, FACT_COLUMNS, FACT_KINDS, NotAllowedError, retractFact, type Fact } from "../facts.js";
+import { createFact, FACT_COLUMNS, FACT_KINDS, factChain, NotAllowedError, retractFact, SupersedeError, type Fact } from "../facts.js";
 import { readableScopes, resolveScope, ScopeError } from "../scope.js";
 
 const anchorSchema = {
@@ -24,6 +24,7 @@ interface CreateBody {
   repo_key?: string;
   locus?: string[];
   anchors?: Record<string, unknown>[];
+  supersedes?: string;
 }
 
 export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => void): void {
@@ -43,6 +44,7 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
             repo_key: { type: "string", minLength: 1, maxLength: 200 },
             locus: { type: "array", maxItems: 50, items: { type: "string", maxLength: 500 } },
             anchors: { type: "array", maxItems: 20, items: anchorSchema },
+            supersedes: { type: "string", format: "uuid" },
           },
         },
       },
@@ -56,13 +58,19 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
         if (err instanceof ScopeError) return reply.code(400).send({ error: err.message });
         throw err;
       }
-      const { fact, deduped } = await createFact(
-        pool,
-        { text: req.body.text, kind: req.body.kind, scope, origin: "authored", locus: req.body.locus, anchors: req.body.anchors },
-        who,
-      );
-      if (!deduped) onWrite();
-      return reply.code(deduped ? 200 : 201).send({ fact, deduped });
+      const b = req.body;
+      try {
+        const { fact, deduped } = await createFact(
+          pool,
+          { text: b.text, kind: b.kind, scope, origin: "authored", locus: b.locus, anchors: b.anchors, supersedes: b.supersedes },
+          who,
+        );
+        if (!deduped) onWrite();
+        return reply.code(deduped ? 200 : 201).send({ fact, deduped });
+      } catch (err) {
+        if (err instanceof SupersedeError) return reply.code(400).send({ error: err.message });
+        throw err;
+      }
     },
   );
 
@@ -121,7 +129,7 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
          from anchors where fact_id = $1`,
         [req.params.id],
       );
-      return { fact: rows[0], anchors: anchors.rows };
+      return { fact: rows[0], anchors: anchors.rows, ...(await factChain(pool, req.params.id)) };
     },
   );
 

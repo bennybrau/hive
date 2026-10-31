@@ -10,7 +10,7 @@ Who you are (instance, user, role) always comes from the token, never from the b
 
 ## Facts
 
-- `POST /v1/facts` — remember. Body `{text, kind, scope, repo_key?, locus?, anchors?}`.
+- `POST /v1/facts` — remember. Body `{text, kind, scope, repo_key?, locus?, anchors?, supersedes?}`.
   - `kind`: `decision | invariant | gotcha | preference | convention | system`
   - `scope`: `global`, `personal` (→ `personal:<your user>`), `repo` (needs `repo_key`), or `repo:<key>`.
     Writing to someone else's `personal:*` is a 400.
@@ -18,12 +18,35 @@ Who you are (instance, user, role) always comes from the token, never from the b
   - Status on create: personal → `active`; shared by a curator → `active` (logged as a self-approve review);
     shared by a member → `candidate`.
   - Same text (case/whitespace-insensitive) in the same scope → `200 {deduped: true}` with the existing fact. New → `201`.
+  - `supersedes`: id of the fact this one replaces. It must exist, be readable, `active`, and in the same scope
+    (400 otherwise). When the new fact is (or later becomes, on review) `active`, the old one becomes
+    `superseded` with `valid_to = now()`, if it is still active then. Ignored when the text dedupes.
 - `GET /v1/facts?scope=&status=&kind=&repo_key=&limit=&offset=` — list, newest first.
-- `GET /v1/facts/:id` — fact plus its anchors.
+- `GET /v1/facts/:id` — `{fact, anchors, supersedes, superseded_by}`. The last two are the supersede chain,
+  nearest first, as `{id, text, status, recorded_at}`: what this fact replaced (older) and what replaced it (newer).
 - `POST /v1/facts/:id/retract` `{reason}` — author or curator only (403 otherwise). Kept as history.
 
 Readable scopes for every call: `global`, all `repo:*` (or only `repo:<repo_key>` when given), and
 your own `personal:<user>`. Other users' personal facts are never returned.
+
+## Review (curator only; members get 403)
+
+Shared-scope facts from members (and, later, distill) start as `candidate` and are not recalled until a curator decides.
+
+- `GET /v1/review/queue?scope=&origin=&limit=20` — candidates, oldest first (`scope` as stored, e.g. `repo:<key>`;
+  `origin`: `authored | distilled | ingested`; `limit` ≤ 100). Each is `{...fact, supersedes, anchors, similar}`:
+  - `anchors[]` include `verify_status`; an anchor on an episode carries `episode_snippet`, ~300 chars of the episode
+    around the quote (case-insensitive; the episode's start when the quote isn't found).
+  - `similar[]`: up to 3 `active` facts in the candidate's scope or `global` with cosine similarity ≥ 0.85, with
+    `similarity`. Empty until the candidate is embedded.
+- `POST /v1/facts/:id/review` `{action: approve|fix|reject, note?, new_text?}` → `{fact, merged_into}`. 404 no such fact,
+  409 when it isn't a `candidate`. Every decision writes a `reviews` row (`new_text` on fix).
+  - `approve` → `active` (and supersedes its target, see above).
+  - `fix` (needs `new_text`) → text replaced and normalized, re-embedded by the worker, `active`. If the new text is
+    already another fact in that scope, the candidate is merged instead: its anchors move to that fact, it is
+    `retracted` with `status_note: "merged into <id>"`, and `merged_into` is that fact (activated if it was a
+    candidate). 409 if that fact is `retracted` or `superseded`.
+  - `reject` → `retracted`, `status_note: "rejected: <note>"` (or `"rejected"`), `valid_to = now()`.
 
 ## Episodes (raw evidence)
 

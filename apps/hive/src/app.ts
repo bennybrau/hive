@@ -6,6 +6,7 @@ import type { EmbedWorker } from "./jobs/embed.js";
 import { episodeRoutes } from "./routes/episodes.js";
 import { factRoutes } from "./routes/facts.js";
 import { repoRoutes, type RepoDeps } from "./routes/repos.js";
+import { reviewRoutes } from "./routes/review.js";
 import { healthRoutes } from "./routes/health.js";
 import { searchRoutes } from "./routes/search.js";
 import { statusRoutes } from "./routes/status.js";
@@ -33,6 +34,7 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
     statusRoutes(v1, pool, { version: opts.version, embedModel: embedder?.model ?? null, worker });
     factRoutes(v1, pool, onWrite);
     episodeRoutes(v1, pool, onWrite);
+    reviewRoutes(v1, pool, onWrite);
     searchRoutes(v1, { pool, embedder, minSimilarity: opts.minSimilarity ?? 0.55 });
     if (opts.repos) repoRoutes(v1, pool, opts.repos);
   });
