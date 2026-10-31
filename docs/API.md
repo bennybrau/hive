@@ -32,13 +32,46 @@ your own `personal:<user>`. Other users' personal facts are never returned.
 
 ## Recall and search (hot path: SQL + one local query embedding, no LLM)
 
-- `GET /v1/recall?q=&repo_key=&k=10&min_sim=` — active facts only. `{mode: hybrid|keyword, facts:[{...fact, anchors, score, matched:[keyword|meaning], similarity}]}`.
+- `GET /v1/recall?q=&repo_key=&k=10&min_sim=&changed=` — active facts only. `{mode: hybrid|keyword, facts:[{...fact, anchors, verify, score, matched:[keyword|meaning], similarity, near_changes?}]}`.
+  `verify` is the worst status among the fact's anchors (`missing` > `drifted` > `unverifiable_here` > `verified`; null = never checked).
+  `changed` = comma-separated repo-relative paths you're working on (the plugin sends `git status`): facts whose
+  `locus` or anchor paths are those files (or a directory containing them) get one extra RRF rank-1 boost and `near_changes: true`.
   `min_sim` is a strict gate (the plugin's prefetch uses 0.62): every hit, keyword matches included, must have
   cosine similarity ≥ `min_sim` to the question. Rows not embedded yet can't be judged and are kept.
   Keyword hits on embedded rows now report their `similarity` too.
-- `GET /v1/search?q=&source=all|fact,conversation,history,doc&repo_key=&k=20&include_candidates=false` —
-  `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id|path, ...}]}`.
-  `conversation` = turn episodes, `history` = session episodes; both only YOUR user's episodes. `doc` fills in M3.
+- `GET /v1/search?q=&source=all|fact,conversation,history,commit,doc&repo_key=&k=20&include_candidates=false` —
+  `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id | path+line_start+line_end | ref, ...}]}`.
+  `conversation` = turn episodes, `history` = session episodes; both only YOUR user's episodes.
+  `commit` and `doc` are shared: commit messages and document chunks of registered repos (`repo_key` narrows to one).
+
+## Repos (ingest + verify)
+
+The hive reads repos through a read-only mount (`HIVE_REPOS_HOST_ROOT`, default `~/dev`, at `/repos`).
+
+- `POST /v1/repos` `{path, key?}` — curator. Register a git repo by its host path (or a path relative to the
+  root). `key` defaults from `origin` (`github.com/o/r` → `gh/o/r`, same rule as the plugin). Idempotent.
+- `GET /v1/repos` — every repo with `host_path`, last ingested sha/time, `ingest_summary`, `ingest_error`, and
+  counts of indexed docs, chunks and commits.
+- `GET /v1/repos/files?key=` — every document considered, with `status` (`indexed | empty | skipped | error`)
+  and why (`no text layer (scanned PDF?)`, `too large`, ...).
+- `POST /v1/repos/ingest` `{key}` — curator. Ingest now, then verify that repo; returns both summaries. `409` if
+  one is already running. Also runs for every repo every `HIVE_REPO_SYNC_MINUTES` (15; 0 = on demand only).
+- `POST /v1/jobs/verify` `{repo_key?}` — curator. Re-check anchors now.
+
+**Ingest** reads the committed state (git blobs, not the working tree), incrementally: files whose blob is
+unchanged are skipped; deleted files' chunks are removed; only commits after the last ingested HEAD are read
+(first run: the last `HIVE_MAX_COMMITS`, 2000). Documents: Markdown anywhere, `.txt/.rst` at the root or in a
+`docs/` folder, and PDF / Word / PowerPoint (with speaker notes) / Excel at the root or in a `docs/` folder;
+never `node_modules`, `vendor`, `dist`, etc. PDF via `pdftotext`; Office files are unzipped and their XML text
+read directly (no Office needed). Chunks are ~1500 chars, split at headings and paragraphs, with line ranges.
+
+**Verify** re-reads each anchor's file in the working tree (what you see now) and looks for its quote:
+`verified` (found; if it moved, `verify_note` says from where to where and `found_line` is updated),
+`drifted` (not verbatim, but a ≥60% similar passage is there: the source was edited), `missing` (file deleted
+or nothing similar), `unverifiable_here` (repo not registered, or nothing to check). Quotes from conversations
+are checked against their episode. A file that looks deleted is re-checked after 1 s (git checkout deletes
+then rewrites). An `ingested` fact is retracted only when all its file anchors are missing on two passes in a
+row; authored facts are never retracted by verify, they're flagged for a person.
 
 How ranking works:
 - **Keyword:** Postgres English stemming, words OR-ed (a question matches facts containing some of its words), ranked by `ts_rank_cd`.

@@ -9,7 +9,10 @@ Connects a Hermes instance to the team's Hive. Stdlib only, no new dependencies 
 | Before each turn (`prefetch`) | `GET /v1/recall` with your message, the current repo, and a strict relevance gate; injects at most 5 facts as `[hive:<id>]` lines | ~30 ms, no LLM |
 | After each turn (`sync_turn`) | records the turn as an episode (Hermes redacts secrets first and runs this off the response path) | one HTTP POST |
 | Session end | records the whole transcript (tool output clipped) as a `session` episode, input for distill in M4 | one HTTP POST |
-| Tools | `hive_recall`, `hive_remember`, `hive_search`, `hive_retract`, `hive_status` | only when the model calls them |
+| Tools | `hive_recall` (facts), `hive_search` (facts, your conversations, repo docs + commits), `hive_remember`, `hive_retract`, `hive_status` | only when the model calls them |
+
+Prefetch and `hive_recall` also send the files you've changed (`git status`, at most 200) so facts located
+there rank higher, and a fact whose source was edited or deleted is marked "source changed since" / "source gone".
 
 Token rules for prefetch, because Hermes replays the injected block on every later request of the session:
 - a fact is injected **once per session**; later turns only add new ones (`/new` resets, `/branch` and compression inherit);

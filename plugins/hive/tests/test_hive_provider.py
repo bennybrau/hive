@@ -161,6 +161,49 @@ def test_repo_key_detected_from_the_session_cwd(monkeypatch, fake, tmp_path):
 
 # --- prefetch -------------------------------------------------------------------------
 
+def _git(cwd, *args):
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True,
+                   env={"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "t",
+                        "GIT_COMMITTER_EMAIL": "t@x", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"})
+
+
+def test_changed_paths_from_git_status(tmp_path):
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "a.py").write_text("1")
+    (tmp_path / "old name.md").write_text("x")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "keep.ts").write_text("k")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "init")
+    (tmp_path / "a.py").write_text("2")                                  # modified
+    _git(tmp_path, "mv", "old name.md", "new name.md")                   # renamed (spaces survive -z)
+    (tmp_path / "sub" / "new.ts").write_text("n")                        # untracked
+    assert sorted(hive.changed_paths(str(tmp_path / "sub"))) == ["a.py", "new name.md", "sub/new.ts"]
+    assert hive.changed_paths(str(tmp_path.parent / "definitely-not-here")) == []
+    assert hive.changed_paths("") == []
+
+
+def test_prefetch_and_recall_send_changed_files_so_located_facts_rank_higher(monkeypatch, fake, tmp_path):
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "x.ts").write_text("1")
+    p = _provider(monkeypatch, fake.url, cwd=str(tmp_path))
+    p.prefetch("anything")
+    call(p, "hive_recall", query="anything")
+    assert [r["query"].get("changed") for r in fake.last("/v1/recall")] == ["x.ts", "x.ts"]
+    # clean tree, or not in a repo: no parameter at all
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-qm", "c")
+    p.prefetch("again")
+    assert "changed" not in fake.last("/v1/recall")[-1]["query"]
+
+
+def test_prefetch_flags_facts_whose_source_changed(monkeypatch, fake):
+    fake.facts = [{**F1, "verify": "drifted"}, {**F2, "verify": "missing"}, {**F3, "verify": "verified"}]
+    block = _provider(monkeypatch, fake.url).prefetch("q")
+    assert "Use vitest, never jest. (global, convention, source changed since)" in block
+    assert "Deploys go to Cloud Run. (repo:gh/acme/api, system, source gone)" in block
+    assert "Jon prefers tabs. (personal, preference)" in block
+
 def test_prefetch_sends_gate_and_repo_and_formats_a_short_cited_block(monkeypatch, fake):
     p = _provider(monkeypatch, fake.url)
     block = p.prefetch("which test runner?")
@@ -315,6 +358,22 @@ def test_retract_needs_a_full_id(monkeypatch, fake):
     out = call(p, "hive_retract", id=F1["id"], reason="wrong")
     assert out == {"ok": True, "id": F1["id"], "status": "retracted"}
     assert fake.last(f"/v1/facts/{F1['id']}/retract")[0]["body"] == {"reason": "wrong"}
+
+
+def test_search_hits_are_slim_and_say_where(monkeypatch, fake):
+    fake.overrides["/v1/search"] = (200, {"mode": "hybrid", "facts": [], "results": [
+        {"source": "doc", "id": "c1", "repo_key": "gh/acme/api", "path": "docs/plan.md", "line_start": 205,
+         "line_end": 222, "snippet": "A <b>gate</b> has a mode", "score": 0.03, "matched": ["keyword"], "similarity": 0.7},
+        {"source": "commit", "id": "e9", "repo_key": "gh/acme/api", "ref": "6ed3680b32fc1a4ad8093f", "snippet": "fix <b>gate</b>"},
+        {"source": "conversation", "id": "e1", "snippet": "we talked"},
+    ]})
+    r = call(_provider(monkeypatch, fake.url), "hive_search", query="gate", source="doc,commit")
+    assert r["results"] == [
+        {"source": "doc", "where": "docs/plan.md:205-222", "repo": "gh/acme/api", "snippet": "A gate has a mode"},
+        {"source": "commit", "where": "commit 6ed3680b32", "repo": "gh/acme/api", "snippet": "fix gate"},
+        {"source": "conversation", "id": "e1", "snippet": "we talked"},
+    ]
+    assert fake.last("/v1/search")[0]["query"]["source"] == "doc,commit"
 
 
 def test_search_and_status_tools(monkeypatch, fake):

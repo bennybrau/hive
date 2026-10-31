@@ -80,6 +80,35 @@ def detect_repo_key(cwd: str) -> str:
     return repo_key_from_remote(out.stdout) if out.returncode == 0 else ""
 
 
+MAX_CHANGED_PATHS = 200
+
+
+def changed_paths(cwd: str) -> list[str]:
+    """Files you're working on (`git status`), repo-relative. The hive ranks facts located there higher.
+    Renames report the new path. Empty outside a repo or if git is slow."""
+    if not cwd:
+        return []
+    try:
+        out = subprocess.run(["git", "-C", cwd, "status", "--porcelain", "-z", "--untracked-files=normal"],
+                             capture_output=True, text=True, timeout=1)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if out.returncode != 0:
+        return []
+    paths: list[str] = []
+    entries = out.stdout.split("\0")
+    i = 0
+    while i < len(entries):
+        e = entries[i]
+        i += 1
+        if len(e) < 4:
+            continue
+        paths.append(e[3:])
+        if e[0] in "RC":  # rename/copy: the next entry is the old path
+            i += 1
+    return paths[:MAX_CHANGED_PATHS]
+
+
 def _text_of(content: Any) -> str:
     """OpenAI-style message content (str or list of parts) -> plain text."""
     if isinstance(content, str):
@@ -120,7 +149,8 @@ def format_facts(facts: list[dict[str, Any]]) -> str:
     for f in facts:
         scope = f.get("scope", "")
         label = "personal" if scope.startswith("personal:") else scope
-        lines.append(f"- [hive:{str(f.get('id', ''))[:8]}] {f.get('text', '').strip()} ({label}, {f.get('kind', '')})")
+        note = {"drifted": ", source changed since", "missing": ", source gone"}.get(str(f.get("verify") or ""), "")
+        lines.append(f"- [hive:{str(f.get('id', ''))[:8]}] {f.get('text', '').strip()} ({label}, {f.get('kind', '')}{note})")
     return "\n".join(lines)
 
 
@@ -170,7 +200,8 @@ _SCHEMAS = [
         "name": "hive_recall",
         "description": "Look up the team's shared memory (Hive) for facts relevant to a question: decisions, "
                        "conventions, gotchas, who owns what. Use before re-deriving something the team may "
-                       "already know. Returns active facts with ids; cite as [hive:<id8>].",
+                       "already know. Returns active facts with ids; cite as [hive:<id8>]. Facts only: for "
+                       "the repo's own docs and commit history use hive_search.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -203,12 +234,15 @@ _SCHEMAS = [
     },
     {
         "name": "hive_search",
-        "description": "Search the Hive across facts, your past conversations, session history and docs by keyword or meaning.",
+        "description": "Search the Hive by keyword or meaning across facts, your past conversations and session "
+                       "history, and the indexed docs (README, docs/: Markdown, PDF, Word, PowerPoint, Excel) and "
+                       "commit messages of registered repos. Doc hits give path and line range: cite as path:line. "
+                       "Use it when facts don't answer and before reading files yourself.",
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {"type": "string"},
-                "source": {"type": "string", "description": "all (default) or a comma list of fact,conversation,history,doc"},
+                "source": {"type": "string", "description": "all (default) or a comma list of fact,conversation,history,commit,doc"},
                 "k": {"type": "integer", "description": "Max results per list (default 10)."},
             },
             "required": ["query"],
@@ -239,6 +273,7 @@ class HiveMemoryProvider(MemoryProvider):
         self._session_id = ""
         self._agent_context = "primary"
         self._repo_key = ""
+        self._cwd = ""
         self._prefetch_k = DEFAULT_PREFETCH_K
         self._prefetch_min_sim = DEFAULT_PREFETCH_MIN_SIM
         self._sync = True
@@ -264,7 +299,8 @@ class HiveMemoryProvider(MemoryProvider):
         self._session_id = session_id
         self._agent_context = kwargs.get("agent_context") or "primary"
         cwd = kwargs.get("cwd") or os.getcwd()
-        self._repo_key = (get_secret("HIVE_REPO_KEY", "") or "").strip() or detect_repo_key(str(cwd))
+        self._cwd = str(cwd or "")
+        self._repo_key = (get_secret("HIVE_REPO_KEY", "") or "").strip() or detect_repo_key(self._cwd)
         self._prefetch_k = _int_env("HIVE_PREFETCH_K", DEFAULT_PREFETCH_K)
         self._prefetch_min_sim = _float_env("HIVE_PREFETCH_MIN_SIM", DEFAULT_PREFETCH_MIN_SIM)
         self._sync = (get_secret("HIVE_SYNC", "") or "").strip().lower() not in ("off", "0", "false", "no")
@@ -312,6 +348,7 @@ class HiveMemoryProvider(MemoryProvider):
         res = self._client.get("/v1/recall", {
             "q": query[:2000], "repo_key": self._repo_key or None,
             "k": min(50, self._prefetch_k + len(seen)), "min_sim": self._prefetch_min_sim,
+            "changed": self._changed(),
         }, timeout=PREFETCH_TIMEOUT_S)
         if not res.get("ok"):
             logger.debug("hive prefetch failed: %s", res.get("error"))
@@ -321,6 +358,11 @@ class HiveMemoryProvider(MemoryProvider):
             self._injected.setdefault(sid, set()).update(f["id"] for f in fresh)
         self._last_count = len(fresh)
         return format_facts(fresh)
+
+    def _changed(self) -> Optional[str]:
+        if not self._repo_key:
+            return None
+        return ",".join(changed_paths(self._cwd)) or None
 
     def queue_prefetch(self, query: str, *, session_id: str = "") -> None:
         """Nothing to warm: recall is ~30 ms, so prefetch() asks with the CURRENT message instead of the last one."""
@@ -387,6 +429,7 @@ class HiveMemoryProvider(MemoryProvider):
         res = self._client.get("/v1/recall", {  # type: ignore[union-attr]
             "q": str(args.get("query", ""))[:2000], "k": int(args.get("k") or 10),
             "repo_key": args.get("repo_key") or self._repo_key or None,
+            "changed": self._changed(),
         })
         if not res.get("ok"):
             return res
@@ -400,7 +443,7 @@ class HiveMemoryProvider(MemoryProvider):
         if not res.get("ok"):
             return res
         return {"ok": True, "mode": res.get("mode"), "facts": [_slim_fact(f) for f in res.get("facts", [])],
-                "results": res.get("results", [])}
+                "results": [_slim_hit(h) for h in res.get("results", [])]}
 
     def _tool_remember(self, args: dict[str, Any]) -> dict[str, Any]:
         scope = args.get("scope") or ("repo" if self._repo_key else "global")
@@ -439,7 +482,25 @@ class HiveMemoryProvider(MemoryProvider):
 
 def _slim_fact(f: dict[str, Any]) -> dict[str, Any]:
     """What the model needs from a fact, nothing more (tool output is tokens too)."""
-    return {k: f.get(k) for k in ("id", "text", "kind", "scope", "status", "similarity") if f.get(k) is not None}
+    return {k: f.get(k) for k in ("id", "text", "kind", "scope", "status", "similarity", "verify", "near_changes")
+            if f.get(k) is not None}
+
+
+def _slim_hit(h: dict[str, Any]) -> dict[str, Any]:
+    """A search hit as the model needs it: where (doc path:lines, commit sha, or episode id) and the snippet,
+    without highlight markup or ranking internals."""
+    out: dict[str, Any] = {"source": h.get("source")}
+    if h.get("path"):
+        lines = f":{h['line_start']}-{h['line_end']}" if h.get("line_start") else ""
+        out["where"] = f"{h['path']}{lines}"
+    elif h.get("ref"):
+        out["where"] = f"commit {str(h['ref'])[:10]}"
+    else:
+        out["id"] = h.get("id")
+    if h.get("repo_key"):
+        out["repo"] = h["repo_key"]
+    out["snippet"] = re.sub(r"</?b>", "", str(h.get("snippet", "")))
+    return out
 
 
 def _int_env(key: str, default: int) -> int:

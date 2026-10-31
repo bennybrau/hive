@@ -131,6 +131,10 @@ function byRank<T extends { id: string }>(ranked: Ranked[], rows: T[]) {
 
 export interface FactHit extends Fact {
   anchors: number;
+  /** Worst verify status among the fact's anchors (missing > drifted > verified), null = nothing checked. */
+  verify: string | null;
+  /** True when the fact's locus or anchor paths overlap the caller's changed files. */
+  near_changes?: boolean;
   score: number;
   matched: Matched[];
   similarity: number | null;
@@ -139,22 +143,54 @@ export interface FactHit extends Fact {
 export async function searchFacts(
   deps: SearchDeps,
   who: Instance,
-  opts: { q: string; repoKey?: string; k: number; statuses: string[]; qvec: string | null; minSimilarity?: number },
+  opts: {
+    q: string; repoKey?: string; k: number; statuses: string[]; qvec: string | null; minSimilarity?: number;
+    /** Repo-relative paths the caller is working on (git status); facts located there rank higher. */
+    changedPaths?: string[];
+  },
 ): Promise<FactHit[]> {
   const [scopeSql, scopeParams] = readableScopes(who, opts.repoKey, 3, "t.scope");
   const filter: [string, unknown[]] = [`t.status = any($2) and ${scopeSql}`, [opts.statuses, ...scopeParams]];
-  const ranked = await hybridIds(deps, { table: "facts", tsv: "text_tsv", filter }, opts.q, opts.qvec, opts.k, opts.minSimilarity);
+  const changed = (opts.changedPaths ?? []).filter(Boolean);
+  // with changed paths, look deeper so a located fact ranked just below k can be lifted into it
+  const depth = changed.length ? opts.k * 3 : opts.k;
+  const ranked = await hybridIds(deps, { table: "facts", tsv: "text_tsv", filter }, opts.q, opts.qvec, depth, opts.minSimilarity);
   if (ranked.length === 0) return [];
-  const { rows } = await deps.pool.query<Fact & { anchors: number }>(
+  const { rows } = await deps.pool.query<Fact & { anchors: number; verify: string | null; paths: string[] }>(
     `select ${FACT_COLUMNS.split(", ").map((c) => "f." + c).join(", ")},
-            (select count(*)::int from anchors a where a.fact_id = f.id) as anchors
+            (select count(*)::int from anchors a where a.fact_id = f.id) as anchors,
+            (select a.verify_status from anchors a where a.fact_id = f.id and a.verify_status <> 'unverified'
+              order by case a.verify_status when 'missing' then 0 when 'drifted' then 1 when 'unverifiable_here' then 2 else 3 end
+              limit 1) as verify,
+            f.locus || coalesce((select array_agg(a.path) from anchors a where a.fact_id = f.id and a.path is not null), '{}') as paths
      from facts f where f.id = any($1)`,
     [ranked.map((r) => r.id)],
   );
-  return byRank(ranked, rows);
+  const near = new Set(rows.filter((r) => overlaps(r.paths, changed)).map((r) => r.id));
+  if (near.size) {
+    for (const r of ranked) if (near.has(r.id)) r.score += LOCUS_BOOST;
+    ranked.sort((a, b) => b.score - a.score);
+  }
+  return byRank(ranked.slice(0, opts.k), rows).map(({ paths: _paths, ...r }) => (changed.length ? { ...r, near_changes: near.has(r.id) } : r));
 }
 
-export type EpisodeSource = "conversation" | "history";
+/** Same as being ranked first by one more signal in reciprocal rank fusion. */
+export const LOCUS_BOOST = 1 / (RRF_K + 1);
+
+/** A locus entry matches a changed file if it is that file or a directory containing it. */
+export function overlaps(locus: string[], changed: string[]): boolean {
+  const norm = (p: string) => p.trim().replace(/^\.\//, "").replace(/^\/+/, "");
+  return locus.some((l0) => {
+    const l = norm(l0).replace(/\/+$/, "");
+    if (!l) return false;
+    return changed.some((c0) => {
+      const c = norm(c0);
+      return c === l || c.startsWith(l + "/");
+    });
+  });
+}
+
+export type EpisodeSource = "conversation" | "history" | "commit";
 
 export interface TextHit {
   source: EpisodeSource | "doc";
@@ -166,24 +202,34 @@ export interface TextHit {
   session_id?: string | null;
   repo_key?: string | null;
   path?: string;
+  line_start?: number | null;
+  line_end?: number | null;
+  ref?: string | null;
   created_at?: string;
 }
 
 const HEADLINE = `ts_headline('english', left(t.content, 20000), ${TSQUERY}, 'MaxFragments=2, MaxWords=30, MinWords=10, FragmentDelimiter=" … "')`;
 
-/** Conversations (turn episodes) and session history. Only the caller's own user's episodes. */
+/**
+ * Conversations (turn episodes) and session history: only the caller's own user's.
+ * Commits: shared repo history, visible to everyone, optionally one repo's.
+ */
 export async function searchEpisodes(
   deps: SearchDeps,
   who: Instance,
   source: EpisodeSource,
-  opts: { q: string; k: number; qvec: string | null },
+  opts: { q: string; k: number; qvec: string | null; repoKey?: string },
 ): Promise<TextHit[]> {
-  const kind = source === "conversation" ? "turn" : "session";
-  const filter: [string, unknown[]] = ["t.kind = $2 and t.user_id = $3", [kind, who.user_id]];
+  let filter: [string, unknown[]];
+  if (source === "commit") {
+    filter = opts.repoKey ? ["t.kind = 'commit' and t.repo_key = $2", [opts.repoKey]] : ["t.kind = 'commit'", []];
+  } else {
+    filter = ["t.kind = $2 and t.user_id = $3", [source === "conversation" ? "turn" : "session", who.user_id]];
+  }
   const ranked = await hybridIds(deps, { table: "episodes", tsv: "content_tsv", filter }, opts.q, opts.qvec, opts.k);
   if (ranked.length === 0) return [];
-  const { rows } = await deps.pool.query<{ id: string; snippet: string; session_id: string | null; repo_key: string | null; created_at: string }>(
-    `select t.id, ${HEADLINE} as snippet, t.session_id, t.repo_key, t.created_at
+  const { rows } = await deps.pool.query<{ id: string; snippet: string; session_id: string | null; repo_key: string | null; ref: string | null; created_at: string }>(
+    `select t.id, ${HEADLINE} as snippet, t.session_id, t.repo_key, t.ref, t.created_at
      from episodes t where t.id = any($2)`,
     [opts.q, ranked.map((r) => r.id)],
   );
@@ -197,8 +243,8 @@ export async function searchDocs(
   const filter: [string, unknown[]] = opts.repoKey ? ["t.repo_key = $2", [opts.repoKey]] : ["true", []];
   const ranked = await hybridIds(deps, { table: "doc_chunks", tsv: "content_tsv", filter }, opts.q, opts.qvec, opts.k);
   if (ranked.length === 0) return [];
-  const { rows } = await deps.pool.query<{ id: string; snippet: string; repo_key: string; path: string }>(
-    `select t.id, ${HEADLINE} as snippet, t.repo_key, t.path from doc_chunks t where t.id = any($2)`,
+  const { rows } = await deps.pool.query<{ id: string; snippet: string; repo_key: string; path: string; line_start: number | null; line_end: number | null }>(
+    `select t.id, ${HEADLINE} as snippet, t.repo_key, t.path, t.line_start, t.line_end from doc_chunks t where t.id = any($2)`,
     [opts.q, ranked.map((r) => r.id)],
   );
   return byRank(ranked, rows).map((r) => ({ source: "doc" as const, ...r }));

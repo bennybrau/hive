@@ -5,6 +5,7 @@ import type { Embedder } from "./embed.js";
 import type { EmbedWorker } from "./jobs/embed.js";
 import { episodeRoutes } from "./routes/episodes.js";
 import { factRoutes } from "./routes/facts.js";
+import { repoRoutes, type RepoDeps } from "./routes/repos.js";
 import { healthRoutes } from "./routes/health.js";
 import { searchRoutes } from "./routes/search.js";
 import { statusRoutes } from "./routes/status.js";
@@ -15,6 +16,8 @@ export interface AppOptions {
   embedder?: Embedder | null;
   worker?: EmbedWorker | null;
   minSimilarity?: number;
+  /** Repo registration/ingest/verify; omitted = those endpoints are not mounted. */
+  repos?: RepoDeps | null;
 }
 
 export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
@@ -31,6 +34,7 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
     factRoutes(v1, pool, onWrite);
     episodeRoutes(v1, pool, onWrite);
     searchRoutes(v1, { pool, embedder, minSimilarity: opts.minSimilarity ?? 0.55 });
+    if (opts.repos) repoRoutes(v1, pool, opts.repos);
   });
   return app;
 }

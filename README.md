@@ -75,4 +75,7 @@ Without it the Hive still works, keyword-only; `/v1/status` shows `embeddings.st
 - **M2** done: the Hermes plugin (`plugins/hive`, see its README): gated once-per-session prefetch,
   turn + session episodes, `hive_recall` / `hive_remember` / `hive_search` / `hive_retract` / `hive_status`.
   Live check: `scripts/e2e-plugin.sh`.
-- Next: **M3**, curator review (approve candidates), verify against the repo, docs ingestion.
+- **M3** done: register repos, incremental ingest of docs (Markdown, PDF, Word, PowerPoint, Excel) and
+  commit messages, verify of every fact's anchors against the working tree, locus boost from the files you're
+  changing. API: [docs/API.md](docs/API.md#repos-ingest--verify).
+- Next: **M4**, distill facts from sessions, review queue (approve / fix / reject), dashboard.
