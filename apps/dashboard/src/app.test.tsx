@@ -52,8 +52,10 @@ describe("dashboard shell", () => {
     expect(authOf(0)).toBe("Bearer good-token");
 
     await apiFetch("/v1/facts");
-    expect(fetchMock.mock.calls[1]![0]).toBe("/v1/facts");
-    expect(authOf(1)).toBe("Bearer good-token");
+    // The Facts view makes its own calls first; ours is the last one.
+    const last = fetchMock.mock.calls.length - 1;
+    expect(fetchMock.mock.calls[last]![0]).toBe("/v1/facts");
+    expect(authOf(last)).toBe("Bearer good-token");
   });
 
   it("uses a token already stored in this tab without asking again", async () => {

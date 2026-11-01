@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch, getToken, onSignOut, type Status } from "./api";
-import { Facts } from "./Facts";
+import { Facts } from "./facts/Facts";
 import { Shell } from "./Shell";
 import { SignIn } from "./SignIn";
 
