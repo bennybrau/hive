@@ -46,7 +46,7 @@ export function repoRoutes(app: FastifyInstance, pool: pg.Pool, deps: RepoDeps):
       const { rows } = await pool.query<{ inserted: boolean }>(
         `insert into repos (key, local_path, remote_url, default_branch) values ($1, $2, $3, $4)
          on conflict (key) do update set local_path = $2, remote_url = coalesce($3, repos.remote_url),
-                                         default_branch = coalesce($4, repos.default_branch)
+                                         default_branch = $4
          returning (xmax = 0) as inserted`,
         [key, info.toplevel, info.remoteUrl, info.branch],
       );

@@ -274,6 +274,65 @@ describe("ingest", () => {
     expect(c).not.toContain("WIPWORD");
   });
 
+  it("reads the default branch, not the branch the checkout is on", async () => {
+    const mainSha = sh(repo.dir, "rev-parse", "HEAD").trim();
+    sh(repo.dir, "checkout", "-q", "-b", "feature");
+    write(repo.dir, { "docs/feature.md": "# Feature\n\nFEATUREWORD only on the branch.\n" });
+    commit(repo.dir, "feature work");
+
+    const reg = await register();
+    expect(reg.json().repo.default_branch).toBe("main");
+    const out = await ingest();
+    expect(out.ingest.head).toBe(mainSha);
+    expect(out.ingest.commits_added).toBe(1); // "initial import" only
+    expect((await pool.query("select count(*)::int n from doc_files where path = 'docs/feature.md'")).rows[0].n).toBe(0);
+    const { rows: [r] } = await pool.query("select last_ingested_sha, default_branch from repos where key = $1", [KEY]);
+    expect(r).toEqual({ last_ingested_sha: mainSha, default_branch: "main" });
+
+    // a row registered by an older hive holds the checkout's branch: re-register and ingest both correct it
+    const stored = async () => (await pool.query("select default_branch from repos where key = $1", [KEY])).rows[0].default_branch;
+    await pool.query("update repos set default_branch = 'feature' where key = $1", [KEY]);
+    await register();
+    expect(await stored()).toBe("main");
+    await pool.query("update repos set default_branch = 'feature' where key = $1", [KEY]);
+    await ingest();
+    expect(await stored()).toBe("main");
+
+    // once the branch lands on main, it's indexed
+    sh(repo.dir, "checkout", "-q", "main");
+    sh(repo.dir, "merge", "-q", "--ff-only", "feature");
+    sh(repo.dir, "checkout", "-q", "feature");
+    const after = await ingest();
+    expect(after.ingest.commits_added).toBe(1);
+    expect((await pool.query("select status from doc_files where path = 'docs/feature.md'")).rows[0]?.status).toBe("indexed");
+  });
+
+  it("prefers origin's copy of the default branch (as last fetched) over unpushed local commits", async () => {
+    const pushed = sh(repo.dir, "rev-parse", "HEAD").trim();
+    sh(repo.dir, "update-ref", "refs/remotes/origin/main", pushed); // what a fetch would leave
+    write(repo.dir, { "docs/local.md": "# Local\n\nLOCALWORD not pushed yet.\n" });
+    commit(repo.dir, "unpushed work");
+
+    await register();
+    expect((await ingest()).ingest.head).toBe(pushed);
+    expect((await pool.query("select count(*)::int n from doc_files where path = 'docs/local.md'")).rows[0].n).toBe(0);
+
+    // origin/HEAD names the default when the remote's isn't main
+    sh(repo.dir, "update-ref", "refs/remotes/origin/trunk", sh(repo.dir, "rev-parse", "HEAD").trim());
+    sh(repo.dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk");
+    expect((await register()).json().repo.default_branch).toBe("trunk");
+    const t = await ingest();
+    expect(t.ingest.head).toBe(sh(repo.dir, "rev-parse", "HEAD").trim());
+    expect((await pool.query("select status from doc_files where path = 'docs/local.md'")).rows[0]?.status).toBe("indexed");
+  });
+
+  it("falls back to the checkout's branch when there's no main, master or origin default", async () => {
+    sh(repo.dir, "branch", "-m", "main", "dev");
+    const reg = await register();
+    expect(reg.json().repo.default_branch).toBe("dev");
+    expect((await ingest()).ingest.head).toBe(sh(repo.dir, "rev-parse", "HEAD").trim());
+  });
+
   it("one ingest per repo at a time", async () => {
     await register();
     const first = sync.sync(KEY);

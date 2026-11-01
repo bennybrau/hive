@@ -81,8 +81,35 @@ export function hostPathOf(localPath: string, roots: RepoRoots): string {
 export interface RepoInfo {
   toplevel: string;
   remoteUrl: string | null;
+  /** The branch ingest reads (see defaultBranch), not whatever the checkout happens to be on. */
   branch: string | null;
+  /** Its tip commit. */
   head: string;
+}
+
+const verifyCommit = (dir: string, ref: string) =>
+  git(dir, ["rev-parse", "--verify", "-q", `${ref}^{commit}`]).then((s) => s.trim() || null, () => null);
+
+/**
+ * The commit a shared index should read: the default branch as last fetched from origin, so what
+ * the hive serves (and links to) is what's on the remote, not a local feature branch or unpushed
+ * work. Order: origin/HEAD, origin/main, origin/master, then local main/master (a repo with no
+ * remote), then the checkout's own HEAD as a last resort. Read-only: never fetches.
+ */
+export async function defaultBranch(dir: string): Promise<{ branch: string | null; sha: string } | null> {
+  const originHead = (await git(dir, ["symbolic-ref", "-q", "refs/remotes/origin/HEAD"]).catch(() => "")).trim();
+  const candidates: [string, string][] = [];
+  if (originHead.startsWith("refs/remotes/origin/")) candidates.push([originHead, originHead.slice("refs/remotes/origin/".length)]);
+  for (const b of ["main", "master"]) candidates.push([`refs/remotes/origin/${b}`, b]);
+  for (const b of ["main", "master"]) candidates.push([`refs/heads/${b}`, b]);
+  for (const [ref, branch] of candidates) {
+    const sha = await verifyCommit(dir, ref);
+    if (sha) return { branch, sha };
+  }
+  const sha = await verifyCommit(dir, "HEAD");
+  if (!sha) return null;
+  const cur = (await git(dir, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim();
+  return { branch: cur && cur !== "HEAD" ? cur : null, sha };
 }
 
 export async function inspectRepo(dir: string): Promise<RepoInfo> {
@@ -92,23 +119,22 @@ export async function inspectRepo(dir: string): Promise<RepoInfo> {
   } catch {
     throw new RepoError(`${dir} is not a git repository`);
   }
-  const head = (await git(toplevel, ["rev-parse", "HEAD"]).catch(() => "")).trim();
-  if (!head) throw new RepoError(`${dir} has no commits yet`);
+  const tip = await defaultBranch(toplevel);
+  if (!tip) throw new RepoError(`${dir} has no commits yet`);
   const remoteUrl = (await git(toplevel, ["remote", "get-url", "origin"]).catch(() => "")).trim() || null;
-  const branch = (await git(toplevel, ["rev-parse", "--abbrev-ref", "HEAD"]).catch(() => "")).trim() || null;
-  return { toplevel, remoteUrl, branch: branch === "HEAD" ? null : branch, head };
+  return { toplevel, remoteUrl, branch: tip.branch, head: tip.sha };
 }
 
-/** Tracked files with their blob sha (`git ls-files -s`). Paths are repo-relative, '/'-separated. */
-export async function trackedFiles(dir: string): Promise<{ path: string; blob: string }[]> {
-  const out = await git(dir, ["ls-files", "-s", "-z"]);
+/** Files in a commit's tree with their blob sha (`git ls-tree -r`). Paths are repo-relative, '/'-separated. */
+export async function trackedFiles(dir: string, commit: string): Promise<{ path: string; blob: string }[]> {
+  const out = await git(dir, ["ls-tree", "-r", "-z", "--full-tree", commit]);
   return out
     .split("\0")
     .filter(Boolean)
     .flatMap((line) => {
-      const m = /^(\d+) ([0-9a-f]+) \d+\t(.+)$/s.exec(line);
-      if (!m || m[1] === "160000") return []; // submodules
-      return [{ path: m[3]!, blob: m[2]! }];
+      const m = /^(\d+) (\w+) ([0-9a-f]+)\t(.+)$/s.exec(line);
+      if (!m || m[2] !== "blob") return []; // submodules are `commit` entries
+      return [{ path: m[4]!, blob: m[3]! }];
     });
 }
 
@@ -121,15 +147,15 @@ export interface Commit {
   files: string[];
 }
 
-/** Non-merge commits, newest first: `since..HEAD` when we have a previous ingest, else the last `max`. */
-export async function commitsSince(dir: string, since: string | null, max: number): Promise<Commit[]> {
-  const range = since ? [`${since}..HEAD`] : ["HEAD"];
+/** Non-merge commits reachable from `tip`, newest first: `since..tip` after a previous ingest, else the last `max`. */
+export async function commitsSince(dir: string, since: string | null, max: number, tip: string): Promise<Commit[]> {
+  const range = since ? [`${since}..${tip}`] : [tip];
   let out: string;
   try {
     out = await git(dir, ["log", "--no-merges", `-n${max}`, "--name-only", "--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%b%x1f", ...range]);
   } catch {
     if (!since) throw new RepoError("git log failed");
-    return commitsSince(dir, null, max); // since-commit vanished (force push / rebase): fall back
+    return commitsSince(dir, null, max, tip); // since-commit vanished (force push / rebase): fall back
   }
   return out
     .split("\x1e")

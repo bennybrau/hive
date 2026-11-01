@@ -122,8 +122,11 @@ The hive reads repos through a read-only mount (`HIVE_REPOS_HOST_ROOT`, default 
   one is already running. Also runs for every repo every `HIVE_REPO_SYNC_MINUTES` (15; 0 = on demand only).
 - `POST /v1/jobs/verify` `{repo_key?}` — curator. Re-check anchors now.
 
-**Ingest** reads the committed state (git blobs, not the working tree), incrementally: files whose blob is
-unchanged are skipped; deleted files' chunks are removed; only commits after the last ingested HEAD are read
+**Ingest** reads the committed state of the repo's **default branch**, never the working tree or the branch the
+checkout is on: `origin/HEAD`, else `origin/main` / `origin/master` (as last fetched; the hive never fetches),
+else local `main` / `master`, else the checkout's `HEAD`. That branch is stored as `default_branch`, its tip as
+`last_ingested_sha`, so doc links point at a commit the remote has. Incremental: files whose blob is
+unchanged are skipped; deleted files' chunks are removed; only commits after the last ingested tip are read
 (first run: the last `HIVE_MAX_COMMITS`, 2000). Documents: Markdown anywhere, `.txt/.rst` at the root or in a
 `docs/` folder, and PDF / Word / PowerPoint (with speaker notes) / Excel at the root or in a `docs/` folder;
 never `node_modules`, `vendor`, `dist`, etc. PDF via `pdftotext`; Office files are unzipped and their XML text

@@ -2,8 +2,10 @@
  * Ingest a registered repo: its documents (README, docs/, markdown anywhere, plus PDF/Word/
  * PowerPoint/Excel under docs/) into searchable chunks, and its commit messages as episodes.
  * Incremental: a file whose git blob hasn't changed since the last ingest is skipped, and only
- * commits after the last ingested HEAD are read. Content is read from git (the committed state),
- * not the working tree, so half-saved edits never get indexed.
+ * commits after the last ingested tip are read. Content is read from git at the default branch's
+ * tip (see defaultBranch: origin's default as last fetched), not the working tree or the branch
+ * the checkout is on, so half-saved edits and feature branches never get indexed and doc links
+ * point at commits the remote has.
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -63,7 +65,7 @@ export async function ingestRepo(pool: pg.Pool, key: string, opts: { maxCommits:
   };
 
   // --- documents ---------------------------------------------------------------
-  const docs = (await trackedFiles(dir)).filter((f) => isIndexedDoc(f.path));
+  const docs = (await trackedFiles(dir, info.head)).filter((f) => isIndexedDoc(f.path));
   const known = new Map(
     (await pool.query<{ path: string; blob_sha: string }>("select path, blob_sha from doc_files where repo_key = $1", [key])).rows.map(
       (r) => [r.path, r.blob_sha],
@@ -130,7 +132,7 @@ export async function ingestRepo(pool: pg.Pool, key: string, opts: { maxCommits:
   }
 
   // --- commits -----------------------------------------------------------------
-  const commits = repo.last_ingested_sha === info.head ? [] : await commitsSince(dir, repo.last_ingested_sha, opts.maxCommits);
+  const commits = repo.last_ingested_sha === info.head ? [] : await commitsSince(dir, repo.last_ingested_sha, opts.maxCommits, info.head);
   for (const c of commits) {
     const files = c.files.slice(0, 50);
     const content = [c.subject, c.body, files.length ? `Files: ${files.join(", ")}${c.files.length > 50 ? ` (+${c.files.length - 50} more)` : ""}` : ""]
@@ -147,7 +149,7 @@ export async function ingestRepo(pool: pg.Pool, key: string, opts: { maxCommits:
 
   summary.ms = Date.now() - t0;
   await pool.query(
-    `update repos set last_ingested_sha = $2, last_ingested_at = now(), default_branch = coalesce($3, default_branch),
+    `update repos set last_ingested_sha = $2, last_ingested_at = now(), default_branch = $3,
             remote_url = coalesce($4, remote_url), ingest_summary = $5, ingest_error = null
      where key = $1`,
     [key, info.head, info.branch, info.remoteUrl, summary],
