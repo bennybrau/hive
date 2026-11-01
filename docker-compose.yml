@@ -58,5 +58,25 @@ services:
       timeout: 3s
       retries: 20
 
+  # The fact agent: claims distill jobs from the hive and runs `claude -p` on the curator's subscription token
+  # (set through PUT /v1/settings/agent-credential; the worker receives it per job and stores nothing).
+  hive-worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+      args:
+        CLAUDE_CODE_VERSION: ${CLAUDE_CODE_VERSION:-2.1.284}
+    restart: unless-stopped
+    depends_on:
+      hive:
+        condition: service_healthy
+    environment:
+      HIVE_URL: http://hive:8800
+      # A `worker` role token; scripts/setup.sh mints one. Empty = the worker logs that and idles.
+      HIVE_TOKEN: ${HIVE_WORKER_TOKEN:-}
+      HIVE_DISTILL_RUNNER: ${HIVE_DISTILL_RUNNER:-claude}
+      HIVE_DISTILL_MODEL: ${HIVE_DISTILL_MODEL:-}
+      OLLAMA_URL: ${OLLAMA_URL-http://host.docker.internal:11434}
+
 volumes:
   pgdata:

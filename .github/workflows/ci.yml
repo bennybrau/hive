@@ -38,6 +38,7 @@ jobs:
       # M3 tests build real git repos and extract real PDFs
       - run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
       - run: pnpm --filter hive test
+      - run: pnpm --filter worker test
 
   image:
     name: docker image builds
@@ -45,6 +46,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -f apps/hive/Dockerfile -t hive:ci .
+      - run: docker build -f apps/worker/Dockerfile -t hive-worker:ci .
+      # the CLI the worker drives is in the image and runs as its user
+      - run: docker run --rm hive-worker:ci claude --version
 
   plugin:
     name: hermes plugin (pytest vs pinned hermes-agent)

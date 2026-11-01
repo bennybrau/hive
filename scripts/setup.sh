@@ -54,6 +54,20 @@ docker compose up -d --build --wait
 HEALTH="$(curl -fsS "http://127.0.0.1:${HIVE_PORT:-8800}/health")"
 echo "health: ${HEALTH}"
 
+# The hive-worker container's token: minted once into .env, then the worker is recreated to pick it up.
+if ! grep -qE '^HIVE_WORKER_TOKEN=.+' .env; then
+  WOUT="$(docker compose exec -T hive node dist/cli/mint-token.js --name "hive-worker-$(openssl rand -hex 3)" --user hive-worker --role worker)"
+  WTOKEN="$(printf '%s\n' "$WOUT" | sed -n 's/^HIVE_TOKEN=//p')"
+  if grep -q '^HIVE_WORKER_TOKEN=' .env; then
+    sed -i.bak "s/^HIVE_WORKER_TOKEN=.*/HIVE_WORKER_TOKEN=${WTOKEN}/" .env && rm -f .env.bak
+  else
+    printf '\nHIVE_WORKER_TOKEN=%s\n' "$WTOKEN" >> .env
+  fi
+  echo "added HIVE_WORKER_TOKEN to .env"
+  set -a; . ./.env; set +a
+  docker compose up -d --wait hive-worker
+fi
+
 EXISTING="$(docker compose exec -T postgres psql -U hive -d hive -tAc "select count(*) from instances where role='curator' and revoked_at is null")"
 if [ "${EXISTING// /}" != "0" ]; then
   echo "a curator token already exists; not minting another. Mint member tokens with:"
