@@ -1,11 +1,38 @@
 import type { ReactNode } from "react";
+import { navigate } from "./App";
 import { signOut, type Status } from "./api";
 
-export function Shell({ status, children }: { status: Status; children: ReactNode }) {
+function NavLink({ to, path, children }: { to: string; path: string; children: ReactNode }) {
+  const here = path === to || path.startsWith(`${to}/`);
+  return (
+    <a
+      href={to}
+      aria-current={here ? "page" : undefined}
+      onClick={(e) => {
+        e.preventDefault();
+        navigate(to);
+      }}
+    >
+      {children}
+    </a>
+  );
+}
+
+export function Shell({ status, path, children }: { status: Status; path: string; children: ReactNode }) {
   return (
     <>
       <header className="shell">
         <span className="brand">hive</span>
+        <nav aria-label="Main">
+          <NavLink to="/facts" path={path}>
+            Facts
+          </NavLink>
+          {status.instance.role === "curator" && (
+            <NavLink to="/review" path={path}>
+              Review
+            </NavLink>
+          )}
+        </nav>
         <span className="instance">{status.instance.name}</span>
         <span className="role" aria-label="role">
           {status.instance.role}

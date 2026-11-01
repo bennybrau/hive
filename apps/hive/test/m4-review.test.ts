@@ -258,6 +258,37 @@ describe("queue", () => {
   });
 });
 
+describe("queue last_distill_at", () => {
+  async function job(status: string, finishedMinsAgo: number | null) {
+    const ep = await post(alice.token, "/v1/episodes", { kind: "session", session_id: `s${Math.random()}`, content: "a session" });
+    expect(ep.statusCode, ep.body).toBeLessThan(300);
+    await pool.query(
+      `update distill_jobs set status = $2, finished_at = case when $3::int is null then null else now() - make_interval(mins => $3::int) end
+       where episode_id = $1`,
+      [ep.json().episode.id, status, finishedMinsAgo],
+    );
+  }
+  const lastDistill = async () => {
+    const res = await get(curator.token, "/v1/review/queue");
+    expect(res.statusCode, res.body).toBe(200);
+    return res.json().last_distill_at as string | null;
+  };
+
+  it("is null until a job is done, then the latest done job's finished_at", async () => {
+    await job("queued", null);
+    await job("failed", 1);
+    expect(await lastDistill()).toBeNull();
+
+    await job("done", 60);
+    await job("done", 30);
+    await job("failed", 5); // later, but not done
+    await job("skipped", 2);
+    const { rows } = await pool.query("select max(finished_at) as at from distill_jobs where status = 'done'");
+    expect(await lastDistill()).toBe(rows[0].at.toISOString());
+    expect(Date.now() - Date.parse((await lastDistill())!)).toBeGreaterThan(29 * 60_000);
+  });
+});
+
 describe("access and errors", () => {
   it("members get 403, non-candidates 409, unknown ids 404, fix without text 400", async () => {
     const f = await remember(alice.token, { text: "Members cannot approve this" });

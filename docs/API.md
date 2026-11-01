@@ -43,11 +43,12 @@ Shared-scope facts from members, and every distilled fact, start as `candidate` 
 The queue only lists scopes the curator can read (never another user's personal facts).
 
 - `GET /v1/review/queue?scope=&origin=&limit=20` — candidates, oldest first (`scope` as stored, e.g. `repo:<key>`;
-  `origin`: `authored | distilled | ingested`; `limit` ≤ 100). Each is `{...fact, supersedes, anchors, similar}`:
+  `origin`: `authored | distilled | ingested`; `limit` ≤ 100). `{candidates, last_distill_at}`; each candidate is `{...fact, supersedes, anchors, similar}`:
   - `anchors[]` include `verify_status`; an anchor on an episode carries `episode_snippet`, ~300 chars of the episode
     around the quote (case-insensitive; the episode's start when the quote isn't found).
   - `similar[]`: up to 3 `active` facts in the candidate's scope or `global` with cosine similarity ≥ 0.85, with
     `similarity`. Empty until the candidate is embedded.
+  - `last_distill_at`: when the last `done` distill job finished (ISO timestamp), or `null` if none has.
 - `POST /v1/facts/:id/review` `{action: approve|fix|reject, note?, new_text?}` → `{fact, merged_into}`. 404 no such fact,
   409 when it isn't a `candidate`. Every decision writes a `reviews` row (`new_text` on fix).
   - `approve` → `active` (and supersedes its target, see above).

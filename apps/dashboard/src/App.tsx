@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch, getToken, onSignOut, type Status } from "./api";
 import { Facts } from "./facts/Facts";
+import { Review } from "./review/Review";
 import { Shell } from "./Shell";
 import { SignIn } from "./SignIn";
 
@@ -45,9 +46,11 @@ export function App() {
   if (status === "loading") return null;
   if (!status) return <SignIn onSignedIn={setStatus} />;
   return (
-    <Shell status={status}>
+    <Shell status={status} path={path}>
       {path === "/facts" || path.startsWith("/facts/") ? (
         <Facts />
+      ) : path === "/review" ? (
+        <Review role={status.instance.role} />
       ) : (
         <main className="page">
           <h1>Not found</h1>

@@ -31,7 +31,7 @@ async function signIn(token: string) {
 beforeEach(() => {
   sessionStorage.clear();
   history.replaceState(null, "", "/");
-  fetchMock.mockClear();
+  fetchMock.mockReset(); // also drops a test's mockImplementation (vitest 3 restores the vi.fn one)
   vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => {
@@ -56,6 +56,26 @@ describe("dashboard shell", () => {
     const last = fetchMock.mock.calls.length - 1;
     expect(fetchMock.mock.calls[last]![0]).toBe("/v1/facts");
     expect(authOf(last)).toBe("Bearer good-token");
+  });
+
+  it("shows the Review nav link to curators only, and /review opens it", async () => {
+    sessionStorage.setItem("hive.token", "good-token");
+    const { unmount } = render(<App />);
+    await screen.findByText("bennys-laptop");
+    expect(screen.getByRole("link", { name: "Facts" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("link", { name: "Review" })).toBeNull();
+    unmount();
+
+    fetchMock.mockImplementation(async (url) =>
+      String(url) === "/v1/status"
+        ? json(200, { ...STATUS, instance: { ...STATUS.instance, role: "curator" } })
+        : json(200, { candidates: [], last_distill_at: null }),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("link", { name: "Review" }));
+    expect(location.pathname).toBe("/review");
+    expect(await screen.findByText(/No distill has run yet/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Review" }).getAttribute("aria-current")).toBe("page");
   });
 
   it("uses a token already stored in this tab without asking again", async () => {

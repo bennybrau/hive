@@ -75,7 +75,13 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
          order by s.similarity desc`,
         [ids, SIMILAR_MIN],
       );
+      // When the distiller last finished a job, so an empty queue can say how fresh it is.
+      const lastDistill = await pool.query<{ at: Date | null }>(
+        "select max(finished_at) as at from distill_jobs where status = 'done'",
+      );
+      const at = lastDistill.rows[0]?.at ?? null;
       return {
+        last_distill_at: at ? at.toISOString() : null,
         candidates: candidates.map((c) => ({
           ...c,
           anchors: anchors.rows.filter((a) => a.fact_id === c.id).map(({ fact_id: _, ...a }) => a),
