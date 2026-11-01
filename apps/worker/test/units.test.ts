@@ -135,7 +135,7 @@ describe("ClaudeAuth", () => {
 
 describe("prompt", () => {
   it("the prompt file carries its version", () => {
-    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v1");
+    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v2");
     expect(loadPrompt(PROMPT_PATH).body).toContain('{"facts":[]}');
   });
 

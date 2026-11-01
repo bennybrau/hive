@@ -1,0 +1,26 @@
+{
+  "id": "hive-build-gotcha",
+  "source": {
+    "session": "20261027_181205_7587ef23",
+    "lo": 1409,
+    "hi": 1464
+  },
+  "repo_key": "gh/bennybrau/hive",
+  "expected": [
+    {
+      "text": "Hermes' MemoryManager.add_provider() builds the tool routing table from get_tool_schemas() at registration, before initialize(), so a conditionally offered tool (like the curator-only hive_review) must decide from the environment at that point or the model's call fails with 'Unknown tool'.",
+      "kind": "gotcha",
+      "scope": "repo:gh/bennybrau/hive",
+      "evidence": "Found the likely cause. Hermes builds its tool routing table when the provider is registered, which happens before `initialize()`."
+    }
+  ],
+  "acceptable": [
+    {
+      "text": "Plugin tests should register the provider through Hermes' real MemoryManager in agent startup order (add_provider before initialize); constructing and initializing it directly hid the hive_review routing bug.",
+      "kind": "convention",
+      "scope": "repo:gh/bennybrau/hive",
+      "evidence": "Now the regression tests, which use Hermes' real `MemoryManager` in the same order as agent startup:"
+    }
+  ],
+  "notes": "A merged feature (hive_review) failed in a real Hermes curator session with 'Unknown tool'; the assistant traced it to Hermes registering provider tools before initialize(), fixed it, showed the new test fails without the fix and ran a live end-to-end check. The ASF worker-kill diagnosis later in the same stretch ends with an open question to the user, so it is not labelled."
+}

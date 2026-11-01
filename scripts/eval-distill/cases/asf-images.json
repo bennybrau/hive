@@ -1,0 +1,19 @@
+{
+  "id": "asf-images",
+  "source": {
+    "session": "20260929_202138_f0c7098c",
+    "lo": 0,
+    "hi": 58
+  },
+  "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
+  "expected": [],
+  "acceptable": [
+    {
+      "text": "The web app ships a self-hosted subset of the Material Symbols font, so any icon name used in the UI must be present in apps/web/src/assets/material-symbols-subset.woff2 (regenerate it per assets/README.md) or the browser prints the raw icon name as text; a test in apps/web/src/icons.test.ts now guards this.",
+      "kind": "gotcha",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "the subset, the ligature never forms and the browser prints the raw word"
+    }
+  ],
+  "notes": "ROUTINE window (not unresolved debugging): two 'pull latest images and update the local stack' requests plus a small icon fix whose rule is already documented in the repo's assets/README.md and enforced by a new test, so nothing is non-obvious and durable; expected is []. The icon-subset gotcha is listed as acceptable only."
+}

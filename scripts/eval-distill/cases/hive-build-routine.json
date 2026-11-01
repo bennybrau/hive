@@ -1,0 +1,19 @@
+{
+  "id": "hive-build-routine",
+  "source": {
+    "session": "20261027_181205_7587ef23",
+    "lo": 1122,
+    "hi": 1151
+  },
+  "repo_key": "gh/bennybrau/hive",
+  "expected": [],
+  "acceptable": [
+    {
+      "text": "Merging a PR to main in the ASF repo publishes a new patch release (tag and images) automatically, so no manual release step is needed.",
+      "kind": "system",
+      "scope": "global",
+      "evidence": "Merging #65 and #66 had already published v1.21.4 and v1.21.5 automatically, so no release step was needed."
+    }
+  ],
+  "notes": "Routine: user says PRs are merged; assistant rebases a PR, resolves a CHANGELOG conflict, waits for CI, updates the local ASF stack to the published release and reruns the Hive tests. All status / what-was-done; nothing durable beyond what the code and changelog already say. Label review: the session proves ASF auto-releases on merge (the assistant had planned a manual release); that is a true durable fact, so it is acceptable, though not required from a routine window."
+}

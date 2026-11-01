@@ -1,6 +1,6 @@
 import { chunkTranscript } from "./chunk.js";
 import type { Claimed, HiveClient } from "./client.js";
-import { allowedScopes, parseFacts, renderPrompt, type DistilledFact, type Prompt } from "./prompt.js";
+import { allowedScopes, anchorQuote, parseFacts, renderPrompt, type DistilledFact, type Prompt } from "./prompt.js";
 import type { Runner, Usage } from "./runners/types.js";
 
 /** The complete endpoint takes at most this many facts per job. */
@@ -71,7 +71,9 @@ export async function distill(deps: LoopDeps, claim: Claimed): Promise<{ facts: 
     usage.cache_read_tokens += res.usage.cache_read_tokens;
     usage.cost_usd += res.usage.cost_usd;
     usage.duration_ms += res.usage.duration_ms;
-    for (const f of parseFacts(res.json, scopes)) {
+    for (const parsed of parseFacts(res.json, scopes)) {
+      // An unrepairable quote is passed on as is: the hive drops that fact and records why.
+      const f = { ...parsed, quote: anchorQuote(parsed.quote, chunk) ?? parsed.quote };
       const key = f.text.toLowerCase().replace(/\s+/g, " ");
       if (seen.has(key)) continue;
       seen.add(key);

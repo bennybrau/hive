@@ -1,0 +1,32 @@
+{
+  "id": "asf-hive-plan",
+  "source": {
+    "session": "20261003_194754_aca0947b",
+    "lo": 79,
+    "hi": 137
+  },
+  "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
+  "expected": [
+    {
+      "text": "The Hive-theme bee GIFs and Queen image must never be committed to the ASF repo (a bee carries an AI-generator mark with unclear licence); they are uploaded only to the owner's own org, and built-in themes ship with no pictures, showing neutral placeholders until someone uploads.",
+      "kind": "decision",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "Okay, the bee GIFs and the Queen won't go in the repo."
+    }
+  ],
+  "acceptable": [
+    {
+      "text": "Theme text (names, quips, status lines) is shown as plain text and cannot inject markup or CSS, and the accent colour accepts only a plain hex value.",
+      "kind": "invariant",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "a theme can't inject markup or CSS. All of its text is shown as plain text, and the accent only accepts a hex colour like `#e0a526`."
+    },
+    {
+      "text": "The web app may import only types from '@asf/shared'; anything needed at runtime must be re-exported from the browser-safe '@asf/shared/ui' entry, which must stay free of node built-ins.",
+      "kind": "invariant",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "so the web may import only TYPES from '@asf/shared'."
+    }
+  ],
+  "notes": "Start of the M12 Themes & the Hive implementation: milestone/issues filed, WP1 PR opened and CI-waited. Only one settled, non-obvious decision (never commit the art, org uploads only); the rest is routine implementation status."
+}

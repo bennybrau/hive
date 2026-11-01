@@ -1,0 +1,26 @@
+{
+  "id": "hermes-model-id",
+  "source": {
+    "session": "20260927_134027_1301dd92",
+    "lo": 0,
+    "hi": 23
+  },
+  "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
+  "expected": [
+    {
+      "text": "Hermes blocks agent tools from writing ~/.hermes/config.yaml (it is treated as security-sensitive); the config must be changed by the user directly or via the `hermes config set` CLI.",
+      "kind": "gotcha",
+      "scope": "global",
+      "evidence": "Refusing to write to Hermes config file: /Users/jon/.hermes/config.yaml\\nAgent cannot modify security-sensitive configuration. Edit ~/.hermes/config.yaml directly or use 'hermes config' instead."
+    }
+  ],
+  "acceptable": [
+    {
+      "text": "Anthropic model IDs in Hermes's provider catalog use dots for the minor version (e.g. `claude-opus-5.5`); the hyphenated `claude-opus-5-5` is rejected as an unknown model.",
+      "kind": "gotcha",
+      "scope": "global",
+      "evidence": "Anthropic's ID for that model is **`claude-opus-5.5`** with a dot. Hyphen version \u2192 unknown model \u2192 load fails."
+    }
+  ],
+  "notes": "Model-ID confusion: assistant wrongly claimed Opus 5 does not exist (stale knowledge), was corrected by the user, then diagnosed a hyphen-vs-dot ID mismatch. Only the config-write block is clearly settled by tool output; the dotted-ID cause is assistant inference so it is acceptable only. Both are Hermes facts, so scope is global despite the ASF repo_key; the ASF M8 milestone request produced no facts."
+}

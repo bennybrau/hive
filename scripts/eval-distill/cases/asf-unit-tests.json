@@ -1,0 +1,19 @@
+{
+  "id": "asf-unit-tests",
+  "source": {
+    "session": "20261012_094933_6920ab",
+    "lo": 0,
+    "hi": 44
+  },
+  "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
+  "expected": [],
+  "acceptable": [
+    {
+      "text": "apps/web lists its test files explicitly in package.json, so a new web test file (e.g. vertex.test.tsx) must be added there or it will not run, whereas shared, api and worker discover tests by glob or automatically.",
+      "kind": "gotcha",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "web needed the explicit package.json entry"
+    }
+  ],
+  "notes": "Subagent writing unit tests for the M9 Vertex AI check; routine work with all suites passing. The only reusable nugget is that apps/web needs an explicit test-file entry in package.json (borderline, visible in package.json). The %40-vs-@ finding is the assistant's own unconfirmed claim, so not labelled."
+}

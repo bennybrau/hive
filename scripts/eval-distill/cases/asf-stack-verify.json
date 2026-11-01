@@ -1,0 +1,12 @@
+{
+  "id": "asf-stack-verify",
+  "source": {
+    "session": "20261017_200015_79eb085a",
+    "lo": 0,
+    "hi": 25
+  },
+  "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
+  "expected": [],
+  "acceptable": [],
+  "notes": "Three repeated 'check the local stack is updating' requests (v1.15.0->v1.15.1, then v1.16.0->v1.16.1). All status checks of the in-app updater and asf doctor; observations like the old worker taking ~2 min to drop off are transient assistant statements, not decisions."
+}

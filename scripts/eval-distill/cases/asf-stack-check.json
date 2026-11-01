@@ -1,0 +1,12 @@
+{
+  "id": "asf-stack-check",
+  "source": {
+    "session": "20261017_182357_149adcc9",
+    "lo": 0,
+    "hi": 15
+  },
+  "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
+  "expected": [],
+  "acceptable": [],
+  "notes": "Status check that the in-app updater moved the local stack from v1.11.1 to v1.13.0; asf doctor passes except an Ollama-not-running warning. Pure verification and status reporting, no decisions or new durable facts."
+}

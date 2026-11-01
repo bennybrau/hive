@@ -1,0 +1,44 @@
+{
+  "id": "hive-design",
+  "source": {
+    "session": "20261025_095952_a60394d2",
+    "lo": 20,
+    "hi": 41
+  },
+  "repo_key": "gh/bennybrau/hive",
+  "expected": [
+    {
+      "text": "Approving, rejecting and editing claims in the shared memory is done through chat (Slack/Teams), not by exposing git pull requests to reviewers; git, if used at all, is only a hidden storage detail.",
+      "kind": "decision",
+      "scope": "repo:gh/bennybrau/hive",
+      "evidence": "I wouldn't expose the interface of git (pull request) as the primary mechanism when it comes to approving/rejecting/modifying claims about the enterprise in the hive mind.  chat generally is the tool used by agents and humans to communicate."
+    },
+    {
+      "text": "The shared memory starts on a relational Postgres database (not a graph DB or git-backed store) because the agents need fast queries against the shared mind.",
+      "kind": "decision",
+      "scope": "repo:gh/bennybrau/hive",
+      "evidence": "If we can start with a relational DB like Postgres, then that's fine.  We need speed when it comes to the shared mind that the agents need to query from."
+    },
+    {
+      "text": "Memory governance is split by provenance: facts read from a source of truth need no review, while human or bot recollections (lessons, decisions) always go to a reviewer, a central curator on day one.",
+      "kind": "decision",
+      "scope": "repo:gh/bennybrau/hive",
+      "evidence": "Human/bot recollections always need review.* \"Lessons,\" \"decisions,\" rate limits someone's bot inferred — these go to a reviewer. Day one that's a central curator (your team). Phase two,"
+    }
+  ],
+  "acceptable": [
+    {
+      "text": "Deployment of generated artifacts goes through a pluggable DeployTarget seam (Cloud Run first) because the organisation is on Google Cloud but must be able to configure how things deploy rather than assume one platform.",
+      "kind": "decision",
+      "scope": "repo:gh/bennybrau/hive",
+      "evidence": "I want to make sure that the system has the seam necessary to configure 'how things get deployed automatically' rather than just assume we have one solution."
+    },
+    {
+      "text": "The shared memory serves both non-engineers who describe what they want built and engineers whose bots need to know the estate; these are not treated as alternative first users.",
+      "kind": "decision",
+      "scope": "repo:gh/bennybrau/hive",
+      "evidence": "I don't think you have to exclude one case or the other.  I would say both."
+    }
+  ],
+  "notes": "Hive design discussion where the user answers the assistant's open design questions. Expected = the user's explicit rulings (chat-first approval, Postgres first) and the governance split he confirmed with 'I think that split makes sense'. Deploy seam and 'both use cases' are real decisions but less Hive-specific, so acceptable."
+}

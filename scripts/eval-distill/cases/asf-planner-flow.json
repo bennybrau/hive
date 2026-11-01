@@ -1,0 +1,38 @@
+{
+  "id": "asf-planner-flow",
+  "source": {
+    "session": "20260928_215709_d40c869a",
+    "lo": 0,
+    "hi": 52
+  },
+  "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
+  "expected": [
+    {
+      "text": "ASF's plan stage is a back-and-forth chat with the planner (instead of rejecting the gate to answer open questions); implementer, tester and reviewer then run without interaction.",
+      "kind": "decision",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "Planner should have more of a back and forth chat and then implementer, tester, and reviewer can just go."
+    },
+    {
+      "text": "Each planner chat reply in ASF resumes the planner's Claude session so replies are fast and cheap, and falls back to a fresh planner run with the full conversation thread in the prompt when the session is gone.",
+      "kind": "decision",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "\"user_response\": \"Resume the planner's Claude session so replies are fast and cheap, falling back to a fresh re-run with the full thread if the session is gone\""
+    },
+    {
+      "text": "A fresh ASF install defaults to plan = chat + approve, implement/test/review = auto, create-MR = notify and merge = required, because the existing team already runs implement/test/review automatically and the old default of 'required' everywhere forced a stop at every step.",
+      "kind": "decision",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "Should I change the fresh-install default to: plan = chat + approve, implement/test/review = auto, create MR = notify, merge = required?"
+    }
+  ],
+  "acceptable": [
+    {
+      "text": "When a ticket is unclear and the planner is blocked, it replies with questions only and writes no plan; otherwise it writes the plan with any remaining questions listed under it.",
+      "kind": "convention",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "\"user_response\": \"Yes: if blocked, it asks only questions; otherwise it writes the plan with any questions under it\""
+    }
+  ],
+  "notes": "Decision window (not an unresolved debugging one): the whole session is one feature, so I took its opening [0,52), where the assistant explores the planner/gate code and the user settles three design questions via clarify. The session and defaults choices are explicit user decisions; ask-first behaviour is also decided but is later visible in prompts/roles/planner.md, so acceptable only. The cost/time figures are omitted as they will change. Label review: added the user's opening directive (plan stage becomes a chat) as expected; it is the window's core decision."
+}

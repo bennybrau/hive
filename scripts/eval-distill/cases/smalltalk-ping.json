@@ -1,0 +1,8 @@
+{
+  "id": "smalltalk-ping",
+  "source": {"session": "20261024_111626_3bd76960", "lo": 0, "hi": 3},
+  "repo_key": null,
+  "expected": [],
+  "acceptable": [],
+  "notes": "A one-line 'you there?' check-in. Nothing to keep."
+}
