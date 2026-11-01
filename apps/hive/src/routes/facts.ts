@@ -74,7 +74,9 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
     },
   );
 
-  app.get<{ Querystring: { scope?: string; status?: string; kind?: string; repo_key?: string; limit?: number; offset?: number } }>(
+  app.get<{
+    Querystring: { scope?: string; status?: string; kind?: string; origin?: string; repo_key?: string; limit?: number; offset?: number };
+  }>(
     "/v1/facts",
     {
       schema: {
@@ -84,6 +86,7 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
             scope: { type: "string" },
             status: { type: "string", enum: ["candidate", "active", "superseded", "retracted"] },
             kind: { type: "string", enum: [...FACT_KINDS] },
+            origin: { type: "string", enum: ["authored", "distilled", "ingested"] },
             repo_key: { type: "string" },
             limit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
             offset: { type: "integer", minimum: 0, default: 0 },
@@ -103,13 +106,16 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
       if (qs.scope) add("scope = ?", qs.scope === "personal" ? `personal:${who.user_id}` : qs.scope);
       if (qs.status) add("status = ?", qs.status);
       if (qs.kind) add("kind = ?", qs.kind);
-      params.push(qs.limit ?? 50, qs.offset ?? 0);
+      if (qs.origin) add("origin = ?", qs.origin);
+      const limit = qs.limit ?? 50;
+      params.push(limit + 1, qs.offset ?? 0); // one extra row tells us whether there's another page
       const { rows } = await pool.query<Fact>(
         `select ${FACT_COLUMNS} from facts where ${where.join(" and ")}
-         order by recorded_at desc limit $${params.length - 1} offset $${params.length}`,
+         order by recorded_at desc, id desc limit $${params.length - 1} offset $${params.length}`,
         params,
       );
-      return { facts: rows };
+      const has_more = rows.length > limit;
+      return { facts: has_more ? rows.slice(0, limit) : rows, has_more };
     },
   );
 
@@ -125,11 +131,16 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
       );
       if (!rows[0]) return reply.code(404).send({ error: "no such fact" });
       const anchors = await pool.query(
-        `select id, episode_id, repo_key, commit_sha, path, line_start, line_end, quote, verify_status, verified_at
-         from anchors where fact_id = $1`,
+        `select a.id, a.episode_id, a.repo_key, a.commit_sha, a.path, a.line_start, a.line_end, a.quote,
+                a.verify_status, a.verified_at, a.verify_note, a.found_line, r.remote_url
+         from anchors a left join repos r on r.key = a.repo_key where a.fact_id = $1`,
         [req.params.id],
       );
-      return { fact: rows[0], anchors: anchors.rows, ...(await factChain(pool, req.params.id)) };
+      const reviews = await pool.query(
+        `select action, note, new_text, reviewer_user_id, created_at from reviews where fact_id = $1 order by created_at, id`,
+        [req.params.id],
+      );
+      return { fact: rows[0], anchors: anchors.rows, reviews: reviews.rows, ...(await factChain(pool, req.params.id)) };
     },
   );
 
