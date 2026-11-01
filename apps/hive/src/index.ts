@@ -35,6 +35,7 @@ const app = buildApp(pool, {
   minSimilarity: config.vectorMinSimilarity,
   secretKey: config.secretKey,
   distillLeaseSeconds: config.distillLeaseSeconds,
+  dashboardDir: config.dashboardDir,
   repos: { roots: { root: config.reposRoot, hostRoot: config.reposHostRoot }, sync: repoSync },
 });
 await app.listen({ host: config.host, port: config.port });

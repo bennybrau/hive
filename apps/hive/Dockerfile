@@ -3,9 +3,11 @@ WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY apps/hive/package.json apps/hive/
-RUN pnpm install --frozen-lockfile --filter hive
+COPY apps/dashboard/package.json apps/dashboard/
+RUN pnpm install --frozen-lockfile --filter hive --filter dashboard
 COPY apps/hive apps/hive
-RUN pnpm --filter hive build && pnpm --filter hive --prod deploy --legacy /out
+COPY apps/dashboard apps/dashboard
+RUN pnpm --filter hive build && pnpm --filter dashboard build && pnpm --filter hive --prod deploy --legacy /out
 
 FROM node:24-slim
 WORKDIR /app
@@ -19,6 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends git poppler-uti
 COPY --from=build /out/node_modules ./node_modules
 COPY --from=build /out/package.json ./
 COPY --from=build /app/apps/hive/dist ./dist
+# The dashboard, served at / (HIVE_DASHBOARD_DIR defaults here).
+COPY --from=build /app/apps/dashboard/dist ./public
 COPY apps/hive/migrations ./migrations
 USER node
 EXPOSE 8800

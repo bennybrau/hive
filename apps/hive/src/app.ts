@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyLoggerOptions } from "fastify";
 import type pg from "pg";
 import { bearerAuth, confineWorker } from "./auth.js";
@@ -31,7 +33,12 @@ export interface AppOptions {
   distillLeaseSeconds?: number;
   /** Wakes waiting claims when an episode arrives; one is made when omitted. */
   distillNotifier?: DistillNotifier;
+  /** Built dashboard to serve at /; omitted or missing = API only. */
+  dashboardDir?: string;
 }
+
+/** API paths keep JSON 404s; any other page load is a dashboard route. */
+const API_PATH = /^\/(v1|health)(\/|\?|$)/;
 
 export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
   // The default serializers log method/url/headers, never bodies, so a PUT credential stays out of the logs.
@@ -66,6 +73,15 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
     });
     searchRoutes(v1, { pool, embedder, minSimilarity: opts.minSimilarity ?? 0.55 });
     if (opts.repos) repoRoutes(v1, pool, opts.repos);
+  });
+
+  const dashboard = opts.dashboardDir && existsSync(opts.dashboardDir) ? opts.dashboardDir : null;
+  if (dashboard) app.register(fastifyStatic, { root: dashboard, wildcard: false });
+  app.setNotFoundHandler((req, reply) => {
+    if (dashboard && (req.method === "GET" || req.method === "HEAD") && !API_PATH.test(req.url)) {
+      return reply.sendFile("index.html");
+    }
+    return reply.code(404).send({ message: `Route ${req.method}:${req.url} not found`, error: "Not Found", statusCode: 404 });
   });
   return app;
 }

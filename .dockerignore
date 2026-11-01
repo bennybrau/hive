@@ -4,3 +4,5 @@
 .env
 plugins
 docs
+**/test-results
+**/playwright-report

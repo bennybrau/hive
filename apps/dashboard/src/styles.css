@@ -1,0 +1,80 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --text: #1c1917;
+  --muted: #57534e;
+  --line: #e7e5e4;
+  --accent: #047857;
+  --accent-text: #ffffff;
+  --error: #b91c1c;
+  --radius: 4px;
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1917;
+    --surface: #292524;
+    --text: #f5f5f4;
+    --muted: #a8a29e;
+    --line: #44403c;
+    --accent: #34d399;
+    --accent-text: #052e1f;
+    --error: #fca5a5;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100dvh; }
+code { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+a { color: var(--accent); }
+h1 { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+.help { color: var(--muted); margin: 0; }
+.error { color: var(--error); margin: 0; }
+
+button {
+  font: inherit;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: 0.6; cursor: default; }
+button[type="submit"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 500; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.shell {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+  padding: 0 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.shell .brand { font-weight: 600; }
+.shell .instance { color: var(--muted); }
+.shell .role { font-size: 12px; padding: 2px 8px; border: 1px solid var(--line); border-radius: var(--radius); }
+.shell button { margin-left: auto; }
+
+.page { padding: 24px; }
+
+.signin { display: grid; place-items: start center; padding: 15vh 16px 0; }
+.signin form { display: grid; gap: 8px; width: min(100%, 360px); }
+.signin label { font-weight: 500; }
+.signin input {
+  font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 8px 10px;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+.signin input[aria-invalid] { border-color: var(--error); }
+.signin button { justify-self: start; margin-top: 4px; }

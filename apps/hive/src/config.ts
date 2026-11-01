@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { parseSecretKey } from "./secrets.js";
 
 export interface Config {
@@ -23,6 +24,8 @@ export interface Config {
   secretKey: Buffer | null;
   /** How long a claimed distill job belongs to its worker before it can be re-queued. */
   distillLeaseSeconds: number;
+  /** Built dashboard (index.html + assets); served at / when the directory exists. */
+  dashboardDir: string;
 }
 
 function num(env: NodeJS.ProcessEnv, key: string, dflt: number, ok: (n: number) => boolean): number {
@@ -66,5 +69,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxCommits: num(env, "HIVE_MAX_COMMITS", 2000, (n) => Number.isInteger(n) && n > 0),
     secretKey: secretKey(env),
     distillLeaseSeconds: num(env, "HIVE_DISTILL_LEASE_SECONDS", 600, (n) => Number.isInteger(n) && n > 0),
+    dashboardDir: resolve(env.HIVE_DASHBOARD_DIR || "/app/public"), // @fastify/static needs an absolute root
   };
 }
