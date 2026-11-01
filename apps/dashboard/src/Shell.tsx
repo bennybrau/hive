@@ -27,6 +27,9 @@ export function Shell({ status, path, children }: { status: Status; path: string
           <NavLink to="/facts" path={path}>
             Facts
           </NavLink>
+          <NavLink to="/search" path={path}>
+            Search
+          </NavLink>
           {status.instance.role === "curator" && (
             <NavLink to="/review" path={path}>
               Review

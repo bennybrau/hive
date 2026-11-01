@@ -103,7 +103,8 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   cosine similarity ≥ `min_sim` to the question. Rows not embedded yet can't be judged and are kept.
   Keyword hits on embedded rows now report their `similarity` too.
 - `GET /v1/search?q=&source=all|fact,conversation,history,commit,doc&repo_key=&k=20&include_candidates=false` —
-  `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id | path+line_start+line_end | ref, ...}]}`.
+  `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id | path+line_start+line_end+sha+remote_url | ref+subject, ...}]}`.
+  Doc hits' `sha` is the commit the repo was last ingested at (usable in a blob link); commit hits' `subject` is the message's first line.
   `conversation` = turn episodes, `history` = session episodes; both only YOUR user's episodes.
   `commit` and `doc` are shared: commit messages and document chunks of registered repos (`repo_key` narrows to one).
 

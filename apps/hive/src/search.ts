@@ -206,6 +206,11 @@ export interface TextHit {
   line_end?: number | null;
   ref?: string | null;
   created_at?: string;
+  /** Commit hits: the message's first line. */
+  subject?: string;
+  /** Doc hits: the commit the chunk was read at (the repo's last ingest), for links. */
+  sha?: string | null;
+  remote_url?: string | null;
 }
 
 const HEADLINE = `ts_headline('english', left(t.content, 20000), ${TSQUERY}, 'MaxFragments=2, MaxWords=30, MinWords=10, FragmentDelimiter=" … "')`;
@@ -228,12 +233,12 @@ export async function searchEpisodes(
   }
   const ranked = await hybridIds(deps, { table: "episodes", tsv: "content_tsv", filter }, opts.q, opts.qvec, opts.k);
   if (ranked.length === 0) return [];
-  const { rows } = await deps.pool.query<{ id: string; snippet: string; session_id: string | null; repo_key: string | null; ref: string | null; created_at: string }>(
-    `select t.id, ${HEADLINE} as snippet, t.session_id, t.repo_key, t.ref, t.created_at
+  const { rows } = await deps.pool.query<{ id: string; snippet: string; session_id: string | null; repo_key: string | null; ref: string | null; created_at: string; subject: string }>(
+    `select t.id, ${HEADLINE} as snippet, t.session_id, t.repo_key, t.ref, t.created_at, split_part(t.content, E'\n', 1) as subject
      from episodes t where t.id = any($2)`,
     [opts.q, ranked.map((r) => r.id)],
   );
-  return byRank(ranked, rows).map((r) => ({ source, ...r }));
+  return byRank(ranked, rows).map(({ subject, ...r }) => (source === "commit" ? { source, ...r, subject } : { source, ...r }));
 }
 
 export async function searchDocs(
@@ -243,8 +248,13 @@ export async function searchDocs(
   const filter: [string, unknown[]] = opts.repoKey ? ["t.repo_key = $2", [opts.repoKey]] : ["true", []];
   const ranked = await hybridIds(deps, { table: "doc_chunks", tsv: "content_tsv", filter }, opts.q, opts.qvec, opts.k);
   if (ranked.length === 0) return [];
-  const { rows } = await deps.pool.query<{ id: string; snippet: string; repo_key: string; path: string; line_start: number | null; line_end: number | null }>(
-    `select t.id, ${HEADLINE} as snippet, t.repo_key, t.path, t.line_start, t.line_end from doc_chunks t where t.id = any($2)`,
+  const { rows } = await deps.pool.query<{
+    id: string; snippet: string; repo_key: string; path: string; line_start: number | null; line_end: number | null;
+    sha: string | null; remote_url: string | null;
+  }>(
+    // doc_chunks.sha is the file's blob sha; links need a commit, so use the HEAD the repo was last ingested at
+    `select t.id, ${HEADLINE} as snippet, t.repo_key, t.path, t.line_start, t.line_end, r.last_ingested_sha as sha, r.remote_url
+     from doc_chunks t left join repos r on r.key = t.repo_key where t.id = any($2)`,
     [opts.q, ranked.map((r) => r.id)],
   );
   return byRank(ranked, rows).map((r) => ({ source: "doc" as const, ...r }));

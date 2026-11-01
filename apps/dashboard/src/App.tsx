@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { apiFetch, getToken, onSignOut, type Status } from "./api";
 import { Facts } from "./facts/Facts";
 import { Review } from "./review/Review";
+import { Search } from "./search/Search";
 import { Shell } from "./Shell";
 import { SignIn } from "./SignIn";
 
@@ -51,6 +52,8 @@ export function App() {
         <Facts />
       ) : path === "/review" ? (
         <Review role={status.instance.role} />
+      ) : path === "/search" ? (
+        <Search />
       ) : (
         <main className="page">
           <h1>Not found</h1>

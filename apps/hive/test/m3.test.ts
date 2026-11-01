@@ -224,6 +224,11 @@ describe("ingest", () => {
     expect(hit).toMatchObject({ source: "doc", path: "docs/settings.md", repo_key: KEY });
     const lines = SETTINGS_MD.split("\n");
     expect(lines.slice(hit.line_start - 1, hit.line_end).join("\n")).toContain("GATE_POLICY=strict");
+    // links: the commit the repo was ingested at (not the blob sha), and the remote
+    const { rows: [r] } = await pool.query("select last_ingested_sha, remote_url from repos where key = $1", [KEY]);
+    expect(hit.sha).toMatch(/^[0-9a-f]{40}$/);
+    expect(hit.sha).toBe(r.last_ingested_sha);
+    expect(hit).toHaveProperty("remote_url", r.remote_url);
 
     // office and pdf text is searchable
     for (const [q, p] of [["invoice", "docs/plan.docx"], ["payments migration", "docs/deck.pptx"], ["audit logs retention", "docs/spec.pdf"]]) {
@@ -234,6 +239,7 @@ describe("ingest", () => {
     const c = (await get(alice.token, `/v1/search?q=initial%20import&source=commit`)).json().results;
     expect(c[0]).toMatchObject({ source: "commit", repo_key: KEY });
     expect(c[0].ref).toMatch(/^[0-9a-f]{40}$/);
+    expect(c[0].subject).toBe("initial import");
     // and appear in the repo list
     expect((await get(alice.token, "/v1/repos")).json().repos[0]).toMatchObject({ docs: 6, commits: 1 });
   });
