@@ -5,6 +5,7 @@ import { createPool, describeDbError } from "./db/pool.js";
 import { createEmbedder } from "./embed.js";
 import { startEmbedWorker } from "./jobs/embed.js";
 import { createRepoSync } from "./jobs/repo-sync.js";
+import { startWebhookDispatcher } from "./webhooks.js";
 
 const config = loadConfig();
 const pool = createPool(config.databaseUrl);
@@ -27,6 +28,14 @@ const repoSync = createRepoSync(pool, {
   onWrite: () => worker?.kick(),
 });
 
+// Without a key no webhook can exist (their secrets are encrypted under it).
+const webhooks = config.secretKey
+  ? startWebhookDispatcher(pool, config.secretKey, {
+      maxAttempts: config.webhookMaxAttempts,
+      backoffSeconds: config.webhookBackoffSeconds,
+    })
+  : null;
+
 const app = buildApp(pool, {
   version: config.version,
   logger: true,
@@ -44,6 +53,7 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
   process.on(sig, async () => {
     await repoSync.stop();
     await worker?.stop();
+    await webhooks?.stop();
     await app.close();
     await pool.end();
     process.exit(0);

@@ -24,6 +24,10 @@ export interface Config {
   secretKey: Buffer | null;
   /** How long a claimed distill job belongs to its worker before it can be re-queued. */
   distillLeaseSeconds: number;
+  /** A webhook delivery is `failed` after this many attempts. */
+  webhookMaxAttempts: number;
+  /** First webhook retry waits this long; each later one doubles (capped at an hour). */
+  webhookBackoffSeconds: number;
   /** Built dashboard (index.html + assets); served at / when the directory exists. */
   dashboardDir: string;
 }
@@ -69,6 +73,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     maxCommits: num(env, "HIVE_MAX_COMMITS", 2000, (n) => Number.isInteger(n) && n > 0),
     secretKey: secretKey(env),
     distillLeaseSeconds: num(env, "HIVE_DISTILL_LEASE_SECONDS", 600, (n) => Number.isInteger(n) && n > 0),
+    webhookMaxAttempts: num(env, "HIVE_WEBHOOK_MAX_ATTEMPTS", 6, (n) => Number.isInteger(n) && n > 0),
+    webhookBackoffSeconds: num(env, "HIVE_WEBHOOK_BACKOFF_SECONDS", 30, (n) => n > 0),
     dashboardDir: resolve(env.HIVE_DASHBOARD_DIR || "/app/public"), // @fastify/static needs an absolute root
   };
 }

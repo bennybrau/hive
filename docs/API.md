@@ -95,6 +95,34 @@ malformed key stops the service at startup) and are never returned or logged.
   without a key. A lost or changed key only means setting the credential again.
 - `GET /v1/settings` — curator or member. `{agent_credential: {present, set_at}}` (`set_at` null when not set).
 
+## Webhooks (curator only; members get 403)
+
+Every fact change (remember, review, retract, distill, verify) queues a delivery to each active webhook subscribed
+to its event, in the same transaction as the change:
+
+- `fact.recorded` — a fact was inserted (any status, including candidates);
+- `fact.activated` — a fact became active (inserted active, e.g. by a curator, or approved/fixed);
+- `fact.retracted` / `fact.superseded` — a fact's status changed to that.
+
+Personal-scope facts never fire. Each delivery is `POST <url>` with `Content-Type: application/json`, body
+`{id, event, occurred_at, fact:{id, text, kind, scope, origin, status, status_note, supersedes}}` (the fact as the
+transaction left it) and headers `X-Hive-Event`, `X-Hive-Delivery` (= body `id`) and `X-Hive-Signature: sha256=<hex>`,
+the HMAC-SHA256 of the raw body under the webhook's secret. Any 2xx within 10 s is delivered; otherwise it is retried
+after `HIVE_WEBHOOK_BACKOFF_SECONDS`·2^(n−1) (default 30 s, capped at 1 h), and after `HIVE_WEBHOOK_MAX_ATTEMPTS`
+(default 6) it is `failed` and the webhook gets `failing_since` + `last_error`, cleared by its next 2xx. A failing
+webhook keeps receiving new events; an inactive one queues them and sends once re-activated.
+
+Secrets are stored encrypted under `HIVE_SECRET_KEY`; every endpoint answers `503 {error: "HIVE_SECRET_KEY is not set"}`
+without one. A webhook is `{id, url, events, active, created_at, created_by_user_id, failing_since, last_error}`.
+
+- `POST /v1/webhooks` `{url, events?, active?, secret?}` → `201 {webhook, secret}`. `url` must be http(s); `events`
+  defaults to all four; `secret` (16–256 chars) is generated (64 hex) when omitted. The secret is only ever returned here.
+- `GET /v1/webhooks` → `{webhooks: [...]}`, oldest first.
+- `GET /v1/webhooks/:id` → `{webhook, deliveries: [{id, event, status: queued|delivered|failed, attempts,
+  next_attempt_at, last_error, created_at, delivered_at}]}` (last 20, newest first). 404 no such webhook.
+- `PATCH /v1/webhooks/:id` `{url?, events?, active?, secret?}` (at least one) → `{webhook}`. 404 as above.
+- `DELETE /v1/webhooks/:id` → `204`, with its deliveries. 404 as above.
+
 ## Worker (worker tokens only; members and curators get 403)
 
 The fact-agent container distills `session` and `asf_run` episodes into candidate facts. Every such episode enqueues

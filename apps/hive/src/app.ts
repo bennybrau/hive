@@ -15,6 +15,7 @@ import { searchRoutes } from "./routes/search.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { statsRoutes } from "./routes/stats.js";
 import { statusRoutes } from "./routes/status.js";
+import { webhookRoutes } from "./routes/webhooks.js";
 import { workerRoutes } from "./routes/worker.js";
 
 export interface AppOptions {
@@ -64,6 +65,7 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
     reviewRoutes(v1, pool, onWrite);
     settingsRoutes(v1, pool, opts.secretKey ?? null);
     statsRoutes(v1, pool);
+    webhookRoutes(v1, pool, opts.secretKey ?? null);
     workerRoutes(v1, {
       pool,
       embedder,
