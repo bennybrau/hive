@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { FastifyInstance } from "fastify";
@@ -95,7 +95,9 @@ describe("events", () => {
     expect(r.headers["x-hive-event"]).toBe("fact.activated");
     expect(r.headers["x-hive-delivery"]).toBe(r.json.id);
     expect(r.headers["content-type"]).toBe("application/json");
-    expect(r.headers["x-hive-signature"]).toBe(sign(SECRET, r.body));
+    // computed here, not with sign(): a receiver verifies the raw body it got with its own HMAC
+    expect(r.headers["x-hive-signature"]).toBe(`sha256=${createHmac("sha256", SECRET).update(r.body, "utf8").digest("hex")}`);
+    expect(sign(SECRET, r.body)).toBe(r.headers["x-hive-signature"]);
     expect(sign(SECRET, r.body)).toMatch(/^sha256=[0-9a-f]{64}$/);
     expect(sign("other-secret-0123456789", r.body)).not.toBe(r.headers["x-hive-signature"]);
     const d = (await pool.query("select status, attempts, delivered_at from webhook_deliveries")).rows;
@@ -144,6 +146,18 @@ describe("events", () => {
     await drain();
     expect(received).toHaveLength(0);
     expect((await pool.query("select 1 from webhook_deliveries")).rowCount).toBe(0);
+  });
+
+  it("a hook switched off keeps what was already queued until it's back on; events while off are dropped", async () => {
+    const webhook = await createHook({ events: ["fact.activated"] });
+    await remember(curator.token, { text: "Queued while on" }); // queued, not yet sent
+    expect((await call(curator.token, "PATCH", `/v1/webhooks/${webhook.id}`, { active: false })).statusCode).toBe(200);
+    await remember(curator.token, { text: "Recorded while off" });
+    await drain();
+    expect(received).toHaveLength(0);
+    expect((await call(curator.token, "PATCH", `/v1/webhooks/${webhook.id}`, { active: true })).statusCode).toBe(200);
+    await drain();
+    expect(received.map((r) => r.json.fact.text)).toEqual(["Queued while on"]);
   });
 });
 

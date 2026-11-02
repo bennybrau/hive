@@ -110,7 +110,8 @@ transaction left it) and headers `X-Hive-Event`, `X-Hive-Delivery` (= body `id`)
 the HMAC-SHA256 of the raw body under the webhook's secret. Any 2xx within 10 s is delivered; otherwise it is retried
 after `HIVE_WEBHOOK_BACKOFF_SECONDS`·2^(n−1) (default 30 s, capped at 1 h), and after `HIVE_WEBHOOK_MAX_ATTEMPTS`
 (default 6) it is `failed` and the webhook gets `failing_since` + `last_error`, cleared by its next 2xx. A failing
-webhook keeps receiving new events; an inactive one queues them and sends once re-activated.
+webhook keeps receiving new events. An inactive one queues nothing: events while it is off are dropped, and
+deliveries queued before it was switched off wait and are sent once it is re-activated.
 
 Secrets are stored encrypted under `HIVE_SECRET_KEY`; every endpoint answers `503 {error: "HIVE_SECRET_KEY is not set"}`
 without one. A webhook is `{id, url, events, active, created_at, created_by_user_id, failing_since, last_error}`.
