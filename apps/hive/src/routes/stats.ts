@@ -12,15 +12,21 @@ async function countBy(pool: pg.Pool, expr: string): Promise<Record<string, numb
   return Object.fromEntries(rows.map((r) => [r.key, r.count]));
 }
 
-/** Curator overview: fact counts, LLM cost per day and job, workers and backlog. Everything aggregated in SQL. */
+/**
+ * Curator overview: fact counts, LLM cost per day and job, workers and backlog. Everything aggregated in SQL.
+ * `episode_id` adds that episode's individual `llm_calls` (the cost of one distill run).
+ */
 export function statsRoutes(app: FastifyInstance, pool: pg.Pool): void {
-  app.get<{ Querystring: { days: number } }>(
+  app.get<{ Querystring: { days: number; episode_id?: string } }>(
     "/v1/stats",
     {
       schema: {
         querystring: {
           type: "object",
-          properties: { days: { type: "integer", minimum: 1, maximum: 365, default: 30 } },
+          properties: {
+            days: { type: "integer", minimum: 1, maximum: 365, default: 30 },
+            episode_id: { type: "string", format: "uuid" },
+          },
         },
       },
     },
@@ -62,6 +68,18 @@ export function statsRoutes(app: FastifyInstance, pool: pg.Pool): void {
                 (select count(*)::int from distill_jobs where status = 'queued') as distill_queued,
                 (select min(created_at) from distill_jobs where status = 'queued') as oldest_queued_at`,
       );
+      const episodeId = req.query.episode_id;
+      const calls =
+        episodeId === undefined
+          ? undefined
+          : (
+              await pool.query(
+                `select id, job, model, input_tokens, output_tokens, cached_tokens, est_cost_usd::float8 as cost_usd,
+                        duration_ms, created_at
+                 from llm_calls where episode_id = $1 order by created_at, id`,
+                [episodeId],
+              )
+            ).rows;
       return {
         days,
         since: since.rows[0]!.since,
@@ -70,6 +88,7 @@ export function statsRoutes(app: FastifyInstance, pool: pg.Pool): void {
         cost_totals: costTotals.rows,
         workers: workers.rows,
         backlog: backlog.rows[0],
+        ...(calls && { calls }),
       };
     },
   );

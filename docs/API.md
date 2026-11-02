@@ -81,6 +81,10 @@ The queue only lists scopes the curator can read (never another user's personal 
 
   `cost_usd` is a number (`est_cost_usd` summed; embed calls are 0). Days with no rows are absent.
 
+  `episode_id=<uuid>` (400 if not a uuid) adds `calls: [{id, job, model, input_tokens, output_tokens, cached_tokens,
+  cost_usd, duration_ms, created_at}]`, that episode's `llm_calls` rows oldest first, regardless of `days` (e.g. the
+  cost of distilling one session). Without it the response has no `calls`.
+
 ## Settings
 
 Values are stored AES-256-GCM encrypted under `HIVE_SECRET_KEY` (or `HIVE_SECRET_KEY_FILE`; 64 hex chars, a

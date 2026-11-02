@@ -128,6 +128,38 @@ describe("GET /v1/stats", () => {
     expect((await stats("?days=2")).cost_totals[0].calls).toBe(2);
   });
 
+  it("episode_id lists only that episode's calls; without it there are no calls", async () => {
+    const { rows } = await pool.query<{ id: string }>(
+      "insert into episodes (kind, content) values ('session', 'a'), ('session', 'b') returning id",
+    );
+    const [a, b] = rows.map((r) => r.id);
+    const at = noonUtc(0).at;
+    await pool.query(
+      `insert into llm_calls (job, model, input_tokens, output_tokens, cached_tokens, est_cost_usd, duration_ms, episode_id, created_at)
+       values ('distill', 'claude-x', 1200, 80, 300, 0.0123, 4500, $1, $3), ('distill', 'claude-x', 999, 9, 0, 0.5, 10, $2, $3)`,
+      [a, b, at],
+    );
+    await llmCall("embed", at, 40, 0, 0);
+
+    const s = await stats(`?episode_id=${a}`);
+    expect(s.calls).toEqual([
+      {
+        id: expect.any(String), job: "distill", model: "claude-x", input_tokens: 1200, output_tokens: 80,
+        cached_tokens: 300, cost_usd: 0.0123, duration_ms: 4500, created_at: at,
+      },
+    ]);
+    expect(s.cost_totals[0]).toMatchObject({ job: "distill", calls: 2 });
+    expect((await stats()).calls).toBeUndefined();
+    expect((await stats("?episode_id=00000000-0000-0000-0000-000000000000")).calls).toEqual([]);
+    // calls ignore `days`: an episode's call from 40 days ago is still listed with ?days=1
+    const old = noonUtc(40).at;
+    await pool.query(
+      "insert into llm_calls (job, model, input_tokens, output_tokens, est_cost_usd, episode_id, created_at) values ('distill', 'claude-x', 1, 1, 0.001, $1, $2)",
+      [a, old],
+    );
+    expect((await stats(`?days=1&episode_id=${a}`)).calls.map((c: { created_at: string }) => c.created_at)).toEqual([old, at]);
+  });
+
   it("is curator only and checks days", async () => {
     const res = await get(member.token, "/v1/stats");
     expect(res.statusCode).toBe(403);
@@ -135,5 +167,6 @@ describe("GET /v1/stats", () => {
     expect((await get(curator.token, "/v1/stats?days=0")).statusCode).toBe(400);
     expect((await get(curator.token, "/v1/stats?days=366")).statusCode).toBe(400);
     expect((await get(curator.token, "/v1/stats?days=365")).statusCode).toBe(200);
+    expect((await get(curator.token, "/v1/stats?episode_id=not-a-uuid")).statusCode).toBe(400);
   });
 });
