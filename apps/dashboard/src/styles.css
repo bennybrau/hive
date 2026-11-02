@@ -230,6 +230,14 @@ kbd {
 .snippet { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .snippet mark { background: none; color: inherit; font-weight: 600; }
 
+.stats-page h2 { font-size: 13px; font-weight: 600; margin: 20px 0 6px; }
+.stats-page .chips { margin-bottom: 8px; }
+.stats-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: start; }
+table.stats { border-collapse: collapse; margin-bottom: 8px; background: var(--surface); }
+table.stats th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); }
+table.stats th, table.stats td { padding: 6px 12px 6px 8px; border-bottom: 1px solid var(--line); }
+table.stats .num { text-align: right; font-variant-numeric: tabular-nums; }
+.badge.stale { border-color: var(--error); color: var(--error); }
 .repos-list { list-style: none; margin: 0; padding: 0; max-width: 100ch; }
 .repos-list > li { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .repos-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }

@@ -13,6 +13,7 @@ import { reviewRoutes } from "./routes/review.js";
 import { healthRoutes } from "./routes/health.js";
 import { searchRoutes } from "./routes/search.js";
 import { settingsRoutes } from "./routes/settings.js";
+import { statsRoutes } from "./routes/stats.js";
 import { statusRoutes } from "./routes/status.js";
 import { workerRoutes } from "./routes/worker.js";
 
@@ -62,6 +63,7 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
     });
     reviewRoutes(v1, pool, onWrite);
     settingsRoutes(v1, pool, opts.secretKey ?? null);
+    statsRoutes(v1, pool);
     workerRoutes(v1, {
       pool,
       embedder,

@@ -58,6 +58,29 @@ The queue only lists scopes the curator can read (never another user's personal 
     candidate). 409 if that fact is `retracted` or `superseded`.
   - `reject` → `retracted`, `status_note: "rejected: <note>"` (or `"rejected"`), `valid_to = now()`.
 
+## Stats (curator only)
+
+- `GET /v1/stats?days=30` — `days` 1–365 (400 otherwise); members get 403 `{error: "only a curator can see stats"}`.
+  The window starts at midnight UTC `days - 1` days ago (`days=1` is today, UTC); days are UTC `YYYY-MM-DD`.
+
+  ```
+  {
+    days, since,                                   // since: ISO timestamp of the window start
+    facts: {
+      by_status: {active: 12, candidate: 3, ...},  // all facts, not just the window
+      by_origin: {authored: 9, distilled: 6, ...},
+      by_scope:  {global: 4, "repo:<key>": 8, personal: 3},  // every personal:<user> folds into "personal"
+      per_day:   [{day, count}]                    // facts recorded in the window
+    },
+    cost:        [{day, job, calls, input_tokens, output_tokens, cost_usd}],  // llm_calls per day and job
+    cost_totals: [{job, calls, input_tokens, output_tokens, cost_usd}],       // per job over the window
+    workers:     [{id, name, last_seen_at}],        // unrevoked worker tokens
+    backlog:     {candidates, oldest_candidate_at, distill_queued, oldest_queued_at}
+  }
+  ```
+
+  `cost_usd` is a number (`est_cost_usd` summed; embed calls are 0). Days with no rows are absent.
+
 ## Settings
 
 Values are stored AES-256-GCM encrypted under `HIVE_SECRET_KEY` (or `HIVE_SECRET_KEY_FILE`; 64 hex chars, a
