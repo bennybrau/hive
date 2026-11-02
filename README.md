@@ -13,6 +13,7 @@ Working name. Private while we vet it.
 - [docs/MVP-OVERVIEW.md](docs/MVP-OVERVIEW.md) — longer plain-English description of the full MVP plan.
 - [docs/MVP-PLAN.md](docs/MVP-PLAN.md) — the implementation plan: scope, data model, HTTP API, plugin hooks, milestones M0–M6, experiment harness.
 - [docs/DESIGN-NOTES.md](docs/DESIGN-NOTES.md) — settled design decisions.
+- [docs/manual/](docs/manual/README.md) — user manual for the web dashboard: Facts, Search, Repos, Review, Stats.
 - [docs/GLOSSARY.md](docs/GLOSSARY.md) — vocabulary, with notes on which terms are standard, borrowed, or ours.
 
 ## Layout (planned)

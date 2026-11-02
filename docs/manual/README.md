@@ -1,0 +1,216 @@
+# Hive dashboard: user manual
+
+The dashboard is the web view of your team's hive. You use it to **see what the hive knows**, **search it**, and,
+as a curator, **decide what the hive is allowed to tell everyone's assistants**.
+
+Most of the hive's work happens without you. Your Hermes sessions are recalled from and distilled into it
+automatically. The dashboard is where a person looks in and decides.
+
+- [Signing in](#signing-in)
+- [Words you'll see](#words-youll-see)
+- [Facts](#facts): browse everything the hive knows
+- [Search](#search): ask across facts, conversations, commits and docs
+- [Repos](#repos): the code and docs the hive has read
+- [Review](#review-curators): approve, fix or reject what's new (curators)
+- [Stats](#stats-curators): cost, growth and health (curators)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+
+## Who sees what
+
+| | Member | Curator |
+|---|---|---|
+| Facts, Search, Repos | ✓ | ✓ |
+| **Ingest now** on Repos | | ✓ |
+| Review, Stats | | ✓ |
+
+Everyone sees shared facts (`global` and every `repo:…`) plus **their own** personal facts. Nobody, curators
+included, ever sees another person's personal facts.
+
+## Signing in
+
+![Sign-in page](img/signin.png)
+
+Open the hive's address in a browser, for example `http://hive.example.internal:8800/`, and paste
+your token. Whoever runs the hive gives you one:
+
+```sh
+docker compose exec hive node dist/cli/mint-token.js --name <you>-laptop --user <you>              # member
+docker compose exec hive node dist/cli/mint-token.js --name <you>-laptop --user <you> --role curator
+```
+
+- The token is kept **for this browser tab only**. Closing the tab signs you out; a new tab asks again.
+- Your name and role are shown top right. **Sign out** forgets the token.
+- You can use the same token your Hermes plugin uses, or mint a separate one for the browser so it can be
+  revoked on its own.
+
+## Words you'll see
+
+- **Fact**: one short statement the hive can tell an assistant, such as "The orchestrator gate waits for a person."
+- **Kind**: what sort of fact it is: `decision`, `invariant` (must always hold), `gotcha` (a trap),
+  `preference`, `convention` or `system` (how something works).
+- **Scope**: who it's true for. `global` is everyone. `repo:<key>` applies to one repository.
+  `personal:<you>` is visible only to you.
+- **Status**:
+  - `candidate`: proposed, waiting for a curator; **not** given to assistants yet.
+  - `active`: approved, so assistants recall it.
+  - `superseded`: replaced by a newer fact (kept as history).
+  - `retracted`: withdrawn or rejected (kept as history).
+- **Origin**: where it came from.
+  - `authored`: someone wrote it, through Hermes or the API.
+  - `distilled`: the hive-worker pulled it out of a finished conversation.
+  - `ingested`: read from a repo's docs.
+- **Anchor**: the evidence behind a fact, either a quote from a file at a line or a quote from a conversation.
+  The hive re-checks file anchors (see [anchor health](#anchor-health)).
+
+How a fact becomes active:
+
+- Personal facts are active at once.
+- Shared facts written by a **curator** are active at once.
+- Shared facts written by a **member**, and **everything distilled**, start as `candidate` and wait in
+  [Review](#review-curators).
+
+## Facts
+
+![Facts page with a fact open](img/fact-detail.png)
+
+Everything you can see, newest first, 50 per page.
+
+**Filters** along the top narrow by scope, status, kind and origin. The filters are kept in the page address,
+so you can bookmark or share a filtered view.
+
+**Search** on this page finds facts by meaning, not just by matching words. Up to 100 matches, ranked by relevance,
+and still narrowed by the filters. Candidates are included. For conversations, commits and docs, use the [Search](#search) page.
+
+**Click a row**, or move with `j`/`k` and press `Enter`, to open the fact on the right:
+
+- **Provenance**: kind, scope, status, origin, author and when it was recorded.
+- **Anchors**: each piece of evidence with its quote and its [health badge](#anchor-health). A file anchor links
+  to the exact lines on GitHub, at the commit the hive last read. If the quote has moved, it says where it is
+  now.
+- **Supersedes / Superseded by**: the chain of older and newer versions of this fact. Click one to open it.
+- **Reviews**: who approved, fixed or rejected it, when, and why.
+
+`Esc` closes the panel. The open fact is part of the page address, so a link opens straight to it.
+
+## Search
+
+![Search for "orchestrator gate"](img/search.png)
+
+One box for everything the hive has read. Type a question or a few words and press `Enter`.
+
+**Sources** are the chips under the box. Click them to switch each one on or off:
+
+- **Facts**: shown first, in their own section, with kind, scope and status.
+- **Conversations**: single turns from your past Hermes sessions.
+- **History**: your whole past Hermes sessions.
+
+Conversations and History only ever show **your own** sessions, never a teammate's.
+- **Commits**: commit messages, with the short sha and subject.
+- **Docs**: chunks of the repos' documents, linked to the file and lines on GitHub.
+
+Each source returns its best 20 results. Results mix meaning (embeddings) with keywords, so an exact name or
+error message works as well as a plain-English question. Facts show their status, so candidates waiting for
+review are easy to spot. Click a fact to open it on the Facts page.
+
+## Repos
+
+![Repos page](img/repos.png)
+
+The repositories the hive reads. For each one:
+
+- **Key and path**: e.g. `gh/bennybrau/agentic-software-factory` and where it's checked out on the hive's host.
+- **Ingested … at `abc1234`**: when the hive last read it and at which commit. The hive always reads the
+  repo's **default branch** as last fetched from origin, not whatever branch happens to be checked out. It
+  re-reads every 15 minutes by default.
+- **Counts**: documents, chunks (searchable pieces of documents) and commits indexed.
+- **Last ingest failed: …**: appears only when the last read went wrong.
+
+### Anchor health
+
+The badges show how the hive's evidence in this repo holds up against the files as they are now:
+
+- **verified**: the quote is still there (it may have moved; the fact panel says where).
+- **drifted**: the quote isn't there word for word, but a close match is. The source was edited, and the
+  fact may need updating.
+- **missing**: the file is gone, or nothing like the quote is left. A fact read from docs is retracted
+  automatically if this persists. A fact someone wrote is never retracted; it's left for a person to look at.
+- **unverifiable here**: nothing this hive can check.
+- **unverified**: not checked yet.
+
+### Buttons
+
+- **Files not indexed**: lists documents the hive considered but didn't index (empty, skipped or failed) and
+  why. Use it when a doc you expected doesn't show up in Search.
+- **Ingest now** (curators): read the repo right away instead of waiting for the next sync. It's disabled while a
+  read is running. When done it shows a summary: docs indexed, unchanged and removed, new commits, and the result of
+  re-checking every anchor.
+
+Registering a new repo is done through the API (`POST /v1/repos`) for now, not in the dashboard.
+
+## Review (curators)
+
+![Review queue](img/review.png)
+
+The queue of candidates, **oldest first**. Nothing here reaches anyone's assistant until you decide. The
+candidate list is on the left and the evidence for the selected one is on the right:
+
+- The fact's kind, scope and origin, and the fact it would **supersede**, if any.
+- **Anchors**: the quote it was drawn from. For a distilled fact this is the passage of the conversation, with
+  about 300 characters around it, so you can judge it in context.
+- **Similar active facts**: up to 3 existing facts that say nearly the same thing, with a similarity
+  percentage. If one already covers it, reject the candidate or fix it to match the existing fact.
+
+### Deciding
+
+| Key | Action |
+|---|---|
+| `j` / `↓`, `k` / `↑` | next / previous candidate |
+| `a` | **approve**: the fact becomes active and assistants start recalling it |
+| `f` | **fix**: edit the text, then `Enter` to save it as active (`Shift+Enter` for a new line, `Esc` cancels) |
+| `r` | **reject**: optional reason, then `Enter` (`Esc` cancels) |
+
+- **Undo**: every decision waits **5 seconds** before it is saved, with an **Undo** button. Making the next
+  decision, or leaving the page, saves the previous one at once.
+- **Fixing into an existing fact**: if your fixed text is word for word an existing fact in that scope, the
+  candidate is **merged** into it. Its evidence moves to that fact and the candidate is closed.
+- **Approving a superseding candidate** retires the fact it replaces.
+- When the queue is empty, it tells you when the last distill ran. If that was long ago and people have been
+  working, check the worker on [Stats](#stats-curators).
+- If a decision can't be saved, the candidate comes back with the error.
+
+## Stats (curators)
+
+![Stats page](img/stats.png)
+
+Pick a window of **7, 30 or 90 days**.
+
+- **Cost**: model calls per job (`distill` = turning conversations into candidates, `embed` = making text
+  searchable), with input/output tokens and estimated cost, in total and per day. With local embeddings (Ollama)
+  `embed` is $0.
+- **Facts**: how many facts there are by status, origin and scope, and how many were recorded each day.
+- **Workers**: each hive-worker and when it last checked in. **stale** means it hasn't been seen for 10
+  minutes, so conversations aren't being distilled.
+- **Backlog**: candidates waiting for review and conversations waiting to be distilled, each with the age of the
+  oldest. A growing distill backlog with a stale worker means the worker is down.
+
+## Keyboard shortcuts
+
+| Where | Key | Does |
+|---|---|---|
+| Facts | `j` / `k` (or arrows) | move through the table |
+| Facts | `Enter` | open the selected fact |
+| Facts | `Esc` | close the fact panel |
+| Review | `j` / `k` (or arrows) | move through candidates |
+| Review | `a` / `f` / `r` | approve / fix / reject |
+| Review, editing | `Enter` / `Shift+Enter` / `Esc` | save / new line / cancel |
+
+Shortcuts are ignored while you're typing in a box.
+
+## Troubleshooting
+
+- **"The hive didn't accept that token."**: the token was revoked or mistyped. Ask for a new one.
+- **"Couldn't reach the hive."**: the hive is down, or you're off the tailnet.
+- **Review and Stats are missing from the menu**: your token is a member token.
+- **A doc you expected isn't in Search**: open Repos → **Files not indexed**. Check that the change is on the
+  repo's default branch and was fetched from origin.
+- **No new candidates after a session**: check Stats → Workers (stale?) and Backlog.
