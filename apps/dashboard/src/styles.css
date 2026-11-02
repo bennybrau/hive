@@ -229,3 +229,16 @@ kbd {
 .hits .repo { font-weight: 500; }
 .snippet { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .snippet mark { background: none; color: inherit; font-weight: 600; }
+
+.repos-list { list-style: none; margin: 0; padding: 0; max-width: 100ch; }
+.repos-list > li { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.repos-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.repos-head h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.repos-path { color: var(--muted); overflow-wrap: anywhere; }
+.repos-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; color: var(--muted); }
+.repos-anchors { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; }
+.repos-anchors .badge.verify-unverifiable_here, .repos-anchors .badge.verify-unverified { color: var(--muted); }
+.repos-actions { display: flex; gap: 8px; }
+.repos-files { border-collapse: collapse; background: var(--surface); }
+.repos-files th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); }
+.repos-files th, .repos-files td { padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }

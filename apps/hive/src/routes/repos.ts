@@ -57,13 +57,29 @@ export function repoRoutes(app: FastifyInstance, pool: pg.Pool, deps: RepoDeps):
   );
 
   app.get("/v1/repos", async () => {
+    // Anchors of live facts per repo. The repo key expression must match verifyAnchors (jobs/verify.ts).
     const { rows } = await pool.query(
-      `select r.key, r.local_path, r.remote_url, r.default_branch, r.last_ingested_sha, r.last_ingested_at,
+      `with anchor_counts as (
+         select coalesce(a.repo_key, case when f.scope like 'repo:%' then substr(f.scope, 6) end) as repo,
+                count(*) filter (where a.verify_status = 'verified')::int as verified,
+                count(*) filter (where a.verify_status = 'drifted')::int as drifted,
+                count(*) filter (where a.verify_status = 'missing')::int as missing,
+                count(*) filter (where a.verify_status = 'unverifiable_here')::int as unverifiable_here,
+                count(*) filter (where a.verify_status = 'unverified')::int as unverified
+         from anchors a join facts f on f.id = a.fact_id
+         where f.status in ('active', 'candidate')
+         group by 1
+       )
+       select r.key, r.local_path, r.remote_url, r.default_branch, r.last_ingested_sha, r.last_ingested_at,
               r.ingest_summary, r.ingest_error,
               (select count(*)::int from doc_files d where d.repo_key = r.key and d.status = 'indexed') as docs,
               (select count(*)::int from doc_chunks c where c.repo_key = r.key) as chunks,
-              (select count(*)::int from episodes e where e.kind = 'commit' and e.repo_key = r.key) as commits
-       from repos r order by r.key`,
+              (select count(*)::int from episodes e where e.kind = 'commit' and e.repo_key = r.key) as commits,
+              json_build_object('verified', coalesce(ac.verified, 0), 'drifted', coalesce(ac.drifted, 0),
+                                'missing', coalesce(ac.missing, 0), 'unverifiable_here', coalesce(ac.unverifiable_here, 0),
+                                'unverified', coalesce(ac.unverified, 0)) as anchors
+       from repos r left join anchor_counts ac on ac.repo = r.key
+       order by r.key`,
     );
     return {
       repos: rows.map(({ local_path, ...r }) => ({ ...r, host_path: local_path ? hostPathOf(local_path, deps.roots) : null })),

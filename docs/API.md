@@ -115,7 +115,8 @@ The hive reads repos through a read-only mount (`HIVE_REPOS_HOST_ROOT`, default 
 - `POST /v1/repos` `{path, key?}` — curator. Register a git repo by its host path (or a path relative to the
   root). `key` defaults from `origin` (`github.com/o/r` → `gh/o/r`, same rule as the plugin). Idempotent.
 - `GET /v1/repos` — every repo with `host_path`, last ingested sha/time, `ingest_summary`, `ingest_error`, and
-  counts of indexed docs, chunks and commits.
+  counts of indexed docs, chunks and commits, and `anchors: {verified, drifted, missing, unverifiable_here, unverified}`:
+  the anchors of active + candidate facts in that repo (by the anchor's `repo_key`, else the fact's `repo:` scope), by verify status.
 - `GET /v1/repos/files?key=` — every document considered, with `status` (`indexed | empty | skipped | error`)
   and why (`no text layer (scanned PDF?)`, `too large`, ...).
 - `POST /v1/repos/ingest` `{key}` — curator. Ingest now, then verify that repo; returns both summaries. `409` if
