@@ -39,6 +39,31 @@ export interface IngestSummary {
   ms: number;
 }
 
+/**
+ * Mirror the tracked files (minus ignored dirs) into repo_files for briefs: diff against what's
+ * stored, then one bulk upsert and one bulk delete. Nothing changed = nothing written.
+ */
+async function syncRepoFiles(pool: pg.Pool, key: string, tracked: { path: string; blob: string }[]): Promise<void> {
+  const files = tracked.filter((f) => !f.path.split("/").some((s) => IGNORED_DIRS.has(s)));
+  const known = new Map(
+    (await pool.query<{ path: string; blob_sha: string }>("select path, blob_sha from repo_files where repo_key = $1", [key])).rows.map(
+      (r) => [r.path, r.blob_sha],
+    ),
+  );
+  const changed = files.filter((f) => known.get(f.path) !== f.blob);
+  const current = new Set(files.map((f) => f.path));
+  const gone = [...known.keys()].filter((p) => !current.has(p));
+  if (changed.length) {
+    await pool.query(
+      `insert into repo_files (repo_key, path, blob_sha)
+       select $1, p, b from unnest($2::text[], $3::text[]) as u(p, b)
+       on conflict (repo_key, path) do update set blob_sha = excluded.blob_sha`,
+      [key, changed.map((f) => f.path), changed.map((f) => f.blob)],
+    );
+  }
+  if (gone.length) await pool.query("delete from repo_files where repo_key = $1 and path = any($2::text[])", [key, gone]);
+}
+
 async function blobBytes(dir: string, blob: string): Promise<Buffer> {
   const { stdout } = await run("git", ["-C", dir, "cat-file", "blob", blob], { encoding: "buffer", maxBuffer: MAX_DOC_BYTES + 1024 });
   return stdout;
@@ -64,8 +89,11 @@ export async function ingestRepo(pool: pg.Pool, key: string, opts: { maxCommits:
     ms: 0,
   };
 
+  const tracked = await trackedFiles(dir, info.head);
+  await syncRepoFiles(pool, key, tracked);
+
   // --- documents ---------------------------------------------------------------
-  const docs = (await trackedFiles(dir, info.head)).filter((f) => isIndexedDoc(f.path));
+  const docs = tracked.filter((f) => isIndexedDoc(f.path));
   const known = new Map(
     (await pool.query<{ path: string; blob_sha: string }>("select path, blob_sha from doc_files where repo_key = $1", [key])).rows.map(
       (r) => [r.path, r.blob_sha],

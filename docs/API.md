@@ -171,6 +171,26 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   every `repo:` scope.
   `commit` and `doc` are shared: commit messages and document chunks of registered repos (`repo_key` narrows to one).
 
+## Brief (hot path: SQL + one local query embedding, no LLM)
+
+- `POST /v1/brief` `{task, repo_key, changed_paths?: string[] (≤200), budget_tokens?: 100–4000 (600)}` — what to know before
+  starting a task in a repo. `{repo_key, repo_indexed, mode, terms, budget_tokens, tokens:{gotchas, facts, locations, tests, total},
+  dropped:{gotchas, facts, locations, tests}, gotchas:[...], facts:[...], locations:[...], tests:[...]}`.
+  - `terms`: the task's words as Postgres' `english` config sees them (stopwords dropped, stemmed), 3+ chars.
+  - `facts` `[{id, text, kind, scope, locus, verify, near_changes?}]`: like `/v1/recall` with `k=5`, `min_sim=0.62` (the
+    prefetch gate) and `changed=changed_paths` (locus boost).
+  - `locations` `[{ref, path, source: doc|path}]`, up to 8, one per file: document passages (`ref` = `path:start-end`)
+    alternating with tracked files whose path contains the most `terms` (a term in the file name counts double).
+  - `tests` `[{path, near, why: name|folder|sibling}]`, up to 5: tracked files matching `test|spec`, ranked: the file name
+    contains a location's name (minus extension), then in the location's folder or below it, then in a folder next to it.
+  - `gotchas`: active `gotcha` facts you can read whose `locus` or anchor paths overlap the locations or `changed_paths`
+    (a file, or a directory containing it). A fact listed here is not repeated under `facts`.
+  - Budget: each item costs `ceil(JSON length / 4)` tokens; items are taken round-robin in the order gotchas → facts →
+    locations → tests, and one that doesn't fit is skipped and counted in `dropped`.
+  - A repo that isn't registered still answers 200, with `repo_indexed: false` and only `facts`. Code paths come from
+    `repo_files` (every tracked file of the default branch except `node_modules`, `vendor`, `dist`, ...), filled by ingest;
+    repos ingested before this existed get it on their next ingest.
+
 ## Repos (ingest + verify)
 
 The hive reads repos through a read-only mount (`HIVE_REPOS_HOST_ROOT`, default `~/dev`, at `/repos`).

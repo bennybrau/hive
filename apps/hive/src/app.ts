@@ -6,6 +6,7 @@ import { bearerAuth, confineWorker } from "./auth.js";
 import { DistillNotifier } from "./distill.js";
 import type { Embedder } from "./embed.js";
 import type { EmbedWorker } from "./jobs/embed.js";
+import { briefRoutes } from "./routes/brief.js";
 import { episodeRoutes } from "./routes/episodes.js";
 import { factRoutes } from "./routes/facts.js";
 import { repoRoutes, type RepoDeps } from "./routes/repos.js";
@@ -76,6 +77,7 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
       onWrite,
     });
     searchRoutes(v1, { pool, embedder, minSimilarity: opts.minSimilarity ?? 0.55 });
+    briefRoutes(v1, { pool, embedder, minSimilarity: opts.minSimilarity ?? 0.55 });
     if (opts.repos) repoRoutes(v1, pool, opts.repos);
   });
 
