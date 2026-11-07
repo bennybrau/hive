@@ -3,7 +3,7 @@ import { ClaudeAuth } from "../src/auth.js";
 import { chunkTranscript, splitTurns } from "../src/chunk.js";
 import { spawnEnv } from "../src/env.js";
 import type { Exec, ExecOptions } from "../src/exec.js";
-import { loadPrompt, parseFacts, PROMPT_PATH } from "../src/prompt.js";
+import { loadPrompt, parseFacts, PROMPT_PATH, renderPrompt } from "../src/prompt.js";
 import { ClaudeRunner, parseEnvelope } from "../src/runners/claude.js";
 
 describe("spawnEnv", () => {
@@ -135,8 +135,26 @@ describe("ClaudeAuth", () => {
 
 describe("prompt", () => {
   it("the prompt file carries its version", () => {
-    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v2");
+    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v3");
     expect(loadPrompt(PROMPT_PATH).body).toContain('{"facts":[]}');
+  });
+
+  it("renderPrompt describes the source and where quotes come from per episode kind", () => {
+    const prompt = loadPrompt(PROMPT_PATH);
+    const session = renderPrompt(prompt, "gh/o/r", "session");
+    const run = renderPrompt(prompt, "gh/o/r", "asf_run");
+    for (const out of [session, run]) {
+      expect(out).not.toMatch(/\{\{\w+\}\}/);
+      expect(out).toContain('"repo:gh/o/r" by default');
+    }
+    expect(session).toContain("conversation between a developer (user) and their coding agent");
+    expect(session).toContain("from a line that starts with `user:` or `assistant:`");
+    expect(session).not.toContain("software-factory run");
+    expect(run).toContain("the approved plan for a change, then the review of the finished work");
+    expect(run).toContain("Never turn a plan step");
+    expect(run).toContain("from any line");
+    expect(run).not.toContain("starts with `user:`");
+    expect(renderPrompt(prompt, null, "turn")).toBe(renderPrompt(prompt, null, "session"));
   });
 
   it("parseFacts keeps valid facts and drops malformed or out-of-scope ones", () => {

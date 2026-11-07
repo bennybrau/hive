@@ -32,11 +32,26 @@ export function allowedScopes(repoKey: string | null): string[] {
   return repoKey ? ["global", `repo:${repoKey}`] : ["global"];
 }
 
-export function renderPrompt(prompt: Prompt, repoKey: string | null): string {
+/** What the transcript is, and where quotes may come from, per episode kind. */
+const SOURCES: Record<string, { source: string; quoteRule: string }> = {
+  session: {
+    source: "a transcript of a conversation between a developer (user) and their coding agent (assistant)",
+    quoteRule:
+      "from a line that starts with `user:` or `assistant:`. Never quote `tool(...)` output or tool-call arguments: they hold escaped text that won't match",
+  },
+  asf_run: {
+    source:
+      "the record of a software-factory run: the approved plan for a change, then the review of the finished work. Keep the decisions it settled, with their reasons, and the gotchas and invariants the reviewer called out. Never turn a plan step (what the change does) into a fact; the code holds that",
+    quoteRule: "from any line",
+  },
+};
+
+export function renderPrompt(prompt: Prompt, repoKey: string | null, kind: string): string {
+  const { source, quoteRule } = SOURCES[kind] ?? SOURCES.session!;
   const scopes = repoKey
     ? `"repo:${repoKey}" by default: anything about this repo's code, infrastructure, tooling or process. "global" only for facts that hold in any repo: a person's working preferences, or how a third-party tool behaves everywhere.`
     : `"global".`;
-  return prompt.body.replaceAll("{{scopes}}", scopes);
+  return prompt.body.replaceAll("{{scopes}}", scopes).replaceAll("{{source}}", source).replaceAll("{{quote_rule}}", quoteRule);
 }
 
 /** The JSON object in a model reply, tolerating code fences or prose around it. */

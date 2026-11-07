@@ -59,7 +59,7 @@ function conflict(log: (msg: string) => void, id: string): Step {
 export async function distill(deps: LoopDeps, claim: Claimed): Promise<{ facts: DistilledFact[]; usage: Usage }> {
   const { episode } = claim;
   const scopes = allowedScopes(episode.repo_key);
-  const prompt = renderPrompt(deps.prompt, episode.repo_key);
+  const prompt = renderPrompt(deps.prompt, episode.repo_key, episode.kind);
   const usage: Usage = { model: deps.runner.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cost_usd: 0, duration_ms: 0 };
   const facts: DistilledFact[] = [];
   const seen = new Set<string>();

@@ -146,8 +146,13 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
 
 ## Episodes (raw evidence)
 
-- `POST /v1/episodes` `{kind: turn|session, session_id, content, repo_key?, ref?, metadata?}` → `201 {episode:{id, created_at}}`.
-  Up to 5 MB (whole-session transcripts).
+- `POST /v1/episodes` `{kind: turn|session|asf_run, session_id?, content, repo_key?, ref?, metadata?}` →
+  `201 {episode:{id, created_at}, deduped:false}`. Up to 5 MB (whole-session transcripts). `session_id` is required
+  for `turn` and `session` (400 without it).
+  `asf_run` is a software-factory run: the approved plan plus the review of the finished work, sent once the run is
+  done. It needs `repo_key` (a registered repo: `400 unknown repo_key` otherwise) and a non-empty `ref` (the run id),
+  and at most 200 KiB of content in UTF-8 bytes (`413` over that). It is keyed by `(repo_key, ref)`: posting the same
+  run again returns `200 {episode, deduped:true}` with the stored episode, unchanged, and queues no second distill job.
 
 ## Recall and search (hot path: SQL + one local query embedding, no LLM)
 
@@ -161,7 +166,9 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
 - `GET /v1/search?q=&source=all|fact,conversation,history,commit,doc&repo_key=&k=20&include_candidates=false` —
   `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id | path+line_start+line_end+sha+remote_url | ref+subject, ...}]}`.
   Doc hits' `sha` is the commit the repo was last ingested at (usable in a blob link); commit hits' `subject` is the message's first line.
-  `conversation` = turn episodes, `history` = session episodes; both only YOUR user's episodes.
+  `conversation` = turn episodes, only YOUR user's. `history` = YOUR user's session episodes plus every `asf_run`
+  episode: a factory run is repo history like a commit, not a private conversation, and every token can already read
+  every `repo:` scope.
   `commit` and `doc` are shared: commit messages and document chunks of registered repos (`repo_key` narrows to one).
 
 ## Repos (ingest + verify)

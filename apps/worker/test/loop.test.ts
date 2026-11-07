@@ -34,13 +34,16 @@ function fakeHive(claim: Claimed | number, finish: { complete?: number; fail?: n
   return { hive: new HiveClient("http://hive:8800", "worker-token", fetchFn), calls };
 }
 
-function fakeRunner(replies: unknown[] | ((input: string) => unknown)): Runner & { inputs: string[] } {
+function fakeRunner(replies: unknown[] | ((input: string) => unknown)): Runner & { inputs: string[]; prompts: string[] } {
   const inputs: string[] = [];
+  const prompts: string[] = [];
   return {
     model: "fake-model",
     inputs,
-    async run(_p: string, input: string): Promise<RunResult> {
+    prompts,
+    async run(p: string, input: string): Promise<RunResult> {
       inputs.push(input);
+      prompts.push(p);
       const json = typeof replies === "function" ? replies(input) : replies[inputs.length - 1];
       if (json instanceof Error) throw json;
       return {
@@ -101,6 +104,15 @@ describe("worker loop", () => {
     expect(calls[1]!.path).toMatch(/\/fail$/);
     expect(calls[1]!.body.error).toBe("claude exited 1: bad token [credential]");
     expect(JSON.stringify(calls) + d.logs.join("\n")).not.toContain(CREDENTIAL);
+  });
+
+  it("renders the prompt for the episode's kind", async () => {
+    const run = claimed("# Plan\nship it", { episode: { id: "e2", kind: "asf_run", repo_key: "hive", content: "# Plan\nship it" } });
+    const runner = fakeRunner([{ facts: [] }]);
+    const d = deps(fakeHive(run).hive, runner, { prompt: { version: "distill-v1", body: "{{source}} | {{quote_rule}}" } });
+    expect(await step(d)).toBe("completed");
+    expect(runner.prompts[0]).toContain("software-factory run");
+    expect(runner.prompts[0]).toContain("from any line");
   });
 
   it("a prompt_version mismatch fails the job without running anything", async () => {

@@ -62,7 +62,7 @@ describe("worker loop quote repair", () => {
     const claim: Claimed = {
       job: { id: "11111111-1111-1111-1111-111111111111", attempts: 1, lease_until: "2026-10-31T00:00:00Z" },
       episode: { id: "e1", kind: "session", repo_key: "hive", content: CHUNK },
-      prompt_version: "distill-v2",
+      prompt_version: "distill-v3",
       credential: "cred",
     };
     const fetchFn = (async (url: string, init: RequestInit) => {
@@ -78,7 +78,7 @@ describe("worker loop quote repair", () => {
         };
       },
     };
-    expect(await step({ hive: new HiveClient("http://hive:8800", "t", fetchFn), runner, prompt: { version: "distill-v2", body: "{{scopes}}" }, log: () => {} })).toBe("completed");
+    expect(await step({ hive: new HiveClient("http://hive:8800", "t", fetchFn), runner, prompt: { version: "distill-v3", body: "{{scopes}}" }, log: () => {} })).toBe("completed");
     expect(bodies.at(-1).facts[0].quote).toBe("routing table in\\n`MemoryManager.add_provider()`");
   });
 });

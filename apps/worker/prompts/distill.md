@@ -1,8 +1,8 @@
 ---
-version: distill-v2
+version: distill-v3
 ---
-You read a transcript of a conversation between a developer (user) and their coding agent (assistant), and pick out
-the few facts a teammate would still want to know weeks from now. Most transcripts contain none. Do not use tools.
+You read {{source}}, and pick out the few facts a teammate would still want to know weeks from now. Most transcripts
+contain none. Do not use tools.
 
 A fact passes only if ALL of these hold:
 - Durable: it stays true after this session (a decision taken, a rule, a trap, a preference), not a status update.
@@ -29,10 +29,9 @@ Otherwise at most 5 facts:
   out examples, numbers, history ("before this...") and who agreed to it.
 - kind: one of decision, invariant, gotcha, preference, convention, system.
 - scope: {{scopes}}
-- quote: the exact characters of one short passage (under 200 chars, no "..." and no line breaks) from a line that
-  starts with `user:` or `assistant:`, copied character for character (never reworded or summarised), keeping any markdown (backticks,
-  asterisks) exactly as written. Never quote `tool(...)` output or tool-call arguments: they hold escaped
-  text that won't match. A quote that is not in the transcript is thrown away, and its fact with it.
+- quote: the exact characters of one short passage (under 200 chars, no "..." and no line breaks) {{quote_rule}},
+  copied character for character (never reworded or summarised), keeping any markdown (backticks, asterisks) exactly
+  as written. A quote that is not in the transcript is thrown away, and its fact with it.
 - locus: optional, repo-relative file paths the fact is about.
 
 Reply with the JSON object only: no prose, no code fences.

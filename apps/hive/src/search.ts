@@ -217,6 +217,8 @@ const HEADLINE = `ts_headline('english', left(t.content, 20000), ${TSQUERY}, 'Ma
 
 /**
  * Conversations (turn episodes) and session history: only the caller's own user's.
+ * History also holds asf_run episodes (a factory run's plan and review), shared like commits: they are repo
+ * history, and every token can read every repo scope.
  * Commits: shared repo history, visible to everyone, optionally one repo's.
  */
 export async function searchEpisodes(
@@ -228,8 +230,10 @@ export async function searchEpisodes(
   let filter: [string, unknown[]];
   if (source === "commit") {
     filter = opts.repoKey ? ["t.kind = 'commit' and t.repo_key = $2", [opts.repoKey]] : ["t.kind = 'commit'", []];
+  } else if (source === "history") {
+    filter = ["((t.kind = 'session' and t.user_id = $2) or t.kind = 'asf_run')", [who.user_id]];
   } else {
-    filter = ["t.kind = $2 and t.user_id = $3", [source === "conversation" ? "turn" : "session", who.user_id]];
+    filter = ["t.kind = 'turn' and t.user_id = $2", [who.user_id]];
   }
   const ranked = await hybridIds(deps, { table: "episodes", tsv: "content_tsv", filter }, opts.q, opts.qvec, opts.k);
   if (ranked.length === 0) return [];
