@@ -13,7 +13,7 @@ function curatorOnly(req: FastifyRequest, reply: FastifyReply): boolean {
   return false;
 }
 
-/** The review gate: curators see shared-scope candidates oldest first and approve, fix or reject them. */
+/** The review gate: curators see shared-scope candidates (asked first, then oldest) and approve, fix or reject them. */
 export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => void): void {
   app.get<{ Querystring: { scope?: string; origin?: string; limit?: number } }>(
     "/v1/review/queue",
@@ -46,7 +46,7 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
       params.push(qs.limit ?? 20);
       const { rows: candidates } = await pool.query<Fact & { supersedes: string | null }>(
         `select ${FACT_COLUMNS}, supersedes from facts where ${where.join(" and ")}
-         order by recorded_at, id limit $${params.length}`,
+         order by (metadata->>'asked')::boolean is true desc, recorded_at, id limit $${params.length}`,
         params,
       );
       const ids = candidates.map((c) => c.id);

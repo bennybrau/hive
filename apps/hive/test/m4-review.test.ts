@@ -256,6 +256,17 @@ describe("queue", () => {
     await review(curator.token, c1.id, { action: "approve" });
     expect((await queue()).map((c) => c.id)).toEqual([c2.id, c3.fact.id]);
   });
+
+  it("lists asked candidates first, then oldest", async () => {
+    const old = await remember(alice.token, { text: "Payments retry three times" });
+    const asked = await remember(alice.token, { text: "We deploy to Cloud Run from main only" });
+    await pool.query("update facts set recorded_at = now() - interval '10 minutes' where id = $1", [old.id]);
+    await pool.query(`update facts set metadata = '{"asked":true}' where id = $1`, [asked.id]);
+    const q = await queue();
+    expect(q.map((c) => c.id)).toEqual([asked.id, old.id]);
+    expect(q[0].metadata.asked).toBe(true);
+    expect(q[1].metadata.asked).toBeUndefined();
+  });
 });
 
 describe("queue last_distill_at", () => {

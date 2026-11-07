@@ -131,7 +131,7 @@ table.facts td.text { max-width: 60ch; }
 .fact-detail a:focus-visible { outline-offset: 1px; }
 .quote { white-space: pre-wrap; margin: 4px 0 0; padding: 6px 8px; background: var(--bg); border-radius: var(--radius); font-size: 12px; }
 .badge { font-size: 12px; padding: 0 6px; border: 1px solid var(--line); border-radius: var(--radius); }
-.badge.verify-verified { border-color: var(--accent); color: var(--accent); }
+.badge.verify-verified, .badge.asked { border-color: var(--accent); color: var(--accent); }
 .badge.verify-drifted, .badge.verify-missing { border-color: var(--error); color: var(--error); }
 
 .review-head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }

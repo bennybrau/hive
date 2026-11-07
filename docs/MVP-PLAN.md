@@ -239,6 +239,16 @@ Issues: #56 (run records), #57 (human-anchored distill + `asf_dialog`), #58 (rem
 bennybrau/agentic-software-factory#78 (ASF sends merged runs and the dialog). The experiment (#20, #22) runs after
 #56 and #58, since they change what the Hive knows.
 
+- **As built (remember requests, #58):** the plugin flags a turn whose user text asks to remember something
+  (`metadata.remember_request`, quoted text and questions like "do you remember…?" ignored) and tells the agent to call
+  `hive_remember` (WP9a). A flagged turn queues a priority-1 distill job; the worker distills it with the previous turn
+  as context into one `authored` fact marked `metadata.asked`, active for a curator or in personal scope, a candidate
+  otherwise; what the agent already remembered in that turn is deduped into it (WP9b). The review queue lists asked
+  candidates first and the dashboard marks them *asked to remember*, in the row and the evidence pane (WP9c).
+  `scripts/e2e-remember.sh` checks it on the real stack (curator → one active asked fact; member → first in the queue;
+  one fact even when the agent called `hive_remember`; a "do you remember…?" turn makes no job and no fact). Not run
+  live yet: the host that built WP9c had no Docker, Hermes or credential.
+
 ### M6 — Harden for other people (1–2 d)
 - `setup.sh` on the Mac Studio (compose up, Ollama model pull, create curator + N instance tokens, print install snippet for each Hermes). Tailscale or LAN URL. Backup = `pg_dump` cron.
 - Secret scrub on the plugin side is already done by Hermes before `sync_turn`; document it. `HIVE_NO_SYNC=1` kill switch.

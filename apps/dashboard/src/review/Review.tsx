@@ -83,6 +83,7 @@ function Evidence({
   };
   return (
     <aside className="review-evidence" aria-label="Evidence">
+      {c.metadata?.asked && <span className="badge asked">asked to remember</span>}
       {editing?.kind === "fix" ? (
         <div className="field">
           <label htmlFor="r-fix">Fixed text</label>
@@ -299,6 +300,12 @@ function ReviewQueue() {
                 <span className="text">{c.text}</span>
                 <span className="meta">
                   {c.kind} in {c.scope}, {c.origin}
+                  {c.metadata?.asked && (
+                    <>
+                      {" "}
+                      <span className="badge asked">asked to remember</span>
+                    </>
+                  )}
                 </span>
               </li>
             ))}

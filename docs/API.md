@@ -45,7 +45,7 @@ your own `personal:<user>`. Other users' personal facts are never returned.
 Shared-scope facts from members, and every distilled fact, start as `candidate` and are not recalled until a curator decides.
 The queue only lists scopes the curator can read (never another user's personal facts).
 
-- `GET /v1/review/queue?scope=&origin=&limit=20` — candidates, oldest first (`scope` as stored, e.g. `repo:<key>`;
+- `GET /v1/review/queue?scope=&origin=&limit=20` — candidates, asked candidates first, then oldest (`scope` as stored, e.g. `repo:<key>`;
   `origin`: `authored | distilled | ingested`; `limit` ≤ 100). `{candidates, last_distill_at}`; each candidate is `{...fact, supersedes, anchors, similar}`:
   - `anchors[]` include `verify_status`; an anchor on an episode carries `episode_snippet`, ~300 chars of the episode
     around the quote (case-insensitive; the episode's start when the quote isn't found).

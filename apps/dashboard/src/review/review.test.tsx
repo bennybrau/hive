@@ -67,6 +67,17 @@ async function open() {
 }
 
 describe("review queue", () => {
+  it("marks a candidate the user asked to remember, in its row and evidence", async () => {
+    queue.candidates[0] = candidate("c1", { metadata: { asked: true } });
+    await open();
+    const badges = (el: Element) => [...el.querySelectorAll(".badge.asked")].map((b) => [b.className, b.textContent]);
+    expect(badges(rows()[0]!)).toEqual([["badge asked", "asked to remember"]]);
+    expect(badges(rows()[1]!)).toEqual([]);
+    expect(badges(screen.getByRole("complementary", { name: "Evidence" }))).toEqual([["badge asked", "asked to remember"]]);
+    press("j");
+    expect(badges(screen.getByRole("complementary", { name: "Evidence" }))).toEqual([]);
+  });
+
   it("lists candidates oldest first with the first one's evidence", async () => {
     queue.candidates[0] = candidate("c1", {
       anchors: [
