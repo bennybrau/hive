@@ -1,0 +1,191 @@
+{
+  "version": 1,
+  "repo_key": "gh/bennybrau/agentic-software-factory",
+  "asf_commit": "d404cdc",
+  "notes": "Answer key for the M5 experiment (#19). Each answer is graded against `key`: a correct answer contains every key point (wording may differ) and states nothing that contradicts them. `where` says where the truth lives: doc = a file under docs/, code = only in source, commit = a commit message, asf_run = an ASF run's plan/review, none = ASF has no such thing (the right answer says so and does not invent one). Sources are file:line at asf_commit.",
+  "questions": [
+    {
+      "id": "who-1",
+      "group": "who owns",
+      "question": "In the self-hosted ASF stack, which service talks to Postgres? Can the api or the worker query the database directly?",
+      "key": [
+        "Only the registry connects to Postgres.",
+        "The api and the worker have DATABASE_URL blank and go through the registry."
+      ],
+      "where": "code",
+      "sources": ["docker-compose.self-host.yml:39", "docker-compose.self-host.yml:75", "docker-compose.self-host.yml:114"]
+    },
+    {
+      "id": "who-2",
+      "group": "who owns",
+      "question": "Which ASF container has access to the host's Docker socket, and what is it used for?",
+      "key": [
+        "The supervisor service.",
+        "Two jobs only: start/restart the worker container when it has stopped, and run the updater (pin ASF_VERSION, compose pull && up -d) when someone applies a release from the UI.",
+        "It gets no credentials (no env_file), its port is never published, and only the api reaches it."
+      ],
+      "where": "code",
+      "sources": ["docker-compose.self-host.yml:151-170"]
+    },
+    {
+      "id": "who-3",
+      "group": "who owns",
+      "question": "Who is allowed to relax ASF's Merge gate (before_merge) from 'required', and why can't a single dispatch do it?",
+      "key": [
+        "Only a project/org-level setting (Settings), never a per-dispatch request; a dispatch that tries is refused with a reason (GatePolicyError).",
+        "Landing code on the default branch without a person is a project policy, not a per-run choice."
+      ],
+      "where": "doc",
+      "sources": ["packages/shared/src/gates.ts:4-11", "packages/shared/src/gates.ts:26-30", "docs/PIPELINE.md:59"]
+    },
+    {
+      "id": "how-1",
+      "group": "how do I call",
+      "question": "How do I add tickets to ASF's work queue over HTTP? Give the endpoint and the body shape.",
+      "key": [
+        "POST /api/queue.",
+        "Body {mode, items:[...]}, each item has ticketId, ticketKey and ticketProvider (required).",
+        "repoId, teamName and maxCostUsd are optional per item and fall back to the dispatch defaults."
+      ],
+      "where": "code",
+      "sources": ["apps/api/src/routes/queue.ts:20", "packages/shared/src/work-queue.ts:42-50"]
+    },
+    {
+      "id": "how-2",
+      "group": "how do I call",
+      "question": "How do I send ASF runs that finished before the Hive hook was turned on to Hive, and is it safe to run twice?",
+      "key": [
+        "scripts/asf hive-backfill (with --since <date> to limit, --dry-run to count runs and bytes first).",
+        "Safe to re-run: Hive dedupes on ref = the run id.",
+        "It refuses to send while HIVE_URL is blank (except --dry-run)."
+      ],
+      "where": "doc",
+      "sources": ["docs/HIVE.md:46-59", "scripts/asf:707"]
+    },
+    {
+      "id": "how-3",
+      "group": "how do I call",
+      "question": "How do I upgrade a self-hosted ASF install to a new release, and what decides which version I get?",
+      "key": [
+        "scripts/asf update: docker compose pull, then up -d, then waits for postgres/registry/api to be healthy.",
+        "The images are pinned by ASF_VERSION in .env (else :latest).",
+        "--from-source does git pull --ff-only and rebuilds locally instead."
+      ],
+      "where": "code",
+      "sources": ["scripts/asf:207-236"]
+    },
+    {
+      "id": "how-4",
+      "group": "how do I call",
+      "question": "I added a new setting to ASF. Where is it declared, and how do I update docs/CONFIGURATION.md and .env.example?",
+      "key": [
+        "Settings are declared in the catalogue packages/shared/src/settings.ts.",
+        "docs/CONFIGURATION.md is generated from it: run pnpm gen:config (scripts/gen-config-docs.mjs); don't edit it by hand.",
+        "pnpm gen:config:check verifies the generated files are current."
+      ],
+      "where": "doc",
+      "sources": ["docs/CONFIGURATION.md:3", "package.json:23-24"]
+    },
+    {
+      "id": "why-1",
+      "group": "why did we",
+      "question": "Why do ASF agents run as a separate Linux user (agent, uid 1001) inside the worker container?",
+      "key": [
+        "So an agent's command cannot kill the worker: Linux only lets a process signal processes of its own uid.",
+        "It happened on bennybrau/hive#10: an agent's kill loop matched the worker's own node process, the worker exited and the run went stale."
+      ],
+      "where": "commit",
+      "sources": ["commit 3bfde91 (#70)", "apps/worker/Dockerfile:70-76"]
+    },
+    {
+      "id": "why-2",
+      "group": "why did we",
+      "question": "Why does ASF's scratch test database (testdb) run pgvector/pgvector:pg16 instead of plain postgres:16-alpine?",
+      "key": [
+        "Repos whose migrations run `create extension vector` failed on plain Postgres, so every DB test was skipped.",
+        "The tester then reported Verified: no and the reviewer escalated good work (Hive #33: 0 of 57 tests ran).",
+        "The pgvector image is stock Postgres 16 plus the extension, so other repos are unaffected."
+      ],
+      "where": "commit",
+      "sources": ["commit e7477c7 (#65)"]
+    },
+    {
+      "id": "why-3",
+      "group": "why did we",
+      "question": "Why do the ASF worker's git commands override core.hooksPath?",
+      "key": [
+        "A target repo's client-side hooks (e.g. husky's pre-commit running pnpm lint-staged) ran on the worker's own commits and failed, because the worker image lacks pnpm and the repo's dependencies.",
+        "Every worker git command sets core.hooksPath=/dev/null through GIT_CONFIG_COUNT/KEY_0/VALUE_0 (which beats the repo's config), plus HUSKY=0."
+      ],
+      "where": "commit",
+      "sources": ["commit cbcba54 (#54)", "apps/worker/src/git.ts:28-33"]
+    },
+    {
+      "id": "why-4",
+      "group": "why did we",
+      "question": "Why does ASF's self-host compose publish the UI port on 127.0.0.1 by default, and what does ASF_BIND change?",
+      "key": [
+        "ASF has no login (no accounts), so exposing it beyond loopback is opt-in.",
+        "ASF_BIND changes only the UI/api port's host address; the registry and host-worker ports stay on loopback."
+      ],
+      "where": "asf_run",
+      "sources": ["ASF run run_2a7f394df3691930 (ADHOC-44185ACB, PR #74) plan.md + review.md", "docker-compose.self-host.yml:87-90"]
+    },
+    {
+      "id": "why-5",
+      "group": "why did we",
+      "question": "With AUTH_MODE=header in the self-hosted stack, the api binds 0.0.0.0 in its container. How does the boot guard decide header mode is safe, and why was that needed?",
+      "key": [
+        "Compose passes the host publish address as API_PUBLISH_HOST (same ${ASF_BIND:-127.0.0.1} expression as the ports line); loopback is allowed, anything else is refused at boot.",
+        "Needed because the container must bind 0.0.0.0 for the compose network, so the old bind-address check refused every self-hosted header setup even when tailscale serve was the only way in.",
+        "Without API_PUBLISH_HOST the guard falls back to the bind address (explicit API_HOST wins over PORT)."
+      ],
+      "where": "commit",
+      "sources": ["commit d85275e (#75)", "apps/api/src/identity.ts:55-85"]
+    },
+    {
+      "id": "where-1",
+      "group": "where is",
+      "question": "Where is the check that stops the ASF api from starting with an unsafe AUTH_MODE=header configuration, and where is it called?",
+      "key": [
+        "assertIdentityConfig() in apps/api/src/identity.ts.",
+        "Called at boot from apps/api/src/index.ts."
+      ],
+      "where": "code",
+      "sources": ["apps/api/src/identity.ts:66", "apps/api/src/index.ts:44"]
+    },
+    {
+      "id": "where-2",
+      "group": "where is",
+      "question": "Where are ASF's default gates defined, and which ones require a person by default?",
+      "key": [
+        "DEFAULT_GATES in packages/shared/src/team.ts.",
+        "after_plan (with a 12-hour timeout), before_change_request and before_merge are 'required'; any gate not listed is 'auto'."
+      ],
+      "where": "code",
+      "sources": ["packages/shared/src/team.ts:26-30", "packages/shared/src/gates.ts:41"]
+    },
+    {
+      "id": "none-1",
+      "group": "not in ASF",
+      "question": "What password policy (length, rotation, lockout) does ASF enforce for user accounts?",
+      "key": [
+        "None: ASF has no user accounts or passwords.",
+        "Identity is AUTH_MODE: none (whoever the client claims to be) or header (trust a proxy such as Tailscale/IAP that already authenticated the user)."
+      ],
+      "where": "none",
+      "sources": ["apps/api/src/identity.ts:5-16"]
+    },
+    {
+      "id": "none-2",
+      "group": "not in ASF",
+      "question": "Where is ASF's Helm chart, and which values do I override to deploy it on Kubernetes?",
+      "key": [
+        "There is none: ASF doesn't ship a Helm chart or Kubernetes manifests.",
+        "Self-hosting is Docker Compose (docker-compose.self-host.yml via scripts/setup.sh / scripts/asf); the hosted option is Cloud Run (docs/HOSTING.md)."
+      ],
+      "where": "none",
+      "sources": ["git ls-files (no chart/manifests)", "docs/VERTEX.md:54", "docs/SELF_HOSTING.md"]
+    }
+  ]
+}
