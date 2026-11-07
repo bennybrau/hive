@@ -31,6 +31,9 @@ Each window is at most 45k characters, so it fits one chunk. `cases/<id>.json` h
 - **`acceptable`:** borderline facts. Proposing one is neither credited nor a false positive.
 - **`evidence`:** a verbatim passage for each label.
 - **`repo_key`:** the repo the session ran in.
+- **`source`:** where the transcript came from: `{"session", "lo", "hi"}` for a window of a real session,
+  `{"cut_from": "<case>", "lines": [lo, hi]}` for lines cut (inclusive) from another case's transcript, or
+  `{"synthetic": "..."}` for a written one, whose `notes` then start with SYNTHETIC.
 
 Eleven of the 15 session cases should produce nothing: chit-chat, status checks, routine work, a code review, and
 sessions whose only facts the assistant found or proved without the user stating them.
@@ -38,6 +41,11 @@ sessions whose only facts the assistant found or proved without the user stating
 Three more cases, `bot-*`, are synthetic: written in the same format to check that facts come from what the person
 said. In two the assistant proposes or summarises and the user only says ok or thanks (nothing to keep); in one the
 user corrects the assistant's proposal (the correction is the fact).
+
+Six cases check distill-v6's shape rule and don't-save list. Five `excl-*` cases expect nothing, even though the user
+says each thing: `excl-setup-failure` (cut from `asf-uninstall`), and the synthetic `excl-transient`, `excl-one-off`,
+`excl-tool-broken` and `excl-failed-attempts`. In the synthetic `story-rule` the user tells an incident with a PR
+number and a date and ends with a rule; the one expected fact is the bare rule and its reason.
 
 Before committing a new case, run `python3 extract.py scan cases/*.txt`, which must exit 0. Replace any hit with
 `[REDACTED]` and any third-party email address with `[EMAIL]`.
@@ -48,5 +56,11 @@ Before committing a new case, run `python3 extract.py scan cases/*.txt`, which m
 - **Not readable from the code.**
 - **Settled:** the user decided, corrected or clarified it in a `user:` turn (the label's evidence quotes that turn).
   Something the session proved but the user never said is acceptable at most.
+- **A rule, not a story:** a standalone rule a teammate can act on, plus the person's reason when given. No PR/issue
+  numbers, dates, run ids or narration in the text (they stay in the evidence); a unit test rejects `#123` and ISO
+  dates in expected labels. The same decision said twice is one label.
 
 Status, logs, findings about the diff under review, and assistant proposals the user didn't take up are not facts.
+Nor, even when the user says them: setup or environment failures (a missing binary or file, credentials, fresh-install
+errors), "tool or feature X is broken", transient errors that were resolved, one-off task details, and attempts that
+didn't work. If a setup step fixed something, the fix is acceptable at most, never the failure.

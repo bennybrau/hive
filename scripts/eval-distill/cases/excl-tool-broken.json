@@ -1,0 +1,10 @@
+{
+  "id": "excl-tool-broken",
+  "source": {
+    "synthetic": "written for distill-v6: the user says a tool is broken"
+  },
+  "repo_key": "gh/jon/ledger",
+  "expected": [],
+  "acceptable": [],
+  "notes": "SYNTHETIC. The browser tool fails on a missing system library, and the user says it is broken and never to use it. A claim that a tool doesn't work is never a fact under distill-v6: it is an environment problem that can be fixed, and the claim would outlive the fix."
+}

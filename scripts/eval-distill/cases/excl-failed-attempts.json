@@ -1,0 +1,10 @@
+{
+  "id": "excl-failed-attempts",
+  "source": {
+    "synthetic": "written for distill-v6: debugging that found nothing that works"
+  },
+  "repo_key": "gh/jon/ledger",
+  "expected": [],
+  "acceptable": [],
+  "notes": "SYNTHETIC. Docker DNS fails in the build; the assistant and the user try four fixes and none works, and the user lists them and stops. Attempts that didn't work are never written up as a method under distill-v6, and the 'probably the VPN' guess is unconfirmed, so nothing is kept."
+}

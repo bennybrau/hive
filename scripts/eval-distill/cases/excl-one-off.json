@@ -1,0 +1,10 @@
+{
+  "id": "excl-one-off",
+  "source": {
+    "synthetic": "written for distill-v6: one-off instructions for a single PR"
+  },
+  "repo_key": "gh/jon/ledger",
+  "expected": [],
+  "acceptable": [],
+  "notes": "SYNTHETIC. No existing case has a user turn that is only a one-off instruction (asf-images' icon fix carries an acceptable gotcha, so cutting it with nothing acceptable would be wrong). The user gives instructions for this one PR: skip the changelog, a title, one reviewer because another is away this week, rebase before review. They are one-off task details, not rules, so nothing is kept."
+}

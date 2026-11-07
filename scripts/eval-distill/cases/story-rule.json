@@ -1,0 +1,17 @@
+{
+  "id": "story-rule",
+  "source": {
+    "synthetic": "written for distill-v6: a rule told as the story of an incident"
+  },
+  "repo_key": "gh/jon/ledger",
+  "expected": [
+    {
+      "text": "Run every backfill with --dry-run first and paste its row counts in the PR before running it for real, because the backfill scripts have no undo.",
+      "kind": "convention",
+      "scope": "repo:gh/jon/ledger",
+      "evidence": "so from now on always run a backfill with --dry-run first and paste its row counts in the PR, because our backfill scripts have no undo."
+    }
+  ],
+  "acceptable": [],
+  "notes": "SYNTHETIC. The user tells an incident (a PR number, a date, 40k rows rewritten, a day restoring) and ends with the rule and its reason. The fact is the bare rule plus the reason; the PR number, the date and the story stay in the quote."
+}

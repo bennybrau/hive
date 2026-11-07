@@ -1,0 +1,95 @@
+user: [The user sent an image~ Here's what I can see:
+# Image Description
+
+This screenshot shows a Docker container build and deployment log in a terminal interface. The output displays the progress of building and pushing multiple container images to `ghcr.io/bennybrau/asf-*` registry, including registry, API, and worker images, all marked as "Built" or "latest." The log indicates several containers being started (asf-supervisor-1, asf-postgres-1, asf-backup-1, asf-api-1, asf-worker-1), with status indicators showing "Healthy," "Started," or "Created." However, there are error messages indicating that the asf-registry container failed to start with an "unhealthy" status, and a dependency failure preventing the asf-registry-1 container from starting properly. The command prompt at the bottom shows `jon.ame@G4D-DJXN77X6 scripts %`, suggesting this is a development environment setup that encountered initialization issues.]
+[If you need a closer look, use vision_analyze with image_url: /Users/jon/.hermes/cache/images/img_640289c2edb7.jpg ~]
+
+Its merged and the images are built.  I did a fresh install of the latest images on my work Mac mini and when I ran the setup.sh I get this:
+assistant -> vision_analyze({"image_url": "/Users/jon/.hermes/cache/images/img_640289c2edb7.jpg", "question": "Transcribe all the terminal text exactly, line by line, especially any error messages and container names/statuses."})
+tool(vision_analyze): {
+  "success": true,
+  "analysis": "# Image Description and Analysis\n\nThis image shows a terminal window displaying Docker container build and deployment output. The screen captures a multi-stage Docker build process with various status indicators and error messages.\n\n## Full Terminal Transcription (Line by Line):\n\n```\n=> [internal] load build definition from Dockerfile                           0.0s\n=> => transferring dockerfile: 31B                                            0.0s\n=> [api] resolving provenance for metadata file                               0.0s\n=> [supervisor] resolving provenance for metadata file                        0.0s\n=> [worker] resolving provenance for metadata file                            0.0s\n[+] up 9/9\n✓ Image ghcr.io/bennybrau/asf-registry:latest Built                          56.7s\n✓ Image ghcr.io/bennybrau/asf-api:latest Built                               56.7s\n✓ Image ghcr.io/bennybrau/asf-worker:latest Built                            56.7s\n✓ Container asf-supervisor-1 Started                                          9.3s\n✓ Container asf-postgres-1 Healthy                                            2.8s\n✗ Container asf-registry-1 Error dependency registry failed to start          6.8s\n✓ Container asf-backup-1 Started                                              0.8s\n✓ Container asf-api-1 Created                                                 0.0s\n✓ Container asf-worker-1 Created                                     …[649 chars clipped]
+assistant: The cause isn't confirmed yet. The registry is the service that connects to Postgres, and here it crashed within seconds of starting. On a reinstall, the most common reason is that the Postgres data volume from your earlier install is still there. That volume still has the old install's password, while this setup wrote a new password to `.env`, so Postgres rejects the registry. It happens if the old checkout was deleted or re-cloned without the volumes being removed.
+
+Run these from the checkout root (`cd ..` from `scripts`):
+
+```bash
+docker compose -f docker-compose.self-host.yml logs --tail 40 registry
+docker compose -f docker-compose.self-host.yml logs postgres | grep -iE "fatal|authentication|password" | tail -5
+docker volume ls --format '{{.Name}} {{.CreatedAt}}' | grep '^asf_'
+```
+
+What the answers mean:
+- **`password authentication failed` in the Postgres log, and `asf_pgdata` older than today:** it's the leftover volume. Do you still need anything from the old install's data?
+  - If not, run `./scripts/uninstall.sh --no-backup --yes`, then `./scripts/setup.sh`.
+  - If you do, run `./scripts/uninstall.sh` without `--no-backup`. It saves a copy of the old database first.
+
+  This is the uninstall script's real first use.
+- **A migration or other error in the registry log:** it's something in the new release. Paste the log (replace long random strings with `[REDACTED]`) and I'll fix it.
+
+If you're unsure what the output means, send a screenshot. The registry log tells us which case it is.
+user: [The user sent an image~ Here's what I can see:
+# Image Description
+
+This is a **Node.js application error log** displaying server-side errors from October 19, 2026. The log shows repeated "database unreachable" errors occurring in a registry/distribution server application (file: `//app/apps/registry/dist/server.js`). Key details include:
+
+- **Error Message**: "database unreachable; a registry with no database would accept a dispatch and lose it"
+- **Node.js Version**: v22.23.3
+- **Stack Trace**: Errors originating from `buildServer`, `processTicksAndRejections`, and `async_files` functions
+- **Timestamps**: Multiple error instances logged between 17:46 and 17:47 UTC
+
+The repetitive nature suggests a persistent database connectivity issue affecting the application's registry service.]
+[If you need a closer look, use vision_analyze with image_url: /Users/jon/.hermes/cache/images/img_cbc50a6f9296.jpg ~]
+assistant -> vision_analyze({"image_url": "/Users/jon/.hermes/cache/images/img_cbc50a6f9296.jpg", "question": "Transcribe all text exactly. Is there any postgres log output or volume list visible, or only registry logs? Note any error codes, hostnames, or 'password' text."})
+tool(vision_analyze): {
+  "success": true,
+  "analysis": "# Image Description and Analysis\n\n## Overview\nThis image shows a terminal/console output displaying Node.js application logs with timestamps from October 19, 2026. The logs appear to be from a registry application experiencing repeated database connectivity errors.\n\n## Full Text Transcription\n\n```\n2026-10-19T17:46:10.651621152\n2026-10-19T17:46:10.651662852Z Node.js v22.23.3\n2026-10-19T17:46:10.451084332Z file:///app/apps/registry/dist/server.js:19\n2026-10-19T17:46:36.454090335Z        throw new Error('database unreachable; a registry with no database would accept\na dispatch and lose it');\n2026-10-19T17:46:36.454091669Z                                    ^\n2026-10-19T17:46:36.454092627Z\n2026-10-19T17:46:36.454093502Z Error: database unreachable; a registry with no database would accept a dispatch and lo\nse it\n2026-10-19T17:46:36.454094502Z        at buildServer (file:///app/apps/registry/dist/server.js:19:15)\n2026-10-19T17:46:36.454095419Z        at process.processTicksAndRejections (node:internal/process/task_queues:103:5)\n2026-10-19T17:46:36.454096377Z        at async files (file:///app/apps/registry/dist/index.js:12:17\n2026-10-19T17:46:36.454112710Z\n2026-10-19T17:46:36.454114710Z Node.js v22.23.3\n2026-10-19T17:47:27.884183602Z file:///app/apps/registry/dist/server.js:19\n2026-10-19T17:47:27.884922152Z        throw new Error('database unreachable; a registry with no database would accept\na dispatch and lose it');\n20 …[1383 chars clipped]
+assistant: That's the registry's log, and it doesn't say why the database is unreachable. It drops the actual Postgres error, which is a gap I'll fix separately. The reason will be in the Postgres log. From the checkout root, run:
+
+```bash
+docker compose -f docker-compose.self-host.yml logs postgres | grep -iE "fatal|authentication|password" | tail -5
+docker volume ls --format '{{.Name}} {{.CreatedAt}}' | grep '^asf_'
+```
+
+What it means:
+- **`password authentication failed for user "asf"`** together with an `asf_pgdata` created before today: the leftover volume from your earlier install is the cause. That volume still has the old password, while setup wrote a new one to `.env`. The fix:
+  ```bash
+  ./scripts/uninstall.sh        # saves the old DB to ~/asf-uninstall-<time>/ first; type "uninstall"
+  ./scripts/setup.sh
+  ```
+  Add `--no-backup` if you don't need anything from the old install.
+- **No password lines in the log:** send me both outputs. The cause is something else, such as Postgres listening under a different name or a network problem.
+user: open /Users/jon.arme/dev/personal/agentic-software-factory/scripts/docker-compose.self-host.yml: no such file or directory
+assistant: That error means you ran the command from inside the `scripts` folder. The compose file is one folder up, in the checkout root. Run this:
+
+```bash
+cd ~/dev/personal/agentic-software-factory
+docker compose -f docker-compose.self-host.yml logs postgres | grep -iE "fatal|authentication|password" | tail -5
+docker volume ls --format '{{.Name}} {{.CreatedAt}}' | grep '^asf_'
+```
+
+`./scripts/uninstall.sh` and `./scripts/setup.sh` also expect to be run from that folder. Both change to the checkout root by themselves, so they work from anywhere, but `docker compose` doesn't.
+user: postgres-1  | 2026-10-19 17:46:10.650 UTC [84] FATAL:  password authentication failed for user "asf"
+postgres-1  | 2026-10-19 17:46:36.453 UTC [121] FATAL:  password authentication failed for user "asf"
+postgres-1  | 2026-10-19 17:47:27.883 UTC [196] FATAL:  password authentication failed for user "asf"
+postgres-1  | 2026-10-19 17:48:28.152 UTC [288] FATAL:  password authentication failed for user "asf"
+postgres-1  | 2026-10-19 17:49:28.427 UTC [379] FATAL:  password authentication failed for user "asf"
+template parsing error: template: :1:12: executing "" at <.CreatedAt>: can't evaluate field CreatedAt in type *formatter.volumeContext
+assistant: Confirmed: Postgres is rejecting the password because of the leftover data volume from your earlier install. The volume still has the old install's password, and this setup wrote a new one to `.env`. You can ignore the second error; that's just my `--format` flag, which this Docker version doesn't support.
+
+Fix it from the checkout root:
+
+```bash
+cd ~/dev/personal/agentic-software-factory
+./scripts/uninstall.sh      # lists what it will remove, saves the old DB to ~/asf-uninstall-<time>/, type "uninstall"
+./scripts/setup.sh
+```
+
+The safety-copy dump should still work, because `pg_dump` runs inside the Postgres container and doesn't use the password. If you know you don't need the old data, add `--no-backup --yes` to skip it.
+
+This exposed two real gaps:
+1. **setup.sh** creates a new password even when an `asf_pgdata` volume already exists. That guarantees exactly this failure. It should stop and point you to `uninstall.sh`, or reuse the old password if it can.
+2. **The registry** logs only "database unreachable" and drops the Postgres error. It should log something like "password authentication failed — the database volume is from an earlier install; run scripts/uninstall.sh".
+
+Want me to fix both in one PR?
+user: yeah, the uninstall then setup worked

@@ -1,0 +1,10 @@
+{
+  "id": "excl-transient",
+  "source": {
+    "synthetic": "written for distill-v6: a transient CI failure that a re-run resolved"
+  },
+  "repo_key": "gh/jon/ledger",
+  "expected": [],
+  "acceptable": [],
+  "notes": "SYNTHETIC. Not cut from asf-tailscale: its CI failure (lines 16-60) was a real bug fixed in a PR, not a transient error, and asf-tailscale keeps its cause as an acceptable gotcha. Here CI fails on npm registry 503s, a re-run passes, and the user states the outage and that the re-run fixed it. A transient error that was resolved is never a fact under distill-v6, even when the user says it."
+}

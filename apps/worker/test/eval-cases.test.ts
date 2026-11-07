@@ -7,7 +7,7 @@ import { quoteValid, type Label } from "../src/eval/score.js";
 const dir = fileURLToPath(new URL("../../../scripts/eval-distill/cases/", import.meta.url));
 const cases = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
 
-// distill-v5 must quote a user turn for every fact, so an expected label is only findable when its evidence is one.
+// distill-v6 must quote a user turn for every fact, so an expected label is only findable when its evidence is one.
 describe("eval-distill cases", () => {
   it("has cases", () => expect(cases.length).toBeGreaterThan(0));
   for (const f of cases) {
@@ -16,6 +16,10 @@ describe("eval-distill cases", () => {
     meta.expected.forEach((l, i) => {
       it(`${f} E${i + 1} has evidence quoting a user turn`, () => {
         expect(quoteValid(l.evidence ?? "", transcript)).toBe(true);
+      });
+      // distill-v6 states a rule, not the incident: numbers and dates stay in the quote.
+      it(`${f} E${i + 1} has no issue number or date in its text`, () => {
+        expect(l.text).not.toMatch(/#\d+|\d{4}-\d{2}-\d{2}/);
       });
     });
   }

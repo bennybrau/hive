@@ -1,0 +1,8 @@
+{
+  "id": "excl-setup-failure",
+  "source": {"cut_from": "asf-uninstall", "lines": [23, 117]},
+  "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
+  "expected": [],
+  "acceptable": [],
+  "notes": "Cut from asf-uninstall for distill-v6's don't-save list (setup failures). A fresh install fails: the user runs a compose command from the wrong directory ('no such file or directory'), Postgres rejects the password because of a leftover data volume, and the user ends with 'yeah, the uninstall then setup worked'. Everything here is a setup or environment failure the person fixed, and the only user turns are pasted errors and that confirmation, so nothing is kept. The fix (uninstall before re-running setup) was the assistant's diagnosis; asf-uninstall keeps it as acceptable, this cut deliberately does not."
+}

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ClaudeAuth } from "../src/auth.js";
 import { chunkTranscript, splitTurns } from "../src/chunk.js";
@@ -135,8 +136,13 @@ describe("ClaudeAuth", () => {
 
 describe("prompt", () => {
   it("the prompt file carries its version", () => {
-    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v5");
+    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v6");
     expect(loadPrompt(PROMPT_PATH).body).toContain('{"facts":[]}');
+  });
+
+  it("the hive asks for the version the prompt file carries", () => {
+    const hive = readFileSync(new URL("../../hive/src/distill.ts", import.meta.url), "utf8");
+    expect(hive).toContain(`DISTILL_PROMPT_VERSION = "${loadPrompt(PROMPT_PATH).version}"`);
   });
 
   it("renderPrompt describes the source and where quotes come from per episode kind", () => {
