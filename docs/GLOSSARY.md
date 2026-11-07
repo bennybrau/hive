@@ -40,6 +40,8 @@ Terms marked (EB) are borrowed from Entire Brain; (M0) from Mem0.
 - **Ingest** — pulling ground truth from systems of record: repos, OpenAPI specs, service catalog, ASF's registry, deploy logs. Produces `system` claims automatically.
 - **Ground truth** — a claim whose evidence is a machine-readable source rather than someone's recollection. Auto-promotes; auto-demotes when re-verification fails.
 - **Distill / Extraction** (EB, M0) — the background pass that turns conversation into candidate claims. Runs hourly, costs tokens, never on the hot path.
+- **Run record** (invented) — one merged ASF run (ticket, approved plan, review, PR link) kept as trusted history: searchable and used by the brief, never distilled into candidates or reviewed.
+- **Remember request** (invented) — a person telling the agent to remember something ("remember this", "from now on ..."); flagged by the plugin and distilled at once instead of waiting for session end.
 - **Quality gate** (EB) — the rule the extractor applies before emitting anything: durable, useful weeks later, not already discoverable from code/README, resolved not pending. Default outcome is *record nothing*.
 - **Dedupe** (M0) — on write, check existing claims for the same fact before adding another copy.
 - **Review** — a human decides on a candidate: **Approve / Fix / Reject / Ask**. Happens in chat, three taps. Git is not the interface.

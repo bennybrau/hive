@@ -214,6 +214,31 @@ Each milestone ends with something Jon can run. Estimates are focused-work days,
 - ASF hook: on ASF run completion, ASF POSTs `{kind:'asf_run', repo_key, ref, content: plan.md+review.md}` as an episode; distill picks it up like any session. One webhook, no ASF code beyond a settings key and a `fetch`.
 - **Verify:** `report.py` shows tokens and correctness for both arms. Whatever the number is, that's the result.
 
+#### What a person reviews (revised 2026-11-07)
+
+The first backfill of 41 ASF runs produced 64 granular candidates (about 2 per run), almost all of them details of
+bot-written plans. Nobody can review that, and it isn't what's worth remembering. All 64 were rejected; the rule from
+here on:
+
+- **Bot-written work is trusted history, not candidates.** An ASF run whose PR merged is stored as one *run record*
+  (ticket, approved plan, review, PR link, merge time), searchable as `history` and offered by the brief. It is never
+  distilled. The plan was approved by a person at the `after_plan` gate and the merged PR is what happened, so it needs
+  no second review; a newer run on the same files outranks an older one. Unmerged runs aren't sent.
+- **The review queue is for what a person said to a bot.** A candidate must quote a *human* turn in which the person
+  corrected, clarified, redirected or decided something ("no, do X", "always ...", "call it ...", "I'd rather ...").
+  An assistant's reasoning, plan or summary can't produce a fact on its own. Each candidate shows the exchange it came
+  from (the bot's proposal and the person's reply). Sources: Hermes sessions, ASF gate notes and ASF run chat
+  (`asf_dialog` episodes).
+- **"Remember this" is a request, not a hint.** When a person says remember this / add this to memory / make sure to
+  remember / don't forget / note that / from now on (and variants), the plugin flags the turn and Hive distills it at
+  once with the previous turn as context. The result is active immediately in personal scope or when the person is a
+  curator; a member's shared-scope request goes to the top of the queue marked *asked to remember*. The agent is also
+  told to call `hive_remember` and confirm what it saved; Hive dedupes the two.
+
+Issues: #56 (run records), #57 (human-anchored distill + `asf_dialog`), #58 (remember requests),
+bennybrau/agentic-software-factory#78 (ASF sends merged runs and the dialog). The experiment (#20, #22) runs after
+#56 and #58, since they change what the Hive knows.
+
 ### M6 — Harden for other people (1–2 d)
 - `setup.sh` on the Mac Studio (compose up, Ollama model pull, create curator + N instance tokens, print install snippet for each Hermes). Tailscale or LAN URL. Backup = `pg_dump` cron.
 - Secret scrub on the plugin side is already done by Hermes before `sync_turn`; document it. `HIVE_NO_SYNC=1` kill switch.
