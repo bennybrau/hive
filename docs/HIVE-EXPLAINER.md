@@ -39,24 +39,28 @@ The point is to save money, so the design avoids spending it:
 
 ## What's built so far
 
-The first three of six steps are done and running on my Mac:
+All six steps are built and running on my Mac: the service and search, the Hermes connection, reading our code and
+documents, suggesting facts from conversations with a web page to approve them, a short briefing at the start of
+each task, and the test.
 
-- **The service and database:** storing facts and conversations, with access tokens per person.
-- **Search:** by exact words and by meaning, returning results in about 36–71 ms even with 10,000 facts.
-- **The Hermes connection:** a plugin that feeds facts to the assistant, records conversations, and lets the assistant look up, save, and withdraw facts.
+**The test (November 7):** 16 real questions about one of our projects, each asked three times with the Hive on and
+three times with it off, 96 conversations in all, graded against an answer key.
 
-An early, single test shows why this matters. I asked the same question about the project three ways:
+- **Cheaper answers:** about 9.7 cents per question with the Hive, 11.6 cents without.
+- **More right answers:** 85% with the Hive, 75% without. The clearest gain was on questions about things that don't
+  exist, where the assistant without the Hive tended to make something up.
+- **But the Hive cost more than it saved:** after every conversation it paid about 4 cents to read it in case there
+  was something to learn, and in these question-only conversations there never was.
 
-- **With the Hive:** 1 AI call, about 4.6 cents.
-- **With the Hive available but not used automatically:** 2 calls, about 5.6 cents.
-- **Without the Hive** (the assistant searched the code itself): 3 calls, about 16 cents.
-
-That's one question, so it's a hint rather than a result. Measuring this properly is the last step.
+So the idea works, and the cost is in the wrong place.
 
 ## What's next
 
-- **Steps 4 and 5:** read our code repositories and their documents (Markdown, PDF, Word, Excel, PowerPoint) directly; regularly re-check that each fact's source still says what it used to; automatically suggest facts from finished conversations; add a simple web page for approving them.
-- **Step 6, the real test:** about fifteen real questions about one of our projects, each asked with the Hive switched on and switched off. We compare how much each run cost and whether the answer was right. If the savings don't clearly beat the cost of running the Hive, we stop.
+We're changing how the Hive learns before deciding anything else: it will skip conversations where someone only
+asked questions, read only what people said rather than everything the assistant looked at, and borrow the habits
+our assistant already uses to improve itself (keep lessons short and general, update an old fact instead of adding
+a new one, retire facts nobody uses). Then we run the same test again. The rule stands: if the savings don't clearly
+beat the cost, we stop.
 
 ## Deliberately left out for now
 
