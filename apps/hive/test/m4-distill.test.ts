@@ -315,6 +315,26 @@ describe("complete", () => {
     expect(row.result.dropped_non_user_quote).toBe(2);
   });
 
+  it("keeps a session fact quoting a clarify answer, but not one quoting its question", async () => {
+    await setCredential();
+    const content = [
+      "user: plan the cache",
+      'tool(clarify): {"responses": [{"question": "Which store for the cache?", "user_response": "Postgres, not \\"Redis\\""}]}',
+    ].join("\n");
+    await pool.query(`insert into episodes (kind, content) values ('session', $1)`, [content]);
+    const { job } = (await claim(app, worker.token)).json();
+    const res = await complete(app, worker.token, job.id, [
+      { text: "The cache lives in Postgres.", kind: "decision", scope: "global", quote: 'Postgres, not \\"Redis\\"' },
+      { text: "A store holds the cache.", kind: "system", scope: "global", quote: "Which store for the cache?" },
+    ]);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().result).toMatchObject({
+      created: [expect.any(String)],
+      dropped: [{ text: "A store holds the cache.", reason: "non_user_quote" }],
+      dropped_non_user_quote: 1,
+    });
+  });
+
   it("a legacy asf_run job has no user turns: any quote in the run counts", async () => {
     await setCredential();
     const ep = (await pool.query(`insert into episodes (kind, content) values ('asf_run', 'Plan: keep the outbox table.') returning id`)).rows[0];

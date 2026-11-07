@@ -148,7 +148,8 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   output_tokens, cache_read_tokens, cost_usd, duration_ms}}` → `{result:{prompt_version, created:[ids], anchored:[ids], dropped:[{text, reason}],
   dropped_non_user_quote}}`. Dropped, checked in this order: `quote_not_in_episode` (the quote, whitespace collapsed,
   isn't in the episode), `non_user_quote` (it is, but not inside a user turn: a turn starts at a line beginning
-  `user: ` and ends before the next line starting with `user: `, `assistant` or `tool(`; checked on `session` and
+  `user: ` and ends before the next line starting with `user: `, `assistant` or `tool(`, and each `"user_response"`
+  value (still JSON-escaped, as it appears in the episode) on a line starting `tool(clarify): ` is a user turn of its own; checked on `session` and
   `asf_dialog` jobs, not on a remember job or an `asf_run` job), and `scope_not_allowed` (only `global`, `repo:<episode repo_key>`, `personal:<episode user>`).
   `dropped_non_user_quote` counts the `non_user_quote` drops (always present, 0 when none). A fact with the same text as an existing one, or
   cosine > 0.92 to a candidate/active fact in its scope (when embeddings are on), gets an `{episode_id, quote, repo_key}`

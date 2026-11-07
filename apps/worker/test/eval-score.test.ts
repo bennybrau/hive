@@ -16,11 +16,21 @@ describe("quoteValid", () => {
     expect(quoteValid("exit 0", t)).toBe(false);
     expect(quoteValid("thanks", t)).toBe(true);
   });
+  it("accepts a clarify answer, escaped as in the transcript, but not its question", () => {
+    const t = 'user: plan\ntool(clarify): {"responses": [{"question": "Which queue?", "user_response": "use \\"pg\\" queues"}]}';
+    expect(quoteValid('use \\"pg\\" queues', t)).toBe(true);
+    expect(quoteValid("Which queue?", t)).toBe(false);
+  });
 });
 
 describe("userTurns", () => {
   it("splits like the hive: a user turn runs to the next user:, assistant or tool( line", () => {
     expect(userTurns("user: a\n  b\nassistant: c\nuser: d\nassistant -> x\nuser: e\ntool(t): f\ng")).toEqual(["user: a\n  b", "user: d", "user: e"]);
+  });
+  it("like the hive, each user_response on a tool(clarify) line is a turn, also on a clipped line, and not on other tools", () => {
+    const clipped = 'tool(clarify): {"responses": [{"question": "Q", "user_response": "a \\"b\\""}, {"question": "R", "user_re …[9 chars clipped]';
+    expect(userTurns(`user: x\n${clipped}\ny`)).toEqual(["user: x", 'a \\"b\\"']);
+    expect(userTurns('tool(terminal): {"user_response": "no"}')).toEqual([]);
   });
 });
 

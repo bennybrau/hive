@@ -47,6 +47,7 @@ DEFAULT_PREFETCH_K = 5
 DEFAULT_PREFETCH_MIN_SIM = 0.62
 FACT_KINDS = ["decision", "invariant", "gotcha", "preference", "convention", "system"]
 MAX_TOOL_OUTPUT_CHARS = 1500  # per tool result inside a session transcript
+MAX_CLARIFY_OUTPUT_CHARS = 8000  # a clarify result holds the user's answers: keep much more of it
 MAX_SESSION_CHARS = 3_500_000  # service limit is 4M
 REVIEW_QUEUE_LIMIT = 20
 FULL_ID = re.compile(r"[0-9a-fA-F-]{36}")
@@ -187,7 +188,8 @@ def is_remember_request(text: str) -> bool:
 
 def render_transcript(messages: list[dict[str, Any]]) -> str:
     """Readable transcript for a `session` episode. Tool results are clipped: they're bulky and the
-    distiller needs the decisions, not every byte of a file listing."""
+    distiller needs the decisions, not every byte of a file listing. A `clarify` result holds the user's
+    answers, so it gets a much higher limit."""
     lines: list[str] = []
     for m in messages or []:
         role = m.get("role", "")
@@ -195,8 +197,9 @@ def render_transcript(messages: list[dict[str, Any]]) -> str:
             continue
         text = _text_of(m.get("content")).strip()
         if role == "tool":
-            if len(text) > MAX_TOOL_OUTPUT_CHARS:
-                text = text[:MAX_TOOL_OUTPUT_CHARS] + f" …[{len(text) - MAX_TOOL_OUTPUT_CHARS} chars clipped]"
+            limit = MAX_CLARIFY_OUTPUT_CHARS if m.get("name") == "clarify" else MAX_TOOL_OUTPUT_CHARS
+            if len(text) > limit:
+                text = text[:limit] + f" …[{len(text) - limit} chars clipped]"
             lines.append(f"tool({m.get('name') or m.get('tool_call_id') or ''}): {text}")
             continue
         for call in m.get("tool_calls") or []:

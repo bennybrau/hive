@@ -148,7 +148,7 @@ describe("prompt", () => {
       expect(out).toContain('"repo:gh/o/r" by default');
     }
     expect(session).toContain("conversation between a developer (user) and their coding agent");
-    expect(session).toContain("from a line that starts with `user:` only");
+    expect(session).toContain("from a line that starts with `user:`, or a `\"user_response\"` value on a `tool(clarify)` line");
     expect(session).not.toContain("software-factory run");
     expect(run).toContain("the approved plan for a change, then the review of the finished work");
     expect(run).toContain("Never turn a plan step");

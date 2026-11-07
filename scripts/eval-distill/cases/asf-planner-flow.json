@@ -12,6 +12,18 @@
       "kind": "decision",
       "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
       "evidence": "Planner should have more of a back and forth chat and then implementer, tester, and reviewer can just go."
+    },
+    {
+      "text": "Each planner chat reply in ASF resumes the planner's Claude session so replies are fast and cheap, and falls back to a fresh planner run with the full conversation thread in the prompt when the session is gone.",
+      "kind": "decision",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "Resume the planner's Claude session so replies are fast and cheap, falling back to a fresh re-run with the full thread if the session is gone"
+    },
+    {
+      "text": "A fresh ASF install defaults to plan = chat + approve, implement/test/review = auto, create-MR = notify and merge = required, because the existing team already runs implement/test/review automatically and the old default of 'required' everywhere forced a stop at every step.",
+      "kind": "decision",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "Yes, change the defaults"
     }
   ],
   "acceptable": [
@@ -20,19 +32,7 @@
       "kind": "convention",
       "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
       "evidence": "\"user_response\": \"Yes: if blocked, it asks only questions; otherwise it writes the plan with any questions under it\""
-    },
-    {
-      "text": "Each planner chat reply in ASF resumes the planner's Claude session so replies are fast and cheap, and falls back to a fresh planner run with the full conversation thread in the prompt when the session is gone.",
-      "kind": "decision",
-      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
-      "evidence": "\"user_response\": \"Resume the planner's Claude session so replies are fast and cheap, falling back to a fresh re-run with the full thread if the session is gone\""
-    },
-    {
-      "text": "A fresh ASF install defaults to plan = chat + approve, implement/test/review = auto, create-MR = notify and merge = required, because the existing team already runs implement/test/review automatically and the old default of 'required' everywhere forced a stop at every step.",
-      "kind": "decision",
-      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
-      "evidence": "Should I change the fresh-install default to: plan = chat + approve, implement/test/review = auto, create MR = notify, merge = required?"
     }
   ],
-  "notes": "Decision window (not an unresolved debugging one): the whole session is one feature, so I took its opening [0,52), where the assistant explores the planner/gate code and the user settles three design questions via clarify. The session and defaults choices are explicit user decisions; ask-first behaviour is also decided but is later visible in prompts/roles/planner.md, so acceptable only. The cost/time figures are omitted as they will change. Label review: added the user's opening directive (plan stage becomes a chat) as expected; it is the window's core decision. Relabelled for distill-v5 (which must quote a user turn): the session-resume and install-defaults decisions (now A2, A3) were made in tool(clarify) answers, which v5 can't quote, so they are acceptable."
+  "notes": "Decision window (not an unresolved debugging one): the whole session is one feature, so I took its opening [0,52), where the assistant explores the planner/gate code and the user settles three design questions via clarify. The session and defaults choices are explicit user decisions; ask-first behaviour is also decided but is later visible in prompts/roles/planner.md, so acceptable only. The cost/time figures are omitted as they will change. Label review: added the user's opening directive (plan stage becomes a chat) as expected; it is the window's core decision. Relabelled for distill-v5 (which must quote a user turn): the session-resume and install-defaults decisions were made in tool(clarify) answers; once a clarify user_response counted as a user turn they went back to expected (E2, E3), with the raw answer value as evidence."
 }

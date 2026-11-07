@@ -9,7 +9,8 @@ A fact passes only if ALL of these hold:
 - Useful weeks later: someone starting a new task in this area would act differently knowing it.
 - Not readable from the code, tests or docs: it records a why, a constraint or a trap, not how something works.
 - Settled: it comes from a `user:` turn in which the person corrected, clarified, redirected or decided something
-  ("no, do X", "always ...", "call it ...", "I'd rather ..."). The assistant's reasoning, plans, proposals and
+  ("no, do X", "always ...", "call it ...", "I'd rather ..."). An answer the person gave to the assistant's question
+  (a `user_response` in `tool(clarify)` output) counts as the person deciding. The assistant's reasoning, plans, proposals and
   summaries are context only: they never make a fact on their own, even when the user answers "ok" or "thanks".
 
 Never facts, even when true:

@@ -53,9 +53,15 @@ export interface DistillResult {
   dropped_non_user_quote: number;
 }
 
+/** A `tool(clarify)` line holds the user's answers to the agent's questions. */
+const CLARIFY_PREFIX = "tool(clarify): ";
+/** One answer in a clarify result, still JSON-escaped (so it stays a substring of the episode). Works on a clipped line. */
+const USER_RESPONSE = /"user_response":\s*"((?:[^"\\]|\\.)*)"/g;
+
 /**
  * The user turns of a rendered transcript: each starts at a line beginning `user: ` and runs up to the next line
- * starting with `user: `, `assistant` (`assistant:` or `assistant -> tool call`) or `tool(`.
+ * starting with `user: `, `assistant` (`assistant:` or `assistant -> tool call`) or `tool(`. Each `user_response`
+ * value on a `tool(clarify): ` line is a turn of its own: the user answering the agent's question.
  */
 export function userTurns(content: string): string[] {
   const turns: string[] = [];
@@ -67,10 +73,37 @@ export function userTurns(content: string): string[] {
     } else if (line.startsWith("assistant") || line.startsWith("tool(")) {
       if (turn) turns.push(turn.join("\n"));
       turn = null;
+      if (line.startsWith(CLARIFY_PREFIX)) for (const m of line.matchAll(USER_RESPONSE)) turns.push(m[1]!);
     } else turn?.push(line);
   }
   if (turn) turns.push(turn.join("\n"));
   return turns;
+}
+
+/** The answers on a `tool(clarify): ` line with the question each answers (null when the line doesn't parse). */
+function clarifyAnswers(line: string): { question: string | null; raw: string }[] {
+  let responses: unknown[] = [];
+  try {
+    const parsed = JSON.parse(line.slice(CLARIFY_PREFIX.length)) as { responses?: unknown };
+    responses = Array.isArray(parsed?.responses) ? parsed.responses : [parsed];
+  } catch {
+    // clipped: answers only
+  }
+  // a skipped question (`user_response: null`) has no match, so pair matches with answered responses only
+  responses = responses.filter((r) => typeof (r as { user_response?: unknown } | null)?.user_response === "string");
+  return [...line.matchAll(USER_RESPONSE)].map((m, i) => {
+    const q = (responses[i] as { question?: unknown } | undefined)?.question;
+    return { question: typeof q === "string" ? q : null, raw: m[1]! };
+  });
+}
+
+/** A JSON string body (no quotes) as text; as is when it doesn't parse. */
+function unescapeJson(raw: string): string {
+  try {
+    return JSON.parse(`"${raw}"`) as string;
+  } catch {
+    return raw;
+  }
 }
 
 /** The bot's reply before a quoted user turn keeps only its last this-many chars. */
@@ -78,7 +111,8 @@ export const EXCHANGE_ASSISTANT_CHARS = 600;
 
 /**
  * The exchange a quote came from: the first user turn containing it (same check as distill) and the `assistant:` text
- * turns since the previous user turn (tool calls and output skipped), prefixes removed. null when no user turn has it.
+ * turns since the previous user turn (tool calls and output skipped), prefixes removed. A clarify answer's exchange is
+ * the question it answers (null if the line is clipped) and the answer. null when no user turn has it.
  */
 export function exchangeFor(content: string, quote: string): { assistant: string | null; user: string } | null {
   const q = normalizeText(quote);
@@ -109,6 +143,10 @@ export function exchangeFor(content: string, quote: string): { assistant: string
     const user = close();
     if (user !== null) {
       return { assistant: said.length ? said.join("\n").slice(-EXCHANGE_ASSISTANT_CHARS) : null, user: user.slice("user: ".length) };
+    }
+    if (line.startsWith(CLARIFY_PREFIX)) {
+      const hit = clarifyAnswers(line).find((a) => normalizeText(a.raw).includes(q));
+      if (hit) return { assistant: hit.question, user: unescapeJson(hit.raw) };
     }
     turn = { role, lines: [role === "assistant" ? line.slice("assistant: ".length) : line] };
   }

@@ -437,6 +437,28 @@ def test_session_end_posts_a_readable_transcript_with_clipped_tool_output(monkey
     assert t.endswith("assistant: Done.")
 
 
+def test_session_transcript_keeps_a_long_clarify_result_whole(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    answers = json.dumps({"responses": [{"question": "q" * 900, "user_response": "a" * 900}]})
+    msgs = [
+        {"role": "user", "content": "plan it"},
+        {"role": "tool", "name": "clarify", "content": answers},
+        {"role": "tool", "name": "terminal", "content": "x" * 5000},
+    ]
+    p.on_session_end(msgs)
+    t = fake.last("/v1/episodes")[0]["body"]["content"]
+    assert f"tool(clarify): {answers}\n" in t
+    assert "[3500 chars clipped]" in t
+
+
+def test_session_transcript_clips_a_clarify_result_over_8000_chars(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    answers = json.dumps({"responses": [{"question": "q", "user_response": "a" * 9000}]})
+    p.on_session_end([{"role": "user", "content": "plan it"}, {"role": "tool", "name": "clarify", "content": answers}])
+    t = fake.last("/v1/episodes")[0]["body"]["content"]
+    assert t.endswith(f"tool(clarify): {answers[:8000]} …[{len(answers) - 8000} chars clipped]")
+
+
 # --- tools ----------------------------------------------------------------------------
 
 def test_recall_tool_returns_slim_facts_with_full_ids_and_no_gate(monkeypatch, fake):

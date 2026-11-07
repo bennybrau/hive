@@ -28,6 +28,9 @@ export function normalizeText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+const CLARIFY_PREFIX = "tool(clarify): ";
+const USER_RESPONSE = /"user_response":\s*"((?:[^"\\]|\\.)*)"/g;
+
 /** Same as the hive's userTurns (apps/hive/src/distill.ts): a session fact's quote must sit in one of these. */
 export function userTurns(content: string): string[] {
   const turns: string[] = [];
@@ -39,6 +42,7 @@ export function userTurns(content: string): string[] {
     } else if (line.startsWith("assistant") || line.startsWith("tool(")) {
       if (turn) turns.push(turn.join("\n"));
       turn = null;
+      if (line.startsWith(CLARIFY_PREFIX)) for (const m of line.matchAll(USER_RESPONSE)) turns.push(m[1]!);
     } else turn?.push(line);
   }
   if (turn) turns.push(turn.join("\n"));
