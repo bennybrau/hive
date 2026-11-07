@@ -23,7 +23,7 @@
       "text": "Memory governance is split by provenance: facts read from a source of truth need no review, while human or bot recollections (lessons, decisions) always go to a reviewer, a central curator on day one.",
       "kind": "decision",
       "scope": "repo:gh/bennybrau/hive",
-      "evidence": "Human/bot recollections always need review.* \"Lessons,\" \"decisions,\" rate limits someone's bot inferred — these go to a reviewer. Day one that's a central curator (your team). Phase two,"
+      "evidence": "I think that split makes sense."
     }
   ],
   "acceptable": [
@@ -40,5 +40,5 @@
       "evidence": "I don't think you have to exclude one case or the other.  I would say both."
     }
   ],
-  "notes": "Hive design discussion where the user answers the assistant's open design questions. Expected = the user's explicit rulings (chat-first approval, Postgres first) and the governance split he confirmed with 'I think that split makes sense'. Deploy seam and 'both use cases' are real decisions but less Hive-specific, so acceptable."
+  "notes": "Hive design discussion where the user answers the assistant's open design questions. Expected = the user's explicit rulings (chat-first approval, Postgres first) and the governance split he confirmed with 'I think that split makes sense'. Deploy seam and 'both use cases' are real decisions but less Hive-specific, so acceptable. Relabelled for distill-v5 (which must quote a user turn): E3's evidence is now the user's own turn; the user asked for the split to be explained and then chose it, which is more than an ok."
 }

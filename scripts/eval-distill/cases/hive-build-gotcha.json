@@ -6,7 +6,14 @@
     "hi": 1464
   },
   "repo_key": "gh/bennybrau/hive",
-  "expected": [
+  "expected": [],
+  "acceptable": [
+    {
+      "text": "Plugin tests should register the provider through Hermes' real MemoryManager in agent startup order (add_provider before initialize); constructing and initializing it directly hid the hive_review routing bug.",
+      "kind": "convention",
+      "scope": "repo:gh/bennybrau/hive",
+      "evidence": "Now the regression tests, which use Hermes' real `MemoryManager` in the same order as agent startup:"
+    },
     {
       "text": "Hermes' MemoryManager.add_provider() builds the tool routing table from get_tool_schemas() at registration, before initialize(), so a conditionally offered tool (like the curator-only hive_review) must decide from the environment at that point or the model's call fails with 'Unknown tool'.",
       "kind": "gotcha",
@@ -14,13 +21,5 @@
       "evidence": "Found the likely cause. Hermes builds its tool routing table when the provider is registered, which happens before `initialize()`."
     }
   ],
-  "acceptable": [
-    {
-      "text": "Plugin tests should register the provider through Hermes' real MemoryManager in agent startup order (add_provider before initialize); constructing and initializing it directly hid the hive_review routing bug.",
-      "kind": "convention",
-      "scope": "repo:gh/bennybrau/hive",
-      "evidence": "Now the regression tests, which use Hermes' real `MemoryManager` in the same order as agent startup:"
-    }
-  ],
-  "notes": "A merged feature (hive_review) failed in a real Hermes curator session with 'Unknown tool'; the assistant traced it to Hermes registering provider tools before initialize(), fixed it, showed the new test fails without the fix and ran a live end-to-end check. The ASF worker-kill diagnosis later in the same stretch ends with an open question to the user, so it is not labelled."
+  "notes": "A merged feature (hive_review) failed in a real Hermes curator session with 'Unknown tool'; the assistant traced it to Hermes registering provider tools before initialize(), fixed it, showed the new test fails without the fix and ran a live end-to-end check. The ASF worker-kill diagnosis later in the same stretch ends with an open question to the user, so it is not labelled. Relabelled for distill-v5 (which must quote a user turn): the routing gotcha (now A2) was found and proved by the assistant and no user turn states it, so it is acceptable and the case expects nothing."
 }

@@ -8,10 +8,10 @@
   "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
   "expected": [
     {
-      "text": "The Hive-theme bee GIFs and Queen image must never be committed to the ASF repo (a bee carries an AI-generator mark with unclear licence); they are uploaded only to the owner's own org, and built-in themes ship with no pictures, showing neutral placeholders until someone uploads.",
+      "text": "The Hive-theme bee GIFs and Queen image stay out of the ASF repo; they are uploaded only to the owner's own org.",
       "kind": "decision",
       "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
-      "evidence": "Okay, the bee GIFs and the Queen won't go in the repo."
+      "evidence": "Uploads for my org only"
     }
   ],
   "acceptable": [
@@ -28,5 +28,5 @@
       "evidence": "so the web may import only TYPES from '@asf/shared'."
     }
   ],
-  "notes": "Start of the M12 Themes & the Hive implementation: milestone/issues filed, WP1 PR opened and CI-waited. Only one settled, non-obvious decision (never commit the art, org uploads only); the rest is routine implementation status."
+  "notes": "Start of the M12 Themes & the Hive implementation: milestone/issues filed, WP1 PR opened and CI-waited. Only one settled, non-obvious decision (never commit the art, org uploads only); the rest is routine implementation status. Relabelled for distill-v5 (which must quote a user turn): E1 cut down to what the user decided in 'Uploads for my org only'; the licence reason and the placeholder behaviour came from the assistant."
 }

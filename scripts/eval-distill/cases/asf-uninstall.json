@@ -6,14 +6,7 @@
     "hi": 128
   },
   "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
-  "expected": [
-    {
-      "text": "Re-running scripts/setup.sh on a machine that still has the old asf_pgdata Docker volume fails: Postgres keeps the old install's password while setup writes a new one to .env, so the registry can't connect and crash-loops with 'database unreachable'; the fix is to run scripts/uninstall.sh (which saves a safety copy of the old DB) before setup.sh.",
-      "kind": "gotcha",
-      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
-      "evidence": "That volume still has the old install's password, while this setup wrote a new password to `.env`, so Postgres rejects the registry."
-    }
-  ],
+  "expected": [],
   "acceptable": [
     {
       "text": "The registry's startup error only says 'database unreachable' and drops the underlying Postgres error, so the real cause (e.g. password authentication failed) must be read from the Postgres container log.",
@@ -26,7 +19,13 @@
       "kind": "decision",
       "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
       "evidence": "creates a new password even when an `asf_pgdata` volume already exists. That guarantees exactly this failure."
+    },
+    {
+      "text": "Re-running scripts/setup.sh on a machine that still has the old asf_pgdata Docker volume fails: Postgres keeps the old install's password while setup writes a new one to .env, so the registry can't connect and crash-loops with 'database unreachable'; the fix is to run scripts/uninstall.sh (which saves a safety copy of the old DB) before setup.sh.",
+      "kind": "gotcha",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "yeah, the uninstall then setup worked"
     }
   ],
-  "notes": "Debugging on Jon's work Mac: a fresh setup.sh failed because a leftover pgdata volume held the old password; uninstall then setup fixed it (user-confirmed). The earlier design choices for uninstall.sh (backup-first, refuse when Postgres is down) were made by the assistant in message range 0-102 and are not user-resolved in this window; the second half of the session (128+) replays the first after context compaction, so was not used."
+  "notes": "Debugging on Jon's work Mac: a fresh setup.sh failed because a leftover pgdata volume held the old password; uninstall then setup fixed it (user-confirmed). The earlier design choices for uninstall.sh (backup-first, refuse when Postgres is down) were made by the assistant in message range 0-102 and are not user-resolved in this window; the second half of the session (128+) replays the first after context compaction, so was not used. Relabelled for distill-v5 (which must quote a user turn): the pgdata gotcha (now A3) was diagnosed by the assistant; the user only confirmed the fix worked, so it is acceptable and the case expects nothing."
 }

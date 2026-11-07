@@ -32,7 +32,8 @@ Each window is at most 45k characters, so it fits one chunk. `cases/<id>.json` h
 - **`evidence`:** a verbatim passage for each label.
 - **`repo_key`:** the repo the session ran in.
 
-Seven of the 15 session cases should produce nothing: chit-chat, status checks, routine work and a code review.
+Eleven of the 15 session cases should produce nothing: chit-chat, status checks, routine work, a code review, and
+sessions whose only facts the assistant found or proved without the user stating them.
 
 Three more cases, `bot-*`, are synthetic: written in the same format to check that facts come from what the person
 said. In two the assistant proposes or summarises and the user only says ok or thanks (nothing to keep); in one the
@@ -45,6 +46,7 @@ Before committing a new case, run `python3 extract.py scan cases/*.txt`, which m
 - **Durable:** still true after the session.
 - **Useful weeks later.**
 - **Not readable from the code.**
-- **Settled:** the user decided it, or the session proved it.
+- **Settled:** the user decided, corrected or clarified it in a `user:` turn (the label's evidence quotes that turn).
+  Something the session proved but the user never said is acceptable at most.
 
 Status, logs, findings about the diff under review, and assistant proposals the user didn't take up are not facts.
