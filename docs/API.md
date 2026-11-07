@@ -34,6 +34,9 @@ may only use `/v1/worker/*` and `/v1/status`; every other `/v1` call is a 403
   what this fact replaced (older) and what replaced it (newer).
 - `POST /v1/facts/:id/retract` `{reason}` — author or curator only (403 otherwise). Kept as history.
 
+Every fact carries `metadata` (`{}` by default). `metadata.asked: true` = a person asked for it to be remembered
+(a flagged turn; see Worker).
+
 Readable scopes for every call: `global`, all `repo:*` (or only `repo:<repo_key>` when given), and
 your own `personal:<user>`. Other users' personal facts are never returned.
 
@@ -127,12 +130,15 @@ without one. A webhook is `{id, url, events, active, created_at, created_by_user
 ## Worker (worker tokens only; members and curators get 403)
 
 The fact-agent container distills `session` episodes into candidate facts. Every such episode enqueues
-one distill job on insert (`turn` and `asf_run` episodes don't; `asf_run` jobs queued before migration 0009 may still
-be handed out). A claim leases the job for `HIVE_DISTILL_LEASE_SECONDS` (default 600);
+one distill job on insert, at priority 0 (`asf_run` episodes don't; `asf_run` jobs queued before migration 0009 may still
+be handed out). A `turn` episode enqueues one only when it is flagged (`metadata.remember_request: true`), at priority 1:
+a remember job. A claim leases the job for `HIVE_DISTILL_LEASE_SECONDS` (default 600);
 an expired lease puts it back in the queue, and after 3 attempts (expired or failed) it is `failed` for good.
 
-- `POST /v1/worker/distill/claim` → `200 {job:{id, attempts, lease_until}, episode:{id, kind, repo_key, content}, prompt_version, credential}`,
-  oldest job first. Long-polls up to 25 s (re-checks every second, woken at once by a new episode), then `204`.
+- `POST /v1/worker/distill/claim` → `200 {job:{id, attempts, lease_until}, episode:{id, kind, repo_key, content,
+  remember_request, personal_scope}, prompt_version, credential}`, highest priority first, then oldest.
+  `remember_request` is true on a remember job; `personal_scope` is then `personal:<episode user>` (else `null`), a
+  scope its facts may also take. Long-polls up to 25 s (re-checks every second, woken at once by a new episode), then `204`.
   `503 {error: "agent credential not set"}` (nothing claimed) when no credential is stored or `HIVE_SECRET_KEY` is unset.
 - `POST /v1/worker/distill/:id/complete` `{facts:[{text, kind, scope, quote, locus?}] (≤ 20), usage:{model, input_tokens,
   output_tokens, cache_read_tokens, cost_usd, duration_ms}}` → `{result:{prompt_version, created:[ids], anchored:[ids], dropped:[{text, reason}]}}`.
@@ -141,6 +147,13 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   cosine > 0.92 to a candidate/active fact in its scope (when embeddings are on), gets an `{episode_id, quote, repo_key}`
   anchor instead of a new row; the rest become `origin: distilled`, `status: candidate` facts authored by the episode's
   user, with that anchor. Writes one `llm_calls` row (`job: distill`); the job is `done` with `result` stored.
+  A remember job records what the user asked for. Its window runs from the previous `turn` episode of the same session
+  by the same instance (or 15 minutes back, without one) to the flagged turn; that instance's candidate/active facts
+  from the window are embedded first if they aren't yet. A fact matching an existing one (same text, or cosine > 0.92;
+  with no vector for it, that instance's window fact in the same scope, one not yet anchored by this job first) gets the
+  anchor and `metadata.asked: true`. The rest become `origin: authored` facts by the episode's instance, with
+  `metadata.asked: true` and the status a `POST /v1/facts` from it would get (a curator's shared fact is `active` with a
+  self-approve review).
   404 no such job, 409 when the caller doesn't hold the claim.
 - `POST /v1/worker/distill/:id/fail` `{error}` → `{job:{id, status, attempts, error}}`: back to `queued`, or `failed`
   after the 3rd attempt. 404 / 409 as above.
@@ -149,7 +162,8 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
 
 - `POST /v1/episodes` `{kind: turn|session|asf_run, session_id?, content, repo_key?, ref?, metadata?}` →
   `201 {episode:{id, created_at}, deduped:false}`. Up to 5 MB (whole-session transcripts). `session_id` is required
-  for `turn` and `session` (400 without it).
+  for `turn` and `session` (400 without it). `metadata.remember_request: true` on a `turn` flags it: the user asked
+  for something in it to be remembered, and it is distilled before any other queued job (see Worker).
   `asf_run` is a software-factory run record: the approved plan plus the review of the finished work, sent once its PR
   is merged. It is not distilled; it is found by `history` search and listed in briefs. It needs `repo_key` (a
   registered repo: `400 unknown repo_key` otherwise), a non-empty `ref` (the run id), at most 200 KiB of content in

@@ -91,7 +91,7 @@ describe("claim", () => {
     const body = res.json();
     expect(body).toEqual({
       job: { id: expect.any(String), attempts: 1, lease_until: expect.any(String) },
-      episode: { id: ep.id, kind: "session", repo_key: "gh/acme/api", content: TRANSCRIPT },
+      episode: { id: ep.id, kind: "session", repo_key: "gh/acme/api", content: TRANSCRIPT, remember_request: false, personal_scope: null },
       prompt_version: DISTILL_PROMPT_VERSION,
       credential: CREDENTIAL,
     });

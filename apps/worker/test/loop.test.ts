@@ -10,7 +10,7 @@ const prompt: Prompt = { version: "distill-v1", body: "scopes: {{scopes}}" };
 function claimed(content = "user: let's use pnpm\nassistant: decided, pnpm it is", over: Partial<Claimed> = {}): Claimed {
   return {
     job: { id: "11111111-1111-1111-1111-111111111111", attempts: 1, lease_until: "2026-10-31T00:00:00Z" },
-    episode: { id: "e1", kind: "session", repo_key: "hive", content },
+    episode: { id: "e1", kind: "session", repo_key: "hive", content, remember_request: false, personal_scope: null },
     prompt_version: "distill-v1",
     credential: CREDENTIAL,
     ...over,
@@ -107,12 +107,25 @@ describe("worker loop", () => {
   });
 
   it("renders the prompt for the episode's kind", async () => {
-    const run = claimed("# Plan\nship it", { episode: { id: "e2", kind: "asf_run", repo_key: "hive", content: "# Plan\nship it" } });
+    const run = claimed("# Plan\nship it", { episode: { id: "e2", kind: "asf_run", repo_key: "hive", content: "# Plan\nship it", remember_request: false, personal_scope: null } });
     const runner = fakeRunner([{ facts: [] }]);
     const d = deps(fakeHive(run).hive, runner, { prompt: { version: "distill-v1", body: "{{source}} | {{quote_rule}}" } });
     expect(await step(d)).toBe("completed");
     expect(runner.prompts[0]).toContain("software-factory run");
     expect(runner.prompts[0]).toContain("from any line");
+  });
+
+  it("a remember job gets the remember block and may use its personal scope", async () => {
+    const turn = claimed("user: remember I prefer tabs", {
+      episode: { id: "e3", kind: "turn", repo_key: "hive", content: "user: remember I prefer tabs", remember_request: true, personal_scope: "personal:alice" },
+    });
+    const runner = fakeRunner([{ facts: [{ text: "Alice prefers tabs.", kind: "preference", scope: "personal:alice", quote: "I prefer tabs" }] }]);
+    const { hive, calls } = fakeHive(turn);
+    const d = deps(hive, runner, { prompt: { version: "distill-v1", body: "{{scopes}} | {{remember}}" } });
+    expect(await step(d)).toBe("completed");
+    expect(runner.prompts[0]).toContain("This turn was flagged");
+    expect(runner.prompts[0]).toContain('"personal:alice"');
+    expect(calls[1]!.body.facts.map((f: { scope: string }) => f.scope)).toEqual(["personal:alice"]);
   });
 
   it("a prompt_version mismatch fails the job without running anything", async () => {

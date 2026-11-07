@@ -27,9 +27,13 @@ export function loadPrompt(path: URL | string = PROMPT_PATH): Prompt {
   return { version, body: m[2]! };
 }
 
-/** Scopes a fact from this episode may take: `global`, plus `repo:<key>` when the episode has a repo. */
-export function allowedScopes(repoKey: string | null): string[] {
-  return repoKey ? ["global", `repo:${repoKey}`] : ["global"];
+/**
+ * Scopes a fact from this episode may take: `global`, plus `repo:<key>` when the episode has a repo, plus
+ * the user's `personal:<user>` when the claim offers it (a remember job).
+ */
+export function allowedScopes(repoKey: string | null, personalScope?: string | null): string[] {
+  const scopes = repoKey ? ["global", `repo:${repoKey}`] : ["global"];
+  return personalScope ? [...scopes, personalScope] : scopes;
 }
 
 /** What the transcript is, and where quotes may come from, per episode kind. */
@@ -46,12 +50,22 @@ const SOURCES: Record<string, { source: string; quoteRule: string }> = {
   },
 };
 
-export function renderPrompt(prompt: Prompt, repoKey: string | null, kind: string): string {
+/** Filled into {{remember}} on a remember job (a turn the user flagged); empty otherwise. */
+const REMEMBER =
+  "This turn was flagged: the user asked for something in it to be remembered. Record what they asked to remember, one fact per claim, even if it fails a test above: their asking settles it. Take nothing else from the turn, and reply {\"facts\":[]} only if it holds nothing they asked for.";
+
+/** `remember` = this is a remember job; its personal scope, if any, is offered as a scope. */
+export function renderPrompt(prompt: Prompt, repoKey: string | null, kind: string, remember?: { personalScope: string | null }): string {
   const { source, quoteRule } = SOURCES[kind] ?? SOURCES.session!;
-  const scopes = repoKey
+  let scopes = repoKey
     ? `"repo:${repoKey}" by default: anything about this repo's code, infrastructure, tooling or process. "global" only for facts that hold in any repo: a person's working preferences, or how a third-party tool behaves everywhere.`
     : `"global".`;
-  return prompt.body.replaceAll("{{scopes}}", scopes).replaceAll("{{source}}", source).replaceAll("{{quote_rule}}", quoteRule);
+  if (remember?.personalScope) scopes += ` "${remember.personalScope}" for a note that is about this user alone and that they would not want shared.`;
+  return prompt.body
+    .replaceAll("{{scopes}}", scopes)
+    .replaceAll("{{source}}", source)
+    .replaceAll("{{quote_rule}}", quoteRule)
+    .replaceAll("{{remember}}", remember ? REMEMBER : "");
 }
 
 /** The JSON object in a model reply, tolerating code fences or prose around it. */

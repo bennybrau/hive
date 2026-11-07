@@ -60,7 +60,7 @@ async function runCase(deps: LoopDeps, judgeRunner: Runner, c: EvalCase, credent
   try {
     const { facts, usage } = await distill(deps, {
       job: { id: `eval-${c.id}`, attempts: 1, lease_until: "" },
-      episode: { id: c.id, kind: "session", repo_key: c.repo_key, content: c.transcript },
+      episode: { id: c.id, kind: "session", repo_key: c.repo_key, content: c.transcript, remember_request: false, personal_scope: null },
       prompt_version: deps.prompt.version,
       credential,
     });

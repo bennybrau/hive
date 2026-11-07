@@ -3,7 +3,16 @@ import type { Usage } from "./runners/types.js";
 
 export interface Claimed {
   job: { id: string; attempts: number; lease_until: string };
-  episode: { id: string; kind: string; repo_key: string | null; content: string };
+  episode: {
+    id: string;
+    kind: string;
+    repo_key: string | null;
+    content: string;
+    /** A turn the user flagged: distill what they asked to remember. */
+    remember_request: boolean;
+    /** `personal:<user>` on a remember job, else null. */
+    personal_scope: string | null;
+  };
   prompt_version: string;
   credential: string;
 }

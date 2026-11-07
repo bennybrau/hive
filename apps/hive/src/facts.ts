@@ -41,9 +41,11 @@ export interface Fact {
   status_note: string | null;
   author_user_id: string | null;
   recorded_at: string;
+  /** Per-fact flags; `asked: true` = a person asked for this fact to be remembered. */
+  metadata: { asked?: boolean };
 }
 
-export const FACT_COLUMNS = "id, text, kind, scope, locus, origin, status, status_note, author_user_id, recorded_at";
+export const FACT_COLUMNS = "id, text, kind, scope, locus, origin, status, status_note, author_user_id, recorded_at, metadata";
 
 export function normalizeText(text: string): string {
   return text.replace(/\s+/g, " ").trim();

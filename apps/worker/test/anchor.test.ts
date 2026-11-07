@@ -61,7 +61,7 @@ describe("worker loop quote repair", () => {
     const bodies: any[] = [];
     const claim: Claimed = {
       job: { id: "11111111-1111-1111-1111-111111111111", attempts: 1, lease_until: "2026-10-31T00:00:00Z" },
-      episode: { id: "e1", kind: "session", repo_key: "hive", content: CHUNK },
+      episode: { id: "e1", kind: "session", repo_key: "hive", content: CHUNK, remember_request: false, personal_scope: null },
       prompt_version: "distill-v3",
       credential: "cred",
     };

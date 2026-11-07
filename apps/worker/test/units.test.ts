@@ -3,7 +3,7 @@ import { ClaudeAuth } from "../src/auth.js";
 import { chunkTranscript, splitTurns } from "../src/chunk.js";
 import { spawnEnv } from "../src/env.js";
 import type { Exec, ExecOptions } from "../src/exec.js";
-import { loadPrompt, parseFacts, PROMPT_PATH, renderPrompt } from "../src/prompt.js";
+import { allowedScopes, loadPrompt, parseFacts, PROMPT_PATH, renderPrompt } from "../src/prompt.js";
 import { ClaudeRunner, parseEnvelope } from "../src/runners/claude.js";
 
 describe("spawnEnv", () => {
@@ -135,7 +135,7 @@ describe("ClaudeAuth", () => {
 
 describe("prompt", () => {
   it("the prompt file carries its version", () => {
-    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v3");
+    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v4");
     expect(loadPrompt(PROMPT_PATH).body).toContain('{"facts":[]}');
   });
 
@@ -155,6 +155,27 @@ describe("prompt", () => {
     expect(run).toContain("from any line");
     expect(run).not.toContain("starts with `user:`");
     expect(renderPrompt(prompt, null, "turn")).toBe(renderPrompt(prompt, null, "session"));
+  });
+
+  it("renderPrompt fills {{remember}} only on a remember job, and offers its personal scope", () => {
+    const prompt = loadPrompt(PROMPT_PATH);
+    const normal = renderPrompt(prompt, "gh/o/r", "turn");
+    const remember = renderPrompt(prompt, "gh/o/r", "turn", { personalScope: "personal:alice" });
+    for (const out of [normal, remember]) expect(out).not.toMatch(/\{\{\w+\}\}/);
+    expect(normal).not.toContain("This turn was flagged");
+    expect(normal).not.toContain("personal:");
+    expect(remember).toContain("This turn was flagged: the user asked for something in it to be remembered.");
+    expect(remember).toContain('"personal:alice" for a note');
+    const noUser = renderPrompt(prompt, null, "turn", { personalScope: null });
+    expect(noUser).toContain("This turn was flagged");
+    expect(noUser).not.toContain("personal:");
+  });
+
+  it("allowedScopes adds the personal scope when the claim offers one", () => {
+    expect(allowedScopes("gh/o/r")).toEqual(["global", "repo:gh/o/r"]);
+    expect(allowedScopes("gh/o/r", null)).toEqual(["global", "repo:gh/o/r"]);
+    expect(allowedScopes("gh/o/r", "personal:alice")).toEqual(["global", "repo:gh/o/r", "personal:alice"]);
+    expect(allowedScopes(null, "personal:alice")).toEqual(["global", "personal:alice"]);
   });
 
   it("parseFacts keeps valid facts and drops malformed or out-of-scope ones", () => {

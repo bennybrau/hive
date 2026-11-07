@@ -1,12 +1,12 @@
 import type pg from "pg";
 import type { Instance } from "./auth.js";
 import { toPgVector, type Embedder } from "./embed.js";
-import { ConflictError, contentHash, normalizeText, type FactKind } from "./facts.js";
+import { ConflictError, contentHash, initialStatus, normalizeText, type FactKind } from "./facts.js";
 
 /** A job that has been claimed this many times and fails (or its lease expires) again is given up on. */
 export const MAX_ATTEMPTS = 3;
 /** Sent with every claim so the worker and the stored result agree on which prompt produced the facts. */
-export const DISTILL_PROMPT_VERSION = "distill-v3";
+export const DISTILL_PROMPT_VERSION = "distill-v4";
 /** Cosine above which a distilled fact is "the same" as an existing one in its scope (anchor, don't insert). */
 const VECTOR_DUPE_MIN = 0.92;
 
@@ -21,6 +21,10 @@ export interface DistillEpisode {
   kind: string;
   repo_key: string | null;
   content: string;
+  /** A turn the user flagged: distill what they asked to remember. */
+  remember_request: boolean;
+  /** `personal:<user>` on a remember job (a scope its facts may also take), else null. */
+  personal_scope: string | null;
 }
 
 export interface DistilledFact {
@@ -47,9 +51,13 @@ export interface DistillResult {
   dropped: { text: string; reason: "quote_not_in_episode" | "scope_not_allowed" }[];
 }
 
+/** SQL (on episodes `e`): this is a remember job, a turn the user flagged. */
+const REMEMBER_SQL = `(e.kind = 'turn' and coalesce(e.metadata->>'remember_request' = 'true', false))`;
+
 /**
  * In one transaction: claimed jobs whose lease ran out go back to `queued` (or `failed` after
- * MAX_ATTEMPTS), then the oldest queued job is leased to `workerId`. null = nothing to do.
+ * MAX_ATTEMPTS), then the queued job with the highest priority (oldest first) is leased to `workerId`.
+ * null = nothing to do.
  */
 export async function claimJob(
   pool: pg.Pool,
@@ -71,7 +79,7 @@ export async function claimJob(
       `update distill_jobs
        set status = 'claimed', attempts = attempts + 1, claimed_by = $1,
            lease_until = now() + make_interval(secs => $2)
-       where id = (select id from distill_jobs where status = 'queued' order by created_at, id limit 1 for update skip locked)
+       where id = (select id from distill_jobs where status = 'queued' order by priority desc, created_at, id limit 1 for update skip locked)
        returning id, attempts, lease_until, episode_id`,
       [workerId, leaseSeconds],
     );
@@ -79,7 +87,12 @@ export async function claimJob(
     let episode: DistillEpisode | undefined;
     if (claimed) {
       episode = (
-        await client.query<DistillEpisode>("select id, kind, repo_key, content from episodes where id = $1", [claimed.episode_id])
+        await client.query<DistillEpisode>(
+          `select e.id, e.kind, e.repo_key, e.content, ${REMEMBER_SQL} as remember_request,
+                  case when ${REMEMBER_SQL} and e.user_id is not null then 'personal:' || e.user_id end as personal_scope
+           from episodes e where e.id = $1`,
+          [claimed.episode_id],
+        )
       ).rows[0];
     }
     await client.query("commit");
@@ -112,6 +125,12 @@ function assertOwned(job: OwnedJob, worker: Instance): void {
  * Store a claimed job's distilled facts. A fact whose quote is not in the episode, or whose scope the
  * episode can't speak for, is dropped. A fact already known (same text, or cosine > 0.92 in its scope)
  * gains an anchor to this episode instead of a new row; the rest become `distilled` candidates.
+ *
+ * A remember job (a flagged turn) records what the user asked for. Its facts are `authored`, by the
+ * episode's instance, with the status a remember from that instance would get, and marked `asked`.
+ * The agent may have remembered it already during the turn: a fact that instance wrote in the turn's
+ * window counts as the same one (by cosine once embedded here; with no vector, the window fact in that
+ * scope), so it gains an anchor and `asked` instead of a twin.
  * null = no such job; ConflictError = the caller does not hold the claim.
  */
 export async function completeJob(
@@ -121,9 +140,20 @@ export async function completeJob(
   input: { facts: DistilledFact[]; usage: DistillUsage },
   embedder: Embedder | null,
 ): Promise<DistillResult | null> {
-  const pre = await pool.query<OwnedJob & { content: string; repo_key: string | null; user_id: string | null }>(
-    `select j.status, j.claimed_by, j.attempts, e.content, e.repo_key, e.user_id
-     from distill_jobs j join episodes e on e.id = j.episode_id where j.id = $1`,
+  const pre = await pool.query<
+    OwnedJob & {
+      episode_id: string;
+      content: string;
+      repo_key: string | null;
+      user_id: string | null;
+      remember: boolean;
+      role: Instance["role"] | null;
+    }
+  >(
+    `select j.status, j.claimed_by, j.attempts, j.episode_id, e.content, e.repo_key, e.user_id,
+            ${REMEMBER_SQL} as remember, i.role
+     from distill_jobs j join episodes e on e.id = j.episode_id left join instances i on i.id = e.instance_id
+     where j.id = $1`,
     [jobId],
   );
   const ep = pre.rows[0];
@@ -151,6 +181,35 @@ export async function completeJob(
       vectors = (await embedder.embed(kept.map((f) => f.text), "document")).vectors.map(toPgVector);
     } catch {
       // keyword-only: no vectors
+    }
+  }
+
+  // A remember job's window: from the previous turn of this session by the same instance (or 15 minutes
+  // back) to the flagged turn. The instance's facts from it may not be embedded yet: embed them now.
+  let windowFacts: { id: string; scope: string }[] = [];
+  if (ep.remember) {
+    const win = await pool.query<{ id: string; text: string; scope: string; unembedded: boolean }>(
+      `select f.id, f.text, f.scope, f.embedding is null as unembedded
+       from episodes e join facts f on f.author_instance_id = e.instance_id
+       where e.id = $1 and f.status in ('candidate', 'active') and f.recorded_at <= e.created_at
+         and f.recorded_at >= coalesce(
+           (select max(p.created_at) from episodes p
+            where p.kind = 'turn' and p.session_id = e.session_id and p.instance_id = e.instance_id and p.created_at < e.created_at),
+           e.created_at - interval '15 minutes')
+       order by f.recorded_at, f.id`,
+      [ep.episode_id],
+    );
+    windowFacts = win.rows;
+    const todo = win.rows.filter((f) => f.unembedded);
+    if (embedder && todo.length) {
+      try {
+        const vecs = (await embedder.embed(todo.map((f) => f.text), "document")).vectors.map(toPgVector);
+        for (let i = 0; i < todo.length; i++) {
+          await pool.query("update facts set embedding = $2::vector where id = $1 and embedding is null", [todo[i]!.id, vecs[i]]);
+        }
+      } catch {
+        // the embed worker fills them in later; the no-vector fallback below still finds them
+      }
     }
   }
 
@@ -182,8 +241,29 @@ export async function completeJob(
           )
         ).rows[0]?.id;
       }
+      if (!factId && !vec && ep.remember) {
+        const same = windowFacts.filter((w) => w.scope === f.scope);
+        factId = (same.find((w) => !result.anchored.includes(w.id)) ?? same[0])?.id;
+      }
       if (factId) {
         result.anchored.push(factId);
+        if (ep.remember) await client.query(`update facts set metadata = metadata || '{"asked":true}' where id = $1`, [factId]);
+      } else if (ep.remember) {
+        const status = initialStatus("authored", f.scope, ep.role ?? "member");
+        const ins = await client.query<{ id: string }>(
+          `insert into facts (text, kind, scope, locus, origin, status, author_user_id, author_instance_id, content_hash, embedding, metadata)
+           values ($1, $2, $3, $4, 'authored', $5, $6, $7, $8, $9::vector, '{"asked":true}')
+           returning id`,
+          [f.text, f.kind, f.scope, f.locus ?? [], status, ep.user_id, job.author_instance_id, hash, vec],
+        );
+        factId = ins.rows[0]!.id;
+        result.created.push(factId);
+        if (status === "active" && ep.role === "curator" && !f.scope.startsWith("personal:")) {
+          await client.query(
+            `insert into reviews (fact_id, reviewer_user_id, action, note) values ($1, $2, 'approve', 'authored by curator')`,
+            [factId, ep.user_id],
+          );
+        }
       } else {
         const ins = await client.query<{ id: string }>(
           `insert into facts (text, kind, scope, locus, origin, status, author_user_id, author_instance_id, content_hash, embedding)
