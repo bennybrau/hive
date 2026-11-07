@@ -293,12 +293,114 @@ def test_prefetch_nothing_relevant_injects_nothing(monkeypatch, fake):
 
 # --- writes ---------------------------------------------------------------------------
 
+def test_system_prompt_block_tells_the_model_to_save_and_announce_remembers(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    block = p.system_prompt_block()
+    assert "hive_remember" in block
+    assert "Saved to Hive: <text>" in block
+
+
 def test_sync_turn_posts_an_episode(monkeypatch, fake):
     p = _provider(monkeypatch, fake.url)
     p.sync_turn("how do we deploy?", "Cloud Run.", session_id="s1", turn_author={"name": "Jon"})
     body = fake.last("/v1/episodes")[0]["body"]
     assert body == {"kind": "turn", "session_id": "s1", "content": "user: how do we deploy?\nassistant: Cloud Run.",
                     "repo_key": "gh/acme/api", "metadata": {"author": "Jon"}}
+
+
+REMEMBER_YES = [
+    "remember this",
+    "Remember this: we deploy from the release branch only.",
+    "Please remember that staging uses its own database.",
+    "pls remember   THAT the api key rotates monthly!!",
+    "Remember: migrations are append-only.",
+    "ok, remember to run pnpm install after pulling",
+    "add this to your memory",
+    "Add that to the memory please",
+    "save this to hive",
+    "Make sure to remember we never force-push main.",
+    "make sure you remember the token lives in 1Password",
+    "Don't forget: Jon owns the billing service.",
+    "do not forget that CI needs node 22",
+    "don’t forget the cache is per-branch",
+    "Note that the e2e suite needs a running Postgres.",
+    "Keep in mind that prod is in eu-west-1.",
+    "keep this in mind for the deploy script",
+    "From now on, use vitest instead of jest.",
+    "Going forward we squash-merge every PR.",
+    "For future reference, the staging URL is staging.acme.dev.",
+    "That's the fix. Remember it for next time.",
+    "**Remember this**: tabs, not spaces.",
+    "Great answer. Also, remember the retry limit is 3.",
+    "remember for later: the flaky test is test_upload",
+    "I said \"no\" earlier, but from now on always ask before deleting files.",
+]
+
+REMEMBER_NO = [
+    "",
+    "how do we deploy?",
+    "Do you remember what we decided about the cache?",
+    "did you remember to run the tests?",
+    "can you remember the name of that library?",
+    "What do you remember about the billing service?",
+    "Remember when we broke prod last spring?",
+    "Remember the deploy freeze?",
+    "I don't remember which port the api uses.",
+    "never remember this stuff, it's temporary",
+    "I can't remember this command, what was it?",
+    "I remember that we used jest once.",
+    "There's no need to remember this.",
+    "The docs say \"remember this setting\" but it does nothing.",
+    "The banner reads “Don't forget to log out”, can we remove it?",
+    "The tooltip says 'keep in mind the quota' — fix the typo.",
+    "> remember this\nwhat does that quote mean?",
+    "Why does `rememberThis()` throw?",
+    "Rename `note_that` to something clearer.",
+    "```\n# remember this: from now on use v2\n```\nwhat does this comment do?",
+    "Notes that I wrote yesterday are in the doc.",
+    "I keep forgetting the command.",
+]
+
+
+@pytest.mark.parametrize("text", REMEMBER_YES)
+def test_is_remember_request_flags_requests(text):
+    assert hive.is_remember_request(text)
+
+
+@pytest.mark.parametrize("text", REMEMBER_NO)
+def test_is_remember_request_ignores_questions_negations_and_quotes(text):
+    assert not hive.is_remember_request(text)
+
+
+def test_remember_turn_is_flagged_and_carries_the_previous_reply(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    p.sync_turn("remember this", "I'll keep it in mind.", session_id="s1")  # first turn: no previous reply
+    p.sync_turn("how do we deploy?", "Tag a release; Cloud Run picks it up.", session_id="s1")
+    p.sync_turn("Remember that, please.", "Saved to Hive: deploys are tag-driven.", session_id="s1")
+    first, plain, flagged = [r["body"] for r in fake.last("/v1/episodes")]
+    assert first["metadata"] == {"remember_request": True}
+    assert first["content"] == "user: remember this\nassistant: I'll keep it in mind."
+    assert plain["metadata"] == {}
+    assert plain["content"] == "user: how do we deploy?\nassistant: Tag a release; Cloud Run picks it up."
+    assert flagged["metadata"] == {"remember_request": True}
+    assert flagged["content"] == ("assistant: Tag a release; Cloud Run picks it up.\nuser: Remember that, please.\n"
+                                  "assistant: Saved to Hive: deploys are tag-driven.")
+
+
+def test_previous_reply_is_clipped_kept_when_the_post_fails_and_cleared_on_reset(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    fake.overrides["/v1/episodes"] = (500, {"error": "boom"})
+    p.sync_turn("explain", "x" * 5000 + "END", session_id="s1")
+    del fake.overrides["/v1/episodes"]
+    p.sync_turn("remember this", "ok", session_id="s1")
+    content = fake.last("/v1/episodes")[-1]["body"]["content"]
+    assert content == "assistant: " + "x" * (hive.MAX_PREVIOUS_REPLY_CHARS - 3) + "END\nuser: remember this\nassistant: ok"
+    p.on_session_switch("s2", parent_session_id="s1")  # /branch: the child sees the same last reply
+    p.sync_turn("remember that", "ok", session_id="s2")
+    assert fake.last("/v1/episodes")[-1]["body"]["content"].startswith("assistant: ok\n")
+    p.on_session_switch("s2", reset=True)  # /new
+    p.sync_turn("remember that", "ok", session_id="s2")
+    assert fake.last("/v1/episodes")[-1]["body"]["content"] == "user: remember that\nassistant: ok"
 
 
 @pytest.mark.parametrize("ctx", ["subagent", "cron", "flush"])

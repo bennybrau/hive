@@ -29,6 +29,13 @@ Token rules for prefetch, because Hermes replays the injected block on every lat
   keyword-only coincidences and off-topic messages inject nothing;
 - explicit `hive_recall` calls are not gated.
 
+"Remember this" turns: when your message asks the assistant to remember something ("remember this",
+"don't forget", "add this to your memory", "note that", "keep in mind", "from now on", "going forward",
+"for future reference", …), the turn is sent with `metadata.remember_request: true` and the assistant's
+previous reply (last 4000 chars) as an extra `assistant:` line before it, so "this" can be resolved. Quoted
+text, code and blockquotes don't count, nor do questions ("do you remember…", "remember when…?") and
+negations ("I don't remember").
+
 Subagents, cron jobs and memory flushes read but never write.
 
 The repo comes from `git remote get-url origin` in the session's directory (`github.com/o/r` → `gh/o/r`);

@@ -120,6 +120,71 @@ def _text_of(content: Any) -> str:
     return ""
 
 
+MAX_PREVIOUS_REPLY_CHARS = 4000  # previous assistant reply sent with a "remember this" turn
+
+# Quoted material is someone else's words, not a request to us: code, blockquotes, "…", “…”, '…' and ‘…’.
+# A single quote opens only after a non-word char and closes only before one, so `don't` is never a quote.
+_QUOTED = [
+    re.compile(r"```.*?(?:```|\Z)", re.S),
+    re.compile(r"~~~.*?(?:~~~|\Z)", re.S),
+    re.compile(r"`[^`\n]*`"),
+    re.compile(r"^[ \t]*>.*$", re.M),
+    re.compile(r"\"[^\"\n]*\""),
+    re.compile(r"“[^”\n]*”"),
+    re.compile(r"(?<!\w)‘(?:[^’\n]|’(?=\w))*’(?!\w)"),
+    re.compile(r"(?<!\w)'(?=\S)(?:[^'\n]|'(?=\w))*?(?<=\S)'(?!\w)"),
+]
+
+_SENTENCE_START = r"(?:^|[.!?:;\n]\s*)"
+_NOT = r"(?:don't|dont|do not|never)"
+
+# Questions about memory and negations: "do you remember…", "I don't remember", "remember when we…?"
+_REMEMBER_NEGATIVE = [re.compile(p) for p in (
+    r"\b(?:do|did|can|could|would|will) (?:you|u|ya) (?:still |even )?(?:remember|recall)\b",
+    r"\bwhat (?:do|did|else do) (?:you|u) (?:still )?remember\b",
+    r"\bremember when\b[^.!\n]*\?",
+    _SENTENCE_START + r"remember\b[^.!\n]*\?",
+    r"\b" + _NOT + r" (?:even )?remember\b",
+    r"\b(?:can't|cant|cannot|can not|couldn't|couldnt) remember\b",
+    r"\b(?:no need|(?:don't|dont|do not|doesn't|doesnt) (?:need|have)) to (?:remember|note|keep)\b",
+    r"(?<!sure )(?<!so )\b(?:i|we|they) (?:still|do |kind of |vaguely )?remember\b",
+    r"\bremember that time\b",
+)]
+
+# Asking the assistant to keep something for later.
+_REMEMBER_POSITIVE = [re.compile(p) for p in (
+    r"\bremember (?:this|that|these|it|to|the following|for (?:next time|later|the future))\b",
+    _SENTENCE_START + r"(?:also,? |and |oh,? )?remember\b",
+    r"\bplease,? (?:do )?remember\b",
+    r"\b(?:add|save|put|store|write|commit) (?:this |that |it |these )?(?:down )?(?:to|in|into) "
+    r"(?:your |the |our |team )?(?:long[- ]term |shared |team )?(?:memory|memories|hive)\b",
+    r"\bmake sure (?:to|you|that you) (?:always )?remember\b",
+    r"\b(?:don't|dont|do not|never) forget\b",
+    _SENTENCE_START + r"(?:please |also,? |and )?(?:note that|note this|take note|make a note|keep a note)\b",
+    r"\bkeep (?:this |that |it )?in mind\b",
+    r"\bfrom now on\b",
+    r"\bgoing forward\b",
+    r"\bfor (?:future|later) reference\b",
+    r"\bfor next time\b",
+)]
+
+
+def _strip_quoted(text: str) -> str:
+    for pat in _QUOTED:
+        text = pat.sub(" ", text)
+    return text
+
+
+def is_remember_request(text: str) -> bool:
+    """Whether a user message asks the assistant to remember something ("remember this", "don't forget",
+    "from now on…"). Ignores quoted text and code, questions about memory and negations."""
+    t = _strip_quoted(text or "").lower().replace("’", "'")
+    t = re.sub(r"[ \t]+", " ", re.sub(r"[*_]+", "", t))
+    if any(p.search(t) for p in _REMEMBER_NEGATIVE):
+        return False
+    return any(p.search(t) for p in _REMEMBER_POSITIVE)
+
+
 def render_transcript(messages: list[dict[str, Any]]) -> str:
     """Readable transcript for a `session` episode. Tool results are clipped: they're bulky and the
     distiller needs the decisions, not every byte of a file listing."""
@@ -300,6 +365,7 @@ class HiveMemoryProvider(MemoryProvider):
         self._sync = True
         self._lock = threading.Lock()
         self._injected: dict[str, set[str]] = {}  # session_id -> fact ids already injected
+        self._last_assistant: dict[str, str] = {}  # session_id -> previous assistant reply
         self._last_count: Optional[int] = None
         self._curator: Optional[bool] = None  # cached after the first successful /v1/status
         self._curator_key: Optional[tuple[str, str]] = None  # (url, token) the cached role belongs to
@@ -337,9 +403,13 @@ class HiveMemoryProvider(MemoryProvider):
             if reset or rewound:
                 # New conversation, or the transcript that held earlier injections was cut: re-allow them.
                 self._injected.pop(new_session_id, None)
-            elif parent_session_id and parent_session_id in self._injected:
+                self._last_assistant.pop(new_session_id, None)
+            elif parent_session_id:
                 # /branch, compression: the child still carries the parent's injected context.
-                self._injected[new_session_id] = set(self._injected[parent_session_id])
+                if parent_session_id in self._injected:
+                    self._injected[new_session_id] = set(self._injected[parent_session_id])
+                if parent_session_id in self._last_assistant:
+                    self._last_assistant[new_session_id] = self._last_assistant[parent_session_id]
         self._session_id = new_session_id
 
     def shutdown(self) -> None:
@@ -356,7 +426,8 @@ class HiveMemoryProvider(MemoryProvider):
         return ("# Hive (shared team memory)\n"
                 "Relevant team facts appear in recalled context as [hive:<id>]; cite the id when you rely on one. "
                 "Use hive_recall before re-deriving team knowledge. Use hive_remember only for durable decisions, "
-                "invariants, gotchas and conventions worth knowing weeks from now.")
+                "invariants, gotchas and conventions worth knowing weeks from now. When the user asks you to "
+                "remember something, save it with hive_remember and reply `Saved to Hive: <text>`.")
 
     def _writes_allowed(self) -> bool:
         return self._agent_context == "primary" and self._sync and self._client is not None
@@ -402,14 +473,29 @@ class HiveMemoryProvider(MemoryProvider):
 
     def sync_turn(self, user_content: str, assistant_content: str, *, session_id: str = "",
                   messages: Optional[list[dict[str, Any]]] = None, turn_author: Optional[dict[str, Any]] = None) -> None:
-        if not self._writes_allowed() or not (user_content or "").strip():
+        if not self._writes_allowed():
             return
+        sid = session_id or self._session_id
+        with self._lock:
+            previous = self._last_assistant.get(sid, "")
+        if (user_content or "").strip():
+            self._post_turn(sid, user_content, assistant_content, previous, turn_author)
+        with self._lock:
+            self._last_assistant[sid] = assistant_content or ""
+
+    def _post_turn(self, sid: str, user_content: str, assistant_content: str, previous: str,
+                   turn_author: Optional[dict[str, Any]]) -> None:
         content = f"user: {user_content}\nassistant: {assistant_content or ''}"
         meta: dict[str, Any] = {}
         if turn_author and turn_author.get("name"):
             meta["author"] = turn_author.get("name")
+        if is_remember_request(user_content):
+            # "remember this" usually points at the reply before it: send that reply too.
+            meta["remember_request"] = True
+            if previous.strip():
+                content = f"assistant: {previous[-MAX_PREVIOUS_REPLY_CHARS:]}\n{content}"
         res = self._client.post("/v1/episodes", {  # type: ignore[union-attr]
-            "kind": "turn", "session_id": session_id or self._session_id, "content": content,
+            "kind": "turn", "session_id": sid, "content": content,
             **({"repo_key": self._repo_key} if self._repo_key else {}), "metadata": meta,
         })
         if not res.get("ok"):
