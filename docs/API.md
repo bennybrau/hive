@@ -152,12 +152,15 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   value (still JSON-escaped, as it appears in the episode) on a line starting `tool(clarify): ` is a user turn of its own; checked on `session` and
   `asf_dialog` jobs, not on a remember job or an `asf_run` job), and `scope_not_allowed` (only `global`, `repo:<episode repo_key>`, `personal:<episode user>`).
   `dropped_non_user_quote` counts the `non_user_quote` drops (always present, 0 when none). A fact with the same text as an existing one, or
-  cosine > 0.92 to a candidate/active fact in its scope (when embeddings are on), gets an `{episode_id, quote, repo_key}`
-  anchor instead of a new row; the rest become `origin: distilled`, `status: candidate` facts authored by the episode's
-  user, with that anchor. Writes one `llm_calls` row (`job: distill`); the job is `done` with `result` stored.
+  cosine > 0.92 to a candidate/active fact in its scope (when embeddings are on), or anchored on the same quote (whitespace
+  collapsed) as a candidate, active or retracted (not superseded) fact in its scope with cosine ≥ 0.80 to it (with no embedding on either side: when the
+  exchange matches, the same user turn after the same assistant text or clarify question, or none on both sides), gets an
+  `{episode_id, quote, repo_key}` anchor instead of a new row (on `session`, `asf_dialog` and remember jobs alike); the rest become `origin: distilled`, `status: candidate` facts authored by the episode's
+  user, with that anchor. A retracted fact matched by its quote gains the anchor and stays retracted, so a rejected
+  fact isn't sent back for review. Writes one `llm_calls` row (`job: distill`); the job is `done` with `result` stored.
   A remember job records what the user asked for. Its window runs from the previous `turn` episode of the same session
   by the same instance (or 15 minutes back, without one) to the flagged turn; that instance's candidate/active facts
-  from the window are embedded first if they aren't yet. A fact matching an existing one (same text, or cosine > 0.92;
+  from the window are embedded first if they aren't yet. A fact matching an existing one (same text, cosine > 0.92, or the same quote as above;
   with no vector for it, that instance's window fact in the same scope, one not yet anchored by this job first) gets the
   anchor and `metadata.asked: true`. The rest become `origin: authored` facts by the episode's instance, with
   `metadata.asked: true` and the status a `POST /v1/facts` from it would get (a curator's shared fact is `active` with a

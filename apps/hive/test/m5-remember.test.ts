@@ -172,6 +172,19 @@ describe("complete a remember job", () => {
     expect(emb.rows[0].e).toBe(true);
   });
 
+  it("quoting the words of another instance's candidate (cosine 0.85): anchored to it, now asked", async () => {
+    const A = "Deploys go to Cloud Run from main only.";
+    const B = "We deploy to Cloud Run from main, never by hand.";
+    embedder.fixed.set(A, [1, 0, ...new Array<number>(766).fill(0)]).set(B, [0.85, Math.sqrt(1 - 0.85 * 0.85), ...new Array<number>(766).fill(0)]);
+    await postEpisode(alice, "session");
+    const distilled = await complete((await claim()).json().job.id, [fact(A)]);
+    const [candidate] = distilled.json().result.created;
+    const res = await complete((await flagAndClaim(curator)).job.id, [fact(B)]);
+    expect(res.json().result).toMatchObject({ created: [], anchored: [candidate] });
+    expect((await allFacts()).map((f) => [f.id, f.status, f.metadata])).toEqual([[candidate, "candidate", { asked: true }]]);
+    expect(await anchorCount(candidate)).toBe(2);
+  });
+
   it("an unrelated fact with an embedder is new, even with a window fact in its scope", async () => {
     await remember(alice, "Invoices are generated nightly by billing.");
     const { job } = await flagAndClaim(alice);

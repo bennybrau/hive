@@ -19,10 +19,15 @@ export class FakeEmbedder implements Embedder {
   calls = 0;
   fail = false;
 
+  /** Exact text -> vector overrides, so a test can set the cosine between two texts. */
+  constructor(readonly fixed = new Map<string, number[]>()) {}
+
   async embed(texts: string[], _kind: EmbedKind) {
     this.calls++;
     if (this.fail) throw new Error("fake embedder down");
     const vectors = texts.map((t) => {
+      const fixed = this.fixed.get(t);
+      if (fixed) return fixed;
       const lower = t.toLowerCase();
       const v = new Array<number>(768).fill(0);
       CONCEPTS.forEach((words, i) => {

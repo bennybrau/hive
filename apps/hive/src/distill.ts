@@ -9,6 +9,8 @@ export const MAX_ATTEMPTS = 3;
 export const DISTILL_PROMPT_VERSION = "distill-v5";
 /** Cosine above which a distilled fact is "the same" as an existing one in its scope (anchor, don't insert). */
 const VECTOR_DUPE_MIN = 0.92;
+/** Cosine from which a fact anchored on the same quote in its scope is "the same" (a paraphrase of one decision). */
+const QUOTE_DUPE_MIN = 0.8;
 
 export interface DistillJob {
   id: string;
@@ -226,8 +228,10 @@ function assertOwned(job: OwnedJob, worker: Instance): void {
 /**
  * Store a claimed job's distilled facts. A fact whose quote is not in the episode, or (except on a remember
  * job or a legacy asf_run job) not in one of its `user:` turns, or whose scope the episode can't speak for, is
- * dropped. A fact already known (same text, or cosine > 0.92 in its scope) gains an anchor to this episode
- * instead of a new row; the rest become `distilled` candidates.
+ * dropped. A fact already known (same text, or cosine > 0.92 in its scope, or anchored on the same quote in its
+ * scope with cosine >= 0.80, or, with no vector on either side, the same exchange) gains an anchor to this episode
+ * instead of a new row; the rest become `distilled` candidates. The quote rule also matches a rejected (`retracted`)
+ * fact, which gains the anchor and stays retracted, so it isn't sent back for review.
  *
  * A remember job (a flagged turn) records what the user asked for. Its facts are `authored`, by the
  * episode's instance, with the status a remember from that instance would get, and marked `asked`.
@@ -356,6 +360,30 @@ export async function completeJob(
             [f.scope, vec, VECTOR_DUPE_MIN],
           )
         ).rows[0]?.id;
+      }
+      if (!factId) {
+        // Same words quoted again (the same gate note under two refs, say): a fact anchored on this quote in the
+        // scope is the same one when close enough, or, with no vector on either side, when it answers the same question.
+        // A rejected (retracted) fact counts too, so the curator's no isn't sent back for review; a superseded one doesn't.
+        const quote = normalizeText(f.quote);
+        const same = await client.query<{ id: string; cos: number | null; content: string; quote: string }>(
+          `select f.id, case when f.embedding is null or $3::vector is null then null else 1 - (f.embedding <=> $3::vector) end as cos,
+                  e.content, a.quote
+           from facts f join anchors a on a.fact_id = f.id join episodes e on e.id = a.episode_id
+           where f.scope = $1 and f.status in ('candidate', 'active', 'retracted') and btrim(regexp_replace(a.quote, '\\s+', ' ', 'g')) = $2
+           order by cos desc nulls last, f.recorded_at, f.id`,
+          [f.scope, quote, vec],
+        );
+        const said = (content: string, q: string) => {
+          const x = exchangeFor(content, q);
+          return x && JSON.stringify([x.assistant === null ? null : normalizeText(x.assistant), normalizeText(x.user)]);
+        };
+        const mine = said(ep.content, f.quote);
+        factId = same.rows.find((r) => {
+          if (normalizeText(r.quote) !== quote) return false;
+          if (r.cos !== null) return r.cos >= QUOTE_DUPE_MIN;
+          return mine !== null && said(r.content, r.quote) === mine;
+        })?.id;
       }
       if (!factId && !vec && ep.remember) {
         const same = windowFacts.filter((w) => w.scope === f.scope);
