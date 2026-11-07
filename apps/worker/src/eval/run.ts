@@ -20,7 +20,7 @@ import { ClaudeRunner } from "../runners/claude.js";
 import { HermesRunner } from "../runners/hermes.js";
 import { OllamaRunner } from "../runners/ollama.js";
 import type { Runner } from "../runners/types.js";
-import { assign, judgePrompt, parseJudge, quoteValid, totals, type CaseResult, type EvalCase, type Label } from "./score.js";
+import { assign, distillView, judgePrompt, parseJudge, questionsOnly, quoteValid, totals, type CaseResult, type EvalCase, type Label } from "./score.js";
 
 const { values: args } = parseArgs({
   options: {
@@ -57,10 +57,13 @@ async function runCase(deps: LoopDeps, judgeRunner: Runner, c: EvalCase, credent
     id: c.id, proposed: [], expected: c.expected.length, found: 0, falsePositives: 0, invalidQuotes: 0, scopeMisses: 0,
     input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cost_usd: 0, duration_ms: 0,
   };
+  const kind = c.kind ?? "session";
+  // as the hive's claim: a questions-only session finishes with no model call, the rest get the distill view
+  if ((kind === "session" || kind === "turn") && questionsOnly(c.transcript)) return { ...base, skipped: true };
   try {
     const { facts, usage } = await distill(deps, {
       job: { id: `eval-${c.id}`, attempts: 1, lease_until: "" },
-      episode: { id: c.id, kind: c.kind ?? "session", repo_key: c.repo_key, content: c.transcript, remember_request: false, personal_scope: null },
+      episode: { id: c.id, kind, repo_key: c.repo_key, content: distillView(c.transcript), remember_request: false, personal_scope: null },
       prompt_version: deps.prompt.version,
       credential,
     });
@@ -104,7 +107,7 @@ function report(results: CaseResult[], cases: EvalCase[], label: string): void {
   console.log("case                     found  FP  bad-quote  scope-miss  tokens in/out     cost    secs");
   for (const r of results) {
     const line = `${r.id.padEnd(24)} ${`${r.found}/${r.expected}`.padStart(5)}  ${String(r.falsePositives).padStart(2)}  ${String(r.invalidQuotes).padStart(9)}  ${String(r.scopeMisses).padStart(10)}  ${`${r.input_tokens + r.cache_read_tokens}/${r.output_tokens}`.padStart(13)}  ${usd(r.cost_usd).padStart(7)}  ${(r.duration_ms / 1000).toFixed(1).padStart(6)}`;
-    console.log(line + (r.error ? `  ERROR ${r.error.slice(0, 160)}` : ""));
+    console.log(line + (r.skipped ? "  SKIPPED (questions only)" : "") + (r.error ? `  ERROR ${r.error.slice(0, 160)}` : ""));
     const c = byId.get(r.id)!;
     for (const p of r.proposed) {
       const v = p.verdict;
@@ -124,6 +127,10 @@ function report(results: CaseResult[], cases: EvalCase[], label: string): void {
   console.log(`  invalid quotes        ${t.invalidQuotes}   target 0   ${ok(t.pass.quotes)}`);
   console.log(`  scope misses          ${t.scopeMisses} of ${t.found} found facts`);
   console.log(`  errors                ${t.errors}`);
+  const distilled = results.filter((r) => !r.skipped);
+  const mean = (f: (r: CaseResult) => number) => Math.round(distilled.reduce((n, r) => n + f(r), 0) / (distilled.length || 1));
+  console.log(`  skipped               ${results.length - distilled.length} of ${results.length} cases (questions only)`);
+  console.log(`  mean input tokens     ${mean((r) => r.input_tokens + r.cache_read_tokens)} per distilled case (${mean((r) => r.input_tokens)} fresh + ${mean((r) => r.cache_read_tokens)} cached)`);
   console.log(`  tokens                ${t.input_tokens} in, ${t.output_tokens} out; distill cost ${usd(t.cost_usd)} (+ judge ${usd(results.reduce((n, r) => n + (r.judge_cost_usd ?? 0), 0))})`);
 }
 

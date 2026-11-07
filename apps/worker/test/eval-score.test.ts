@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { assign, judgePrompt, normalizeText, parseJudge, quoteValid, totals, userTurns, type CaseResult } from "../src/eval/score.js";
+import {
+  assign,
+  distillView,
+  judgePrompt,
+  normalizeText,
+  parseJudge,
+  questionsOnly,
+  quoteValid,
+  totals,
+  userTurns,
+  type CaseResult,
+} from "../src/eval/score.js";
 
 describe("quoteValid", () => {
   it("accepts a quote from a user turn that differs only in whitespace, like the server", () => {
@@ -20,6 +31,18 @@ describe("quoteValid", () => {
     const t = 'user: plan\ntool(clarify): {"responses": [{"question": "Which queue?", "user_response": "use \\"pg\\" queues"}]}';
     expect(quoteValid('use \\"pg\\" queues', t)).toBe(true);
     expect(quoteValid("Which queue?", t)).toBe(false);
+  });
+});
+
+describe("questionsOnly / distillView (same as the hive's)", () => {
+  it("skips only when every user turn is a plain question", () => {
+    expect(questionsOnly("user: how?\nassistant: so\nuser: and why?")).toBe(true);
+    expect(questionsOnly("user: how?\nuser: can we use Postgres instead?")).toBe(false);
+    expect(questionsOnly('user: how?\ntool(clarify): {"responses": [{"question": "Q", "user_response": "Redis?"}]}')).toBe(false);
+  });
+  it("keeps user turns and the assistant text before each, clipped; drops tool calls and output", () => {
+    const t = `user: a\nassistant: x\nassistant -> t({})\ntool(t): out\nassistant: ${"y".repeat(2001)}\nuser: b`;
+    expect(distillView(t)).toBe(`user: a\n…\nassistant: […]${"y".repeat(2000)}\nuser: b`);
   });
 });
 

@@ -6,7 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { buildApp } from "../src/app.js";
 import { createInstance, type Instance } from "../src/auth.js";
 import { loadConfig } from "../src/config.js";
-import { DISTILL_PROMPT_VERSION, DistillNotifier } from "../src/distill.js";
+import { DISTILL_PROMPT_VERSION, DistillNotifier, distillView } from "../src/distill.js";
 import { runEmbedPass } from "../src/jobs/embed.js";
 import { FakeEmbedder } from "./fake-embedder.js";
 import { freshDb } from "./helpers.js";
@@ -92,7 +92,7 @@ describe("claim", () => {
     const body = res.json();
     expect(body).toEqual({
       job: { id: expect.any(String), attempts: 1, lease_until: expect.any(String) },
-      episode: { id: ep.id, kind: "session", repo_key: "gh/acme/api", content: TRANSCRIPT, remember_request: false, personal_scope: null },
+      episode: { id: ep.id, kind: "session", repo_key: "gh/acme/api", content: distillView(TRANSCRIPT), remember_request: false, personal_scope: null },
       prompt_version: DISTILL_PROMPT_VERSION,
       credential: CREDENTIAL,
     });
@@ -123,7 +123,7 @@ describe("claim", () => {
     const notifier = new DistillNotifier();
     const slow = buildApp(pool, { version: "test", secretKey: KEY, distillClaimWaitMs: 3_000, distillNotifier: notifier });
     const pending = claim(slow, worker.token);
-    setTimeout(() => void pool.query(`insert into episodes (kind, session_id, content) values ('session', 's1', 'log')`), 100);
+    setTimeout(() => void pool.query(`insert into episodes (kind, session_id, content) values ('session', 's1', 'user: we deploy on Fridays')`), 100);
     expect((await pending).statusCode).toBe(200);
     await slow.close();
   });
@@ -180,6 +180,82 @@ describe("claim", () => {
       }
     }
     expect((await jobs())[0]).toMatchObject({ status: "queued", attempts: 0 });
+  });
+});
+
+describe("claim skips question-only sessions", () => {
+  const QUESTIONS = `user: how do we deploy?
+assistant: From main, via Cloud Run.
+assistant -> terminal({"command": "cat deploy.sh"})
+tool(terminal): {"output": "gcloud run deploy"}
+user:   and where do the logs go?  `;
+  const result = async (episodeId: string) =>
+    (await pool.query("select status, finished_at, lease_until, result from distill_jobs where episode_id = $1", [episodeId])).rows[0];
+
+  it("finishes an all-questions session with no model call and hands out the next job", async () => {
+    await setCredential();
+    const skipped = (await postEpisode(app, alice.token, "session", QUESTIONS)).json().episode;
+    const kept = (await postEpisode(app, alice.token, "session", "user: we deploy on Fridays")).json().episode;
+    const res = await claim(app, worker.token);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().episode).toMatchObject({ id: kept.id, content: "user: we deploy on Fridays" });
+    expect(await result(skipped.id)).toEqual({
+      status: "done",
+      finished_at: expect.any(Date),
+      lease_until: null,
+      result: { created: [], anchored: [], skipped: "questions only" },
+    });
+    expect((await pool.query("select 1 from llm_calls")).rowCount).toBe(0);
+    expect((await claim(app, worker.token)).statusCode).toBe(204);
+    // the episode is kept for recall
+    expect((await pool.query("select 1 from episodes where id = $1", [skipped.id])).rowCount).toBe(1);
+  });
+
+  it("skips a session with no user turn; 204 when only skipped jobs are queued", async () => {
+    await setCredential();
+    const ep = (await postEpisode(app, alice.token, "session", "assistant: hello\ntool(terminal): ok")).json().episode;
+    expect((await claim(app, worker.token)).statusCode).toBe(204);
+    expect((await result(ep.id)).status).toBe("done");
+  });
+
+  for (const [what, content] of [
+    ["a statement", `${QUESTIONS}\nuser: we deploy on Fridays.`],
+    ["a clarify answer", `${QUESTIONS}\ntool(clarify): {"responses": [{"question": "Which day?", "user_response": "Friday?"}]}`],
+    ["a redirect question", `${QUESTIONS}\nuser: can we use Postgres instead?`],
+  ]) {
+    it(`distills a session with ${what}, sending the view`, async () => {
+      await setCredential();
+      const ep = (await postEpisode(app, alice.token, "session", content)).json().episode;
+      const res = await claim(app, worker.token);
+      expect(res.statusCode, res.body).toBe(200);
+      expect(res.json().episode).toMatchObject({ id: ep.id, content: distillView(content!) });
+      expect(res.json().episode.content).not.toContain("gcloud run deploy");
+    });
+  }
+
+  it("distills a remember job and an asf_dialog even when they only ask; a remember job gets its full turn", async () => {
+    await setCredential();
+    const turn = `user: why do we deploy on Fridays?\nassistant -> terminal({})\ntool(terminal): {"output": "gcloud"}`;
+    const flagged = await app.inject({
+      method: "POST",
+      url: "/v1/episodes",
+      headers: auth(alice.token),
+      payload: { kind: "turn", session_id: "s1", content: turn, metadata: { remember_request: true } },
+    });
+    expect(flagged.statusCode, flagged.body).toBe(201);
+    await pool.query("insert into repos (key) values ('gh/acme/api') on conflict do nothing");
+    const dialog = await app.inject({
+      method: "POST",
+      url: "/v1/episodes",
+      headers: auth(curator.token),
+      payload: { kind: "asf_dialog", repo_key: "gh/acme/api", ref: "run_1/after_plan", content: "assistant: a plan\nuser: is it final?", metadata: { author: "jon" } },
+    });
+    expect(dialog.statusCode, dialog.body).toBe(201);
+    const first = (await claim(app, worker.token)).json();
+    expect(first.episode).toMatchObject({ id: flagged.json().episode.id, content: turn, remember_request: true });
+    const second = await claim(app, worker.token);
+    expect(second.statusCode, second.body).toBe(200);
+    expect(second.json().episode).toMatchObject({ id: dialog.json().episode.id, content: "assistant: a plan\nuser: is it final?" });
   });
 });
 
@@ -339,7 +415,10 @@ describe("complete", () => {
     await setCredential();
     const ep = (await pool.query(`insert into episodes (kind, content) values ('asf_run', 'Plan: keep the outbox table.') returning id`)).rows[0];
     await pool.query(`insert into distill_jobs (episode_id) values ($1)`, [ep.id]);
-    const { job } = (await claim(app, worker.token)).json();
+    const claimed = await claim(app, worker.token);
+    // no user: lines means the distill view would strip it to "…"; an asf_run keeps its full content
+    expect(claimed.json().episode.content).toBe("Plan: keep the outbox table.");
+    const { job } = claimed.json();
     const res = await complete(app, worker.token, job.id, [{ text: "Keep the outbox table.", kind: "decision", scope: "global", quote: "keep the outbox table." }]);
     expect(res.json().result).toMatchObject({ created: [expect.any(String)], dropped: [], dropped_non_user_quote: 0 });
   });

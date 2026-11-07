@@ -142,7 +142,16 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
 - `POST /v1/worker/distill/claim` → `200 {job:{id, attempts, lease_until}, episode:{id, kind, repo_key, content,
   remember_request, personal_scope}, prompt_version, credential}`, highest priority first, then oldest.
   `remember_request` is true on a remember job; `personal_scope` is then `personal:<episode user>` (else `null`), a
-  scope its facts may also take. Long-polls up to 25 s (re-checks every second, woken at once by a new episode), then `204`.
+  scope its facts may also take. `content` is the distill view, not the whole episode: every `user: ` turn and
+  `tool(clarify): ` line in full, each after the last `assistant: ` text since the previous kept piece (clipped to
+  its last 2,000 chars, marked `[…]`), with tool calls, other tool output and other assistant text replaced by a `…` line.
+  A remember job and an `asf_run` job get the whole content. Quotes are still checked against the whole episode.
+  A `session` job whose user turns are all plain questions (or that has none) is skipped, not handed out: it is `done`
+  with `result: {created: [], anchored: [], skipped: "questions only"}` and no `llm_calls` row, and the next job is
+  claimed instead. A plain question is a `user: ` turn ending in `?` that contains none of (any case) `instead`,
+  `actually`, `rather`, `don't`, `do not`, `never`, `always`, `from now on`, `let's`, `should be`, `must`, `i want`,
+  `i'd like`, `please`, `remember`, `no,`, `not `; a clarify answer never is. `asf_dialog` and remember jobs are never
+  skipped. Long-polls up to 25 s (re-checks every second, woken at once by a new episode), then `204`.
   `503 {error: "agent credential not set"}` (nothing claimed) when no credential is stored or `HIVE_SECRET_KEY` is unset.
 - `POST /v1/worker/distill/:id/complete` `{facts:[{text, kind, scope, quote, locus?}] (≤ 20), usage:{model, input_tokens,
   output_tokens, cache_read_tokens, cost_usd, duration_ms}}` → `{result:{prompt_version, created:[ids], anchored:[ids], dropped:[{text, reason}],

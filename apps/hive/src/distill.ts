@@ -82,6 +82,78 @@ export function userTurns(content: string): string[] {
   return turns;
 }
 
+/** Words that make a question a redirect or a decision ("Can we use Postgres instead?"), matched lower-case anywhere. */
+const NOT_PLAIN_MARKERS = [
+  "instead", "actually", "rather", "don't", "do not", "never", "always", "from now on", "let's", "should be", "must",
+  "i want", "i'd like", "please", "remember", "no,", "not ",
+];
+
+/**
+ * A `user: ` turn that only asks: it ends in `?` and has none of the markers. When unsure it says no (so the session
+ * is distilled): a clarify answer (no `user: ` prefix) is never a plain question.
+ */
+export function isPlainQuestion(turn: string): boolean {
+  if (!turn.startsWith("user: ")) return false;
+  const text = turn.slice("user: ".length).trim().toLowerCase().replaceAll("’", "'");
+  return text.endsWith("?") && !NOT_PLAIN_MARKERS.some((m) => text.includes(m));
+}
+
+/** Every user turn is a plain question (or there are none): no fact could quote the person, so nothing to distill. */
+export function questionsOnly(content: string): boolean {
+  return userTurns(content).every(isPlainQuestion);
+}
+
+/** The assistant text kept before a user turn in the distill view: its last this-many chars. */
+export const VIEW_ASSISTANT_CHARS = 2000;
+
+/**
+ * What the distiller reads: every `user:` turn and `tool(clarify)` line in full, each after the last `assistant:` text
+ * since the previous kept piece (clipped to its last VIEW_ASSISTANT_CHARS, marked `[…]`). Tool calls, other tool
+ * output and other assistant text are dropped; a `…` line stands wherever something was. The quote checks still use
+ * the full content.
+ */
+export function distillView(content: string): string {
+  const blocks: { kind: "user" | "assistant" | "other"; lines: string[] }[] = [];
+  for (const line of content.split("\n")) {
+    const kind =
+      line.startsWith("user: ") || line.startsWith(CLARIFY_PREFIX)
+        ? "user"
+        : line.startsWith("assistant: ")
+          ? "assistant"
+          : line.startsWith("assistant") || line.startsWith("tool(")
+            ? "other"
+            : null;
+    if (kind) blocks.push({ kind, lines: [line] });
+    else if (blocks.length) blocks.at(-1)!.lines.push(line);
+    else blocks.push({ kind: "other", lines: [line] }); // text before the first turn
+  }
+  const keep = blocks.map(() => false);
+  let lastKept = -1;
+  blocks.forEach((b, i) => {
+    if (b.kind !== "user") return;
+    for (let j = i - 1; j > lastKept; j--) {
+      if (blocks[j]!.kind === "assistant") {
+        keep[j] = true;
+        break;
+      }
+    }
+    keep[i] = true;
+    lastKept = i;
+  });
+  const out: string[] = [];
+  blocks.forEach((b, i) => {
+    if (!keep[i]) {
+      if (i === 0 || keep[i - 1]) out.push("…");
+      return;
+    }
+    const text = b.lines.join("\n");
+    if (b.kind !== "assistant") return out.push(text);
+    const body = text.slice("assistant: ".length);
+    out.push(body.length > VIEW_ASSISTANT_CHARS ? `assistant: […]${body.slice(-VIEW_ASSISTANT_CHARS)}` : text);
+  });
+  return out.join("\n");
+}
+
 /** The answers on a `tool(clarify): ` line with the question each answers (null when the line doesn't parse). */
 function clarifyAnswers(line: string): { question: string | null; raw: string }[] {
   let responses: unknown[] = [];
@@ -179,17 +251,19 @@ export async function claimJob(
        where status = 'claimed' and lease_until < now()`,
       [MAX_ATTEMPTS],
     );
-    const { rows } = await client.query<DistillJob & { episode_id: string }>(
-      `update distill_jobs
-       set status = 'claimed', attempts = attempts + 1, claimed_by = $1,
-           lease_until = now() + make_interval(secs => $2)
-       where id = (select id from distill_jobs where status = 'queued' order by priority desc, created_at, id limit 1 for update skip locked)
-       returning id, attempts, lease_until, episode_id`,
-      [workerId, leaseSeconds],
-    );
-    const claimed = rows[0];
+    let claimed: (DistillJob & { episode_id: string }) | undefined;
     let episode: DistillEpisode | undefined;
-    if (claimed) {
+    for (;;) {
+      const { rows } = await client.query<DistillJob & { episode_id: string }>(
+        `update distill_jobs
+         set status = 'claimed', attempts = attempts + 1, claimed_by = $1,
+             lease_until = now() + make_interval(secs => $2)
+         where id = (select id from distill_jobs where status = 'queued' order by priority desc, created_at, id limit 1 for update skip locked)
+         returning id, attempts, lease_until, episode_id`,
+        [workerId, leaseSeconds],
+      );
+      claimed = rows[0];
+      if (!claimed) break;
       episode = (
         await client.query<DistillEpisode>(
           `select e.id, e.kind, e.repo_key, e.content, ${REMEMBER_SQL} as remember_request,
@@ -198,8 +272,19 @@ export async function claimJob(
           [claimed.episode_id],
         )
       ).rows[0];
+      if (!episode) break;
+      // A session (or plain turn) where the person only asked questions has nothing to quote: done with no model call.
+      // Never an asf_dialog (a person's note) or a remember job (the person asked for it).
+      const skippable = episode.kind === "session" || (episode.kind === "turn" && !episode.remember_request);
+      if (!skippable || !questionsOnly(episode.content)) break;
+      await client.query(`update distill_jobs set status = 'done', finished_at = now(), lease_until = null, result = $2 where id = $1`, [
+        claimed.id,
+        { created: [], anchored: [], skipped: "questions only" },
+      ]);
     }
     await client.query("commit");
+    // A remember job keeps its whole turn (its quote may come from anywhere in it); an asf_run has no user turns.
+    if (episode && !episode.remember_request && episode.kind !== "asf_run") episode.content = distillView(episode.content);
     if (!claimed || !episode) return null;
     return {
       job: { id: claimed.id, attempts: claimed.attempts, lease_until: new Date(claimed.lease_until).toISOString() },

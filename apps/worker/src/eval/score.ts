@@ -49,6 +49,68 @@ export function userTurns(content: string): string[] {
   return turns;
 }
 
+const NOT_PLAIN_MARKERS = [
+  "instead", "actually", "rather", "don't", "do not", "never", "always", "from now on", "let's", "should be", "must",
+  "i want", "i'd like", "please", "remember", "no,", "not ",
+];
+
+/** Same as the hive's isPlainQuestion (apps/hive/src/distill.ts). */
+export function isPlainQuestion(turn: string): boolean {
+  if (!turn.startsWith("user: ")) return false;
+  const text = turn.slice("user: ".length).trim().toLowerCase().replaceAll("’", "'");
+  return text.endsWith("?") && !NOT_PLAIN_MARKERS.some((m) => text.includes(m));
+}
+
+/** Same as the hive's questionsOnly (apps/hive/src/distill.ts): the hive skips such a session with no model call. */
+export function questionsOnly(content: string): boolean {
+  return userTurns(content).every(isPlainQuestion);
+}
+
+const VIEW_ASSISTANT_CHARS = 2000;
+
+/** Same as the hive's distillView (apps/hive/src/distill.ts): what the claim sends the distiller. */
+export function distillView(content: string): string {
+  const blocks: { kind: "user" | "assistant" | "other"; lines: string[] }[] = [];
+  for (const line of content.split("\n")) {
+    const kind =
+      line.startsWith("user: ") || line.startsWith(CLARIFY_PREFIX)
+        ? "user"
+        : line.startsWith("assistant: ")
+          ? "assistant"
+          : line.startsWith("assistant") || line.startsWith("tool(")
+            ? "other"
+            : null;
+    if (kind) blocks.push({ kind, lines: [line] });
+    else if (blocks.length) blocks.at(-1)!.lines.push(line);
+    else blocks.push({ kind: "other", lines: [line] });
+  }
+  const keep = blocks.map(() => false);
+  let lastKept = -1;
+  blocks.forEach((b, i) => {
+    if (b.kind !== "user") return;
+    for (let j = i - 1; j > lastKept; j--) {
+      if (blocks[j]!.kind === "assistant") {
+        keep[j] = true;
+        break;
+      }
+    }
+    keep[i] = true;
+    lastKept = i;
+  });
+  const out: string[] = [];
+  blocks.forEach((b, i) => {
+    if (!keep[i]) {
+      if (i === 0 || keep[i - 1]) out.push("…");
+      return;
+    }
+    const text = b.lines.join("\n");
+    if (b.kind !== "assistant") return out.push(text);
+    const body = text.slice("assistant: ".length);
+    out.push(body.length > VIEW_ASSISTANT_CHARS ? `assistant: […]${body.slice(-VIEW_ASSISTANT_CHARS)}` : text);
+  });
+  return out.join("\n");
+}
+
 /** The server keeps a session fact only when its quote (whitespace collapsed) is inside a user turn. */
 export function quoteValid(quote: string, transcript: string): boolean {
   const q = normalizeText(quote);
@@ -137,6 +199,8 @@ export interface CaseResult {
   cost_usd: number;
   judge_cost_usd?: number;
   duration_ms: number;
+  /** Skipped as the hive would (questions only): no model call. */
+  skipped?: boolean;
   error?: string;
 }
 

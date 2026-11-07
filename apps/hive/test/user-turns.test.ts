@@ -1,5 +1,9 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { exchangeFor, userTurns } from "../src/distill.js";
+import { distillView, exchangeFor, isPlainQuestion, questionsOnly, userTurns } from "../src/distill.js";
+import { normalizeText } from "../src/facts.js";
 
 describe("userTurns", () => {
   it("keeps a multi-line user turn whole, up to the next user: line", () => {
@@ -95,4 +99,98 @@ describe("exchangeFor", () => {
     const reply = "a".repeat(400) + "b".repeat(600);
     expect(exchangeFor(`assistant: ${reply}\nuser: ok then`, "ok then")?.assistant).toBe("b".repeat(600));
   });
+});
+
+describe("isPlainQuestion / questionsOnly", () => {
+  it("a user turn ending in ? (after trimming) is a plain question", () => {
+    expect(isPlainQuestion("user: how do we deploy?")).toBe(true);
+    expect(isPlainQuestion("user:   where do logs go?  \n")).toBe(true);
+    expect(isPlainQuestion("user: we deploy on Fridays.")).toBe(false);
+    expect(isPlainQuestion("user: is it Friday? We deploy then")).toBe(false);
+  });
+
+  const markers = [
+    "instead", "actually", "rather", "don't", "do not", "never", "always", "from now on", "let's", "should be", "must",
+    "i want", "i'd like", "please", "remember", "no,", "not ",
+  ];
+  for (const m of markers) {
+    it(`a question with "${m}" is not plain, in any case`, () => {
+      expect(isPlainQuestion(`user: is it ${m}?`)).toBe(false);
+      expect(isPlainQuestion(`user: is it ${m.toUpperCase()}?`)).toBe(false);
+    });
+  }
+
+  it("a curly apostrophe counts as a straight one", () => {
+    expect(isPlainQuestion("user: why don\u2019t we cache it?")).toBe(false);
+  });
+
+  it("a clarify answer (no user: prefix) is never a plain question", () => {
+    expect(isPlainQuestion("Friday?")).toBe(false);
+  });
+
+  it("questionsOnly: every user turn (clarify answers included) is a plain question, or there are none", () => {
+    expect(questionsOnly("user: how?\nassistant: like this\ntool(terminal): we must\nuser: and why?")).toBe(true);
+    expect(questionsOnly("assistant: hello")).toBe(true);
+    expect(questionsOnly("user: how?\nuser: use Postgres.")).toBe(false);
+    expect(questionsOnly('user: how?\ntool(clarify): {"responses": [{"question": "Q", "user_response": "Redis?"}]}')).toBe(false);
+  });
+});
+
+describe("distillView", () => {
+  it("keeps user turns, clarify lines and the last assistant text before each; drops tool calls and output with a … line", () => {
+    const clarify = 'tool(clarify): {"responses": [{"question": "Which cache?", "user_response": "Postgres"}]}';
+    const content = [
+      "preamble",
+      "user: plan it",
+      "  over two lines",
+      "assistant: first thoughts",
+      "assistant -> terminal({})",
+      "tool(terminal): {\"output\": \"secret file\"}",
+      "more output",
+      "assistant: some questions",
+      "  continued",
+      clarify,
+      "user: go",
+      "assistant: done",
+    ].join("\n");
+    expect(distillView(content)).toBe(
+      ["…", "user: plan it", "  over two lines", "…", "assistant: some questions", "  continued", clarify, "user: go", "…"].join("\n"),
+    );
+  });
+
+  it("is the content itself when nothing is dropped", () => {
+    const content = "assistant: a plan\nuser: ship it\nassistant: ok\nuser: thanks";
+    expect(distillView(content)).toBe(content);
+  });
+
+  it("an assistant text already before a kept user turn isn't reused for the next one", () => {
+    expect(distillView("assistant: a\nuser: b\nuser: c")).toBe("assistant: a\nuser: b\nuser: c");
+    expect(distillView("assistant: a\nuser: b\nassistant -> t({})\nuser: c")).toBe("assistant: a\nuser: b\n…\nuser: c");
+  });
+
+  it("clips the assistant text to its last 2,000 chars, marked […]", () => {
+    const reply = "a".repeat(10) + "b".repeat(2000);
+    expect(distillView(`assistant: ${reply}\nuser: ok`)).toBe(`assistant: […]${"b".repeat(2000)}\nuser: ok`);
+    const fits = "c".repeat(2000);
+    expect(distillView(`assistant: ${fits}\nuser: ok`)).toBe(`assistant: ${fits}\nuser: ok`);
+  });
+});
+
+// distill-v5 must quote a user turn, so every label's evidence must be in the full episode and in what is sent.
+describe("eval-distill cases through the distill view", () => {
+  const dir = fileURLToPath(new URL("../../../scripts/eval-distill/cases/", import.meta.url));
+  const files = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
+  it("has cases", () => expect(files.length).toBeGreaterThan(0));
+  for (const f of files) {
+    const meta = JSON.parse(readFileSync(join(dir, f), "utf8")) as { expected: { evidence?: string }[] };
+    const transcript = readFileSync(join(dir, f.replace(/\.json$/, ".txt")), "utf8");
+    meta.expected.forEach((l, i) => {
+      it(`${f} E${i + 1}: evidence is in a user turn of the episode and of the view`, () => {
+        const q = normalizeText(l.evidence ?? "");
+        expect(q).not.toBe("");
+        expect(userTurns(transcript).some((t) => normalizeText(t).includes(q))).toBe(true);
+        expect(userTurns(distillView(transcript)).some((t) => normalizeText(t).includes(q))).toBe(true);
+      });
+    });
+  }
 });
