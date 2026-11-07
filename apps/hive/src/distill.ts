@@ -6,7 +6,7 @@ import { ConflictError, contentHash, initialStatus, normalizeText, type FactKind
 /** A job that has been claimed this many times and fails (or its lease expires) again is given up on. */
 export const MAX_ATTEMPTS = 3;
 /** Sent with every claim so the worker and the stored result agree on which prompt produced the facts. */
-export const DISTILL_PROMPT_VERSION = "distill-v4";
+export const DISTILL_PROMPT_VERSION = "distill-v5";
 /** Cosine above which a distilled fact is "the same" as an existing one in its scope (anchor, don't insert). */
 const VECTOR_DUPE_MIN = 0.92;
 
@@ -48,7 +48,29 @@ export interface DistillResult {
   prompt_version: string;
   created: string[];
   anchored: string[];
-  dropped: { text: string; reason: "quote_not_in_episode" | "scope_not_allowed" }[];
+  dropped: { text: string; reason: "quote_not_in_episode" | "non_user_quote" | "scope_not_allowed" }[];
+  /** Facts dropped because their quote is in the episode but not in a `user:` turn (session jobs only). */
+  dropped_non_user_quote: number;
+}
+
+/**
+ * The user turns of a rendered transcript: each starts at a line beginning `user: ` and runs up to the next line
+ * starting with `user: `, `assistant` (`assistant:` or `assistant -> tool call`) or `tool(`.
+ */
+export function userTurns(content: string): string[] {
+  const turns: string[] = [];
+  let turn: string[] | null = null;
+  for (const line of content.split("\n")) {
+    if (line.startsWith("user: ")) {
+      if (turn) turns.push(turn.join("\n"));
+      turn = [line];
+    } else if (line.startsWith("assistant") || line.startsWith("tool(")) {
+      if (turn) turns.push(turn.join("\n"));
+      turn = null;
+    } else turn?.push(line);
+  }
+  if (turn) turns.push(turn.join("\n"));
+  return turns;
 }
 
 /** SQL (on episodes `e`): this is a remember job, a turn the user flagged. */
@@ -122,9 +144,10 @@ function assertOwned(job: OwnedJob, worker: Instance): void {
 }
 
 /**
- * Store a claimed job's distilled facts. A fact whose quote is not in the episode, or whose scope the
- * episode can't speak for, is dropped. A fact already known (same text, or cosine > 0.92 in its scope)
- * gains an anchor to this episode instead of a new row; the rest become `distilled` candidates.
+ * Store a claimed job's distilled facts. A fact whose quote is not in the episode, or (except on a remember
+ * job or a legacy asf_run job) not in one of its `user:` turns, or whose scope the episode can't speak for, is
+ * dropped. A fact already known (same text, or cosine > 0.92 in its scope) gains an anchor to this episode
+ * instead of a new row; the rest become `distilled` candidates.
  *
  * A remember job (a flagged turn) records what the user asked for. Its facts are `authored`, by the
  * episode's instance, with the status a remember from that instance would get, and marked `asked`.
@@ -143,6 +166,7 @@ export async function completeJob(
   const pre = await pool.query<
     OwnedJob & {
       episode_id: string;
+      kind: string;
       content: string;
       repo_key: string | null;
       user_id: string | null;
@@ -150,7 +174,7 @@ export async function completeJob(
       role: Instance["role"] | null;
     }
   >(
-    `select j.status, j.claimed_by, j.attempts, j.episode_id, e.content, e.repo_key, e.user_id,
+    `select j.status, j.claimed_by, j.attempts, j.episode_id, e.kind, e.content, e.repo_key, e.user_id,
             ${REMEMBER_SQL} as remember, i.role
      from distill_jobs j join episodes e on e.id = j.episode_id left join instances i on i.id = e.instance_id
      where j.id = $1`,
@@ -160,16 +184,28 @@ export async function completeJob(
   if (!ep) return null;
   assertOwned(ep, worker);
 
-  const result: DistillResult = { prompt_version: DISTILL_PROMPT_VERSION, created: [], anchored: [], dropped: [] };
+  const result: DistillResult = {
+    prompt_version: DISTILL_PROMPT_VERSION,
+    created: [],
+    anchored: [],
+    dropped: [],
+    dropped_non_user_quote: 0,
+  };
   const allowed = new Set(["global"]);
   if (ep.repo_key) allowed.add(`repo:${ep.repo_key}`);
   if (ep.user_id) allowed.add(`personal:${ep.user_id}`);
   const episodeText = normalizeText(ep.content);
+  // A session fact must come from what the person said; a remember job keeps any quote from its turn, and an
+  // asf_run record has no user turns.
+  const turns = ep.remember || ep.kind === "asf_run" ? null : userTurns(ep.content).map(normalizeText);
   const kept: (DistilledFact & { text: string })[] = [];
   for (const f of input.facts) {
     const quote = normalizeText(f.quote);
     if (!quote || !episodeText.includes(quote)) result.dropped.push({ text: f.text, reason: "quote_not_in_episode" });
-    else if (!allowed.has(f.scope)) result.dropped.push({ text: f.text, reason: "scope_not_allowed" });
+    else if (turns && !turns.some((t) => t.includes(quote))) {
+      result.dropped.push({ text: f.text, reason: "non_user_quote" });
+      result.dropped_non_user_quote++;
+    } else if (!allowed.has(f.scope)) result.dropped.push({ text: f.text, reason: "scope_not_allowed" });
     else kept.push({ ...f, text: normalizeText(f.text) });
   }
 

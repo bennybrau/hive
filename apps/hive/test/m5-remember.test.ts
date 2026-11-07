@@ -213,6 +213,20 @@ describe("complete a remember job", () => {
     expect(res.json().result.anchored).toEqual([recent.id]);
   });
 
+  it("keeps a quote from the assistant's line: the user-turn rule is for session jobs only", async () => {
+    const { job } = await flagAndClaim(alice);
+    const res = await complete(job.id, [fact("Every SQL migration is numbered.", `repo:${REPO}`, "Every SQL migration is numbered too.")]);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(res.json().result).toMatchObject({ created: [expect.any(String)], dropped: [], dropped_non_user_quote: 0 });
+  });
+
+  it("a session job drops that same assistant quote", async () => {
+    await postEpisode(alice, "session");
+    const { job } = (await claim()).json();
+    const res = await complete(job.id, [fact("Every SQL migration is numbered.", `repo:${REPO}`, "Every SQL migration is numbered too.")]);
+    expect(res.json().result).toMatchObject({ created: [], dropped: [{ reason: "non_user_quote" }], dropped_non_user_quote: 1 });
+  });
+
   it("a normal session job is unchanged: distilled candidates, nothing asked", async () => {
     await remember(alice, "Alpha decision.");
     await postEpisode(alice, "session");

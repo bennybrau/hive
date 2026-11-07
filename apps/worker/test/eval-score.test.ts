@@ -1,14 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { assign, judgePrompt, normalizeText, parseJudge, quoteValid, totals, type CaseResult } from "../src/eval/score.js";
+import { assign, judgePrompt, normalizeText, parseJudge, quoteValid, totals, userTurns, type CaseResult } from "../src/eval/score.js";
 
 describe("quoteValid", () => {
-  it("accepts a quote that differs from the transcript only in whitespace, like the server", () => {
-    expect(quoteValid("keep  the\nwatermark", "we keep the watermark in export_state")).toBe(true);
+  it("accepts a quote from a user turn that differs only in whitespace, like the server", () => {
+    expect(quoteValid("keep  the\nwatermark", "user: we keep the\n  watermark in export_state")).toBe(true);
     expect(normalizeText("  a \n\t b ")).toBe("a b");
   });
   it("rejects a quote not in the transcript, and an empty one", () => {
-    expect(quoteValid("billing uses Kafka", "billing retries webhooks")).toBe(false);
-    expect(quoteValid("   ", "anything")).toBe(false);
+    expect(quoteValid("billing uses Kafka", "user: billing retries webhooks")).toBe(false);
+    expect(quoteValid("   ", "user: anything")).toBe(false);
+  });
+  it("rejects a quote from an assistant or tool line, like the server", () => {
+    const t = "user: ok\nassistant: billing retries webhooks\nassistant -> terminal({})\ntool(terminal): exit 0\nuser: thanks";
+    expect(quoteValid("billing retries webhooks", t)).toBe(false);
+    expect(quoteValid("exit 0", t)).toBe(false);
+    expect(quoteValid("thanks", t)).toBe(true);
+  });
+});
+
+describe("userTurns", () => {
+  it("splits like the hive: a user turn runs to the next user:, assistant or tool( line", () => {
+    expect(userTurns("user: a\n  b\nassistant: c\nuser: d\nassistant -> x\nuser: e\ntool(t): f\ng")).toEqual(["user: a\n  b", "user: d", "user: e"]);
   });
 });
 

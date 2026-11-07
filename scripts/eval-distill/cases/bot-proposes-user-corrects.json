@@ -1,0 +1,22 @@
+{
+  "id": "bot-proposes-user-corrects",
+  "source": {"synthetic": "written for distill-v5: the bot proposes, the user corrects it"},
+  "repo_key": "gh/jon/ledger",
+  "expected": [
+    {
+      "text": "Checkout idempotency keys live in Postgres (a unique idempotency_key column on orders), not Redis, because Redis isn't run in production and a new service isn't worth adding for this.",
+      "kind": "decision",
+      "scope": "repo:gh/jon/ledger",
+      "evidence": "no, keep it in Postgres: a unique idempotency_key column on orders. we don't run Redis in prod and I'm not adding a service just for this"
+    }
+  ],
+  "acceptable": [
+    {
+      "text": "The ledger app does not run Redis in production.",
+      "kind": "system",
+      "scope": "repo:gh/jon/ledger",
+      "evidence": "we don't run Redis in prod"
+    }
+  ],
+  "notes": "SYNTHETIC. The assistant proposes Redis-backed idempotency keys; the user rejects that and decides on a Postgres column, with the reason. The correction is the fact; the assistant's Redis proposal and its closing summary are not."
+}

@@ -1,0 +1,8 @@
+{
+  "id": "bot-proposes-ok",
+  "source": {"synthetic": "written for distill-v5: the bot proposes, the user only says ok"},
+  "repo_key": "gh/jon/ledger",
+  "expected": [],
+  "acceptable": [],
+  "notes": "SYNTHETIC. The assistant diagnoses a slow export and proposes a design (cursor, streaming, resumable watermark) with a 'should always' rule; the user only replies 'ok' and 'thanks'. Under distill-v5 a bare ok does not make the assistant's proposal the user's decision, so nothing is kept."
+}

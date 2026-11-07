@@ -1,0 +1,8 @@
+{
+  "id": "bot-summary-thanks",
+  "source": {"synthetic": "written for distill-v5: the bot debugs and summarises, the user only says thanks"},
+  "repo_key": "gh/jon/ledger",
+  "expected": [],
+  "acceptable": [],
+  "notes": "SYNTHETIC. The assistant traces a red CI run to a local-time test helper, fixes it and ends with a summary that includes a 'going forward' rule; the user replies only 'thanks!'. The rule is the assistant's, not the user's, so under distill-v5 nothing is kept."
+}

@@ -26,9 +26,27 @@ export function normalizeText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+/** Same as the hive's userTurns (apps/hive/src/distill.ts): a session fact's quote must sit in one of these. */
+export function userTurns(content: string): string[] {
+  const turns: string[] = [];
+  let turn: string[] | null = null;
+  for (const line of content.split("\n")) {
+    if (line.startsWith("user: ")) {
+      if (turn) turns.push(turn.join("\n"));
+      turn = [line];
+    } else if (line.startsWith("assistant") || line.startsWith("tool(")) {
+      if (turn) turns.push(turn.join("\n"));
+      turn = null;
+    } else turn?.push(line);
+  }
+  if (turn) turns.push(turn.join("\n"));
+  return turns;
+}
+
+/** The server keeps a session fact only when its quote (whitespace collapsed) is inside a user turn. */
 export function quoteValid(quote: string, transcript: string): boolean {
   const q = normalizeText(quote);
-  return q.length > 0 && normalizeText(transcript).includes(q);
+  return q.length > 0 && userTurns(transcript).some((t) => normalizeText(t).includes(q));
 }
 
 /** A judge's answer for one proposed fact: the label it states ("E1".."En" expected, "A1".."Am" acceptable) or null. */

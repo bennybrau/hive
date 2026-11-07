@@ -32,7 +32,11 @@ Each window is at most 45k characters, so it fits one chunk. `cases/<id>.json` h
 - **`evidence`:** a verbatim passage for each label.
 - **`repo_key`:** the repo the session ran in.
 
-Seven of the 15 cases should produce nothing: chit-chat, status checks, routine work and a code review.
+Seven of the 15 session cases should produce nothing: chit-chat, status checks, routine work and a code review.
+
+Three more cases, `bot-*`, are synthetic: written in the same format to check that facts come from what the person
+said. In two the assistant proposes or summarises and the user only says ok or thanks (nothing to keep); in one the
+user corrects the assistant's proposal (the correction is the fact).
 
 Before committing a new case, run `python3 extract.py scan cases/*.txt`, which must exit 0. Replace any hit with
 `[REDACTED]` and any third-party email address with `[EMAIL]`.

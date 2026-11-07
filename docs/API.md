@@ -141,9 +141,12 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   scope its facts may also take. Long-polls up to 25 s (re-checks every second, woken at once by a new episode), then `204`.
   `503 {error: "agent credential not set"}` (nothing claimed) when no credential is stored or `HIVE_SECRET_KEY` is unset.
 - `POST /v1/worker/distill/:id/complete` `{facts:[{text, kind, scope, quote, locus?}] (≤ 20), usage:{model, input_tokens,
-  output_tokens, cache_read_tokens, cost_usd, duration_ms}}` → `{result:{prompt_version, created:[ids], anchored:[ids], dropped:[{text, reason}]}}`.
-  Dropped: `quote_not_in_episode` (the quote, whitespace collapsed, isn't in the episode) and `scope_not_allowed`
-  (only `global`, `repo:<episode repo_key>`, `personal:<episode user>`). A fact with the same text as an existing one, or
+  output_tokens, cache_read_tokens, cost_usd, duration_ms}}` → `{result:{prompt_version, created:[ids], anchored:[ids], dropped:[{text, reason}],
+  dropped_non_user_quote}}`. Dropped, checked in this order: `quote_not_in_episode` (the quote, whitespace collapsed,
+  isn't in the episode), `non_user_quote` (it is, but not inside a user turn: a turn starts at a line beginning
+  `user: ` and ends before the next line starting with `user: `, `assistant` or `tool(`; not checked on a remember job
+  or an `asf_run` job), and `scope_not_allowed` (only `global`, `repo:<episode repo_key>`, `personal:<episode user>`).
+  `dropped_non_user_quote` counts the `non_user_quote` drops (always present, 0 when none). A fact with the same text as an existing one, or
   cosine > 0.92 to a candidate/active fact in its scope (when embeddings are on), gets an `{episode_id, quote, repo_key}`
   anchor instead of a new row; the rest become `origin: distilled`, `status: candidate` facts authored by the episode's
   user, with that anchor. Writes one `llm_calls` row (`job: distill`); the job is `done` with `result` stored.

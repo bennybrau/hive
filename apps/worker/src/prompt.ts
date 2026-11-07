@@ -41,7 +41,7 @@ const SOURCES: Record<string, { source: string; quoteRule: string }> = {
   session: {
     source: "a transcript of a conversation between a developer (user) and their coding agent (assistant)",
     quoteRule:
-      "from a line that starts with `user:` or `assistant:`. Never quote `tool(...)` output or tool-call arguments: they hold escaped text that won't match",
+      "from a line that starts with `user:` only. Never quote `tool(...)` output or tool-call arguments: they hold escaped text that won't match",
   },
   asf_run: {
     source:

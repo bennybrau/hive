@@ -135,7 +135,7 @@ describe("ClaudeAuth", () => {
 
 describe("prompt", () => {
   it("the prompt file carries its version", () => {
-    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v4");
+    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v5");
     expect(loadPrompt(PROMPT_PATH).body).toContain('{"facts":[]}');
   });
 
@@ -148,7 +148,7 @@ describe("prompt", () => {
       expect(out).toContain('"repo:gh/o/r" by default');
     }
     expect(session).toContain("conversation between a developer (user) and their coding agent");
-    expect(session).toContain("from a line that starts with `user:` or `assistant:`");
+    expect(session).toContain("from a line that starts with `user:` only");
     expect(session).not.toContain("software-factory run");
     expect(run).toContain("the approved plan for a change, then the review of the finished work");
     expect(run).toContain("Never turn a plan step");

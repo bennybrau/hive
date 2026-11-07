@@ -1,5 +1,5 @@
 ---
-version: distill-v4
+version: distill-v5
 ---
 You read {{source}}, and pick out the few facts a teammate would still want to know weeks from now. Most transcripts
 contain none. Do not use tools.
@@ -8,8 +8,9 @@ A fact passes only if ALL of these hold:
 - Durable: it stays true after this session (a decision taken, a rule, a trap, a preference), not a status update.
 - Useful weeks later: someone starting a new task in this area would act differently knowing it.
 - Not readable from the code, tests or docs: it records a why, a constraint or a trap, not how something works.
-- Settled: the user decided or confirmed it, or the session proved it (an error, a failing or passing run, command
-  output). An assistant's proposal, plan, recommendation or summary that the user didn't take up does not count.
+- Settled: it comes from a `user:` turn in which the person corrected, clarified, redirected or decided something
+  ("no, do X", "always ...", "call it ...", "I'd rather ..."). The assistant's reasoning, plans, proposals and
+  summaries are context only: they never make a fact on their own, even when the user answers "ok" or "thanks".
 
 Never facts, even when true:
 - Findings about bugs in the change being written or reviewed: they get fixed, then they're wrong.
