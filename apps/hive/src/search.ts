@@ -19,7 +19,7 @@ export type Matched = "keyword" | "meaning";
  * question ("who owns payments?") matches facts that contain only some of its words; ts_rank_cd
  * still ranks facts matching more of them higher. All-stopword queries match nothing.
  */
-const TSQUERY = "replace(plainto_tsquery('english', $1)::text, '&', '|')::tsquery";
+export const TSQUERY = "replace(plainto_tsquery('english', $1)::text, '&', '|')::tsquery";
 
 const RRF_K = 60;
 
@@ -208,12 +208,16 @@ export interface TextHit {
   created_at?: string;
   /** Commit hits: the message's first line. */
   subject?: string;
+  /** asf_run history hits: from the run's metadata. */
+  title?: string | null;
+  pr_url?: string | null;
+  merged_at?: string | null;
   /** Doc hits: the commit the chunk was read at (the repo's last ingest), for links. */
   sha?: string | null;
   remote_url?: string | null;
 }
 
-const HEADLINE = `ts_headline('english', left(t.content, 20000), ${TSQUERY}, 'MaxFragments=2, MaxWords=30, MinWords=10, FragmentDelimiter=" … "')`;
+export const HEADLINE = `ts_headline('english', left(t.content, 20000), ${TSQUERY}, 'MaxFragments=2, MaxWords=30, MinWords=10, FragmentDelimiter=" … "')`;
 
 /**
  * Conversations (turn episodes) and session history: only the caller's own user's.
@@ -237,12 +241,19 @@ export async function searchEpisodes(
   }
   const ranked = await hybridIds(deps, { table: "episodes", tsv: "content_tsv", filter }, opts.q, opts.qvec, opts.k);
   if (ranked.length === 0) return [];
-  const { rows } = await deps.pool.query<{ id: string; snippet: string; session_id: string | null; repo_key: string | null; ref: string | null; created_at: string; subject: string }>(
-    `select t.id, ${HEADLINE} as snippet, t.session_id, t.repo_key, t.ref, t.created_at, split_part(t.content, E'\n', 1) as subject
+  const { rows } = await deps.pool.query<{
+    id: string; snippet: string; session_id: string | null; repo_key: string | null; ref: string | null; created_at: string;
+    subject: string; kind: string; title: string | null; pr_url: string | null; merged_at: string | null;
+  }>(
+    `select t.id, ${HEADLINE} as snippet, t.session_id, t.repo_key, t.ref, t.created_at, split_part(t.content, E'\n', 1) as subject,
+            t.kind, t.metadata->>'title' as title, t.metadata->>'pr_url' as pr_url, t.metadata->>'merged_at' as merged_at
      from episodes t where t.id = any($2)`,
     [opts.q, ranked.map((r) => r.id)],
   );
-  return byRank(ranked, rows).map(({ subject, ...r }) => (source === "commit" ? { source, ...r, subject } : { source, ...r }));
+  return byRank(ranked, rows).map(({ subject, kind, title, pr_url, merged_at, ...r }) =>
+    source === "commit" ? { source, ...r, subject }
+    : kind === "asf_run" ? { source, ...r, title, pr_url, merged_at }
+    : { source, ...r });
 }
 
 export async function searchDocs(

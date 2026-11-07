@@ -71,13 +71,13 @@ afterEach(async () => {
 });
 
 describe("enqueue", () => {
-  it("a session episode enqueues a job, a turn does not, an asf_run does", async () => {
+  it("a session episode enqueues a job, a turn does not, an asf_run does not", async () => {
     const session = await postEpisode(app, alice.token, "session");
     expect(session.statusCode, session.body).toBe(201);
     expect((await postEpisode(app, alice.token, "turn")).statusCode).toBe(201);
-    const asf = await pool.query<{ id: string }>(`insert into episodes (kind, content) values ('asf_run', 'run log') returning id`);
+    await pool.query(`insert into episodes (kind, content) values ('asf_run', 'run log')`);
     const all = await jobs();
-    expect(all.map((j) => j.episode_id)).toEqual([session.json().episode.id, asf.rows[0]!.id]);
+    expect(all.map((j) => j.episode_id)).toEqual([session.json().episode.id]);
     expect(all.every((j) => j.status === "queued" && j.attempts === 0)).toBe(true);
   });
 });
@@ -122,7 +122,7 @@ describe("claim", () => {
     const notifier = new DistillNotifier();
     const slow = buildApp(pool, { version: "test", secretKey: KEY, distillClaimWaitMs: 3_000, distillNotifier: notifier });
     const pending = claim(slow, worker.token);
-    setTimeout(() => void pool.query(`insert into episodes (kind, content) values ('asf_run', 'log')`), 100);
+    setTimeout(() => void pool.query(`insert into episodes (kind, session_id, content) values ('session', 's1', 'log')`), 100);
     expect((await pending).statusCode).toBe(200);
     await slow.close();
   });

@@ -41,6 +41,11 @@ async function ingest() {
   expect(res.statusCode, res.body).toBe(200);
 }
 const paths = (items: { path: string }[]) => items.map((i) => i.path);
+async function run(ref: string, metadata: Record<string, unknown>, content = "Plan: tidy the webhook retries.", repoKey = KEY) {
+  const res = await post(curator.token, "/v1/episodes", { kind: "asf_run", repo_key: repoKey, ref, content, metadata });
+  expect(res.statusCode, res.body).toBe(201);
+}
+const refs = (b: { runs: { ref: string }[] }) => b.runs.map((r) => r.ref);
 
 beforeAll(async () => {
   pool = await freshDb();
@@ -125,17 +130,18 @@ describe("units", () => {
   it("budget: round-robin in priority order, skipping what doesn't fit", () => {
     const item = (n: number) => ({ t: "x".repeat(n) });
     const { out, tokens, dropped } = packBudget(
-      { gotchas: [item(30), item(30)], facts: [item(390)], locations: [item(30), item(30)], tests: [item(30)] },
-      40,
+      { gotchas: [item(30), item(30)], facts: [item(390)], locations: [item(30), item(30)], runs: [item(30)], tests: [item(30)] },
+      50,
     );
-    // gotcha 1, (fact too big), location 1, test 1, gotcha 2 -> location 2 no longer fits
+    // gotcha 1, (fact too big), location 1, run 1, test 1, gotcha 2 -> location 2 no longer fits
     const cost = estimateTokens(item(30));
     expect(out.gotchas).toHaveLength(2);
     expect(out.facts).toHaveLength(0);
     expect(out.locations).toHaveLength(1);
+    expect(out.runs).toHaveLength(1);
     expect(out.tests).toHaveLength(1);
-    expect(dropped).toEqual({ gotchas: 0, facts: 1, locations: 1, tests: 0 });
-    expect(tokens).toEqual({ gotchas: 2 * cost, facts: 0, locations: cost, tests: cost, total: 4 * cost });
+    expect(dropped).toEqual({ gotchas: 0, facts: 1, locations: 1, runs: 0, tests: 0 });
+    expect(tokens).toEqual({ gotchas: 2 * cost, facts: 0, locations: cost, runs: cost, tests: cost, total: 5 * cost });
   });
 });
 
@@ -165,8 +171,9 @@ describe("POST /v1/brief", () => {
     expect(locs).not.toContain("node_modules/x/invoice.js");
     expect(b.tests.length).toBeLessThanOrEqual(5);
     expect(paths(b.tests).filter((p: string) => locs.includes(p))).toEqual([]);
-    expect(b.dropped).toEqual({ gotchas: 0, facts: 0, locations: 0, tests: 0 });
-    const sum = (["gotchas", "facts", "locations", "tests"] as const).reduce((n, s) => n + b.tokens[s], 0);
+    expect(b.runs).toEqual([]);
+    expect(b.dropped).toEqual({ gotchas: 0, facts: 0, locations: 0, runs: 0, tests: 0 });
+    const sum = (["gotchas", "facts", "locations", "runs", "tests"] as const).reduce((n, s) => n + b.tokens[s], 0);
     expect(b.tokens.total).toBe(sum);
   });
 
@@ -225,16 +232,19 @@ describe("POST /v1/brief", () => {
   it("budget caps the brief; gotchas get the first slots", async () => {
     await fact({ kind: "gotcha", text: "billing gotcha: invoice totals are cached " + "very ".repeat(20), locus: ["src/billing"] });
     for (let i = 0; i < 5; i++) await fact({ text: `billing invoice rule number ${i} ` + "long ".repeat(30) });
+    for (let i = 0; i < 3; i++) await run(`run_${i}`, { merged_at: `2026-0${i + 1}-01T00:00:00Z`, title: "long ".repeat(30), paths: ["src/billing/invoice.ts"] });
     await runEmbedPass(pool, embedder);
     const full = await brief(alice.token, { budget_tokens: 4000 });
     const small = await brief(alice.token, { budget_tokens: 100 });
     expect(small.tokens.total).toBeLessThanOrEqual(100);
     expect(full.tokens.total).toBeGreaterThan(100);
     expect(small.gotchas).toHaveLength(1);
+    expect(full.runs).toHaveLength(3);
+    expect(small.dropped.runs).toBeGreaterThan(0);
+    expect(full.tokens.runs).toBeGreaterThan(0);
     const dropped = Object.values(small.dropped as Record<string, number>).reduce((a, b) => a + b, 0);
-    expect(dropped).toBeGreaterThan(0);
-    const kept = small.gotchas.length + small.facts.length + small.locations.length + small.tests.length;
-    expect(kept + dropped).toBe(full.gotchas.length + full.facts.length + full.locations.length + full.tests.length);
+    const count = (b: Record<string, unknown[]>) => b.gotchas!.length + b.facts!.length + b.locations!.length + b.runs!.length + b.tests!.length;
+    expect(count(small) + dropped).toBe(count(full));
   });
 
   it("scope isolation: never another user's personal facts or another repo's", async () => {
@@ -256,8 +266,49 @@ describe("POST /v1/brief", () => {
     await fact({ scope: "global", kind: "gotcha", text: "billing global gotcha", locus: ["src/billing"] });
     await runEmbedPass(pool, embedder);
     const b = await brief(alice.token, { repo_key: "gh/acme/nope", budget_tokens: 4000, changed_paths: ["src/billing/x.ts"] });
-    expect(b).toMatchObject({ repo_key: "gh/acme/nope", repo_indexed: false, locations: [], tests: [], gotchas: [] });
+    expect(b).toMatchObject({ repo_key: "gh/acme/nope", repo_indexed: false, locations: [], runs: [], tests: [], gotchas: [] });
     expect(b.facts.map((f: { id: string }) => f.id)).toContain(g.id);
+  });
+
+  it("runs: a merged run that touched the changed paths is listed", async () => {
+    await run("run_hooks", { merged_at: "2026-02-01T10:00:00Z", title: "Webhook retries", pr_url: "https://github.com/acme/proj/pull/7", paths: ["src/hooks/retry.ts"] });
+    expect((await brief(alice.token, {})).runs).toEqual([]); // no path or word in common
+    const b = await brief(alice.token, { changed_paths: ["src/hooks/retry.ts"] });
+    expect(b.runs).toEqual([{
+      ref: "run_hooks", title: "Webhook retries", pr_url: "https://github.com/acme/proj/pull/7", merged_at: "2026-02-01T10:00:00Z",
+      snippet: expect.stringContaining("webhook"),
+    }]);
+    expect(b.tokens.runs).toBeGreaterThan(0);
+  });
+
+  it("runs: most paths touched first, then a word match, then the newest; top 3", async () => {
+    const changed = ["src/hooks/a.ts", "src/hooks/b.ts"];
+    await run("both_old", { merged_at: "2025-01-01T00:00:00Z", paths: changed });
+    await run("one_old_words", { merged_at: "2025-06-01T00:00:00Z", paths: ["src/hooks/a.ts"] }, "Fix invoice rounding in the hooks");
+    await run("one_new", { merged_at: "2026-03-01T00:00:00Z", paths: ["src/hooks/a.ts"] });
+    await run("one_newer", { merged_at: "2026-04-01T00:00:00+02:00", paths: ["src/hooks/a.ts", "README.md"] });
+    await run("one_oldest", { merged_at: "2024-01-01T00:00:00Z", paths: ["src/hooks/b.ts"] });
+    const b = await brief(alice.token, { changed_paths: changed, budget_tokens: 4000 });
+    expect(refs(b)).toEqual(["both_old", "one_old_words", "one_newer"]);
+  });
+
+  it("runs: a word match alone is enough", async () => {
+    await run("words", { merged_at: "2026-02-01T00:00:00Z" }, "Plan: fix invoice rounding.\nReview: billing now rounds half-even.");
+    const b = await brief(alice.token, {});
+    expect(refs(b)).toEqual(["words"]);
+    expect(b.runs[0]).toEqual({ ref: "words", title: null, pr_url: null, merged_at: "2026-02-01T00:00:00Z", snippet: expect.stringContaining("<b>") });
+  });
+
+  it("runs: never unmerged runs or another repo's", async () => {
+    const content = "Plan: fix invoice rounding in billing.";
+    await pool.query(
+      `insert into episodes (kind, repo_key, ref, content, metadata) values ('asf_run', $1, 'unmerged', $2, $3)`,
+      [KEY, content, { paths: ["src/billing/invoice.ts"] }],
+    );
+    await pool.query("insert into repos (key) values ('gh/acme/other')");
+    await run("elsewhere", { merged_at: "2026-02-01T00:00:00Z", paths: ["src/billing/invoice.ts"] }, content, "gh/acme/other");
+    const b = await brief(alice.token, { changed_paths: ["src/billing/invoice.ts"] });
+    expect(b.runs).toEqual([]);
   });
 
   it("validates the body", async () => {

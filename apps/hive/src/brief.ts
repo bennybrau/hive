@@ -1,20 +1,22 @@
 /**
  * A task brief: before an agent starts on a task, the few things worth knowing — gotchas on the
- * files it will touch, relevant facts, where to look, and which tests cover it — packed into a
+ * files it will touch, relevant facts, where to look, past factory runs on the same files, and which
+ * tests cover it — packed into a
  * token budget. Pure SQL plus one local query embedding; no LLM.
  */
 import type { Instance } from "./auth.js";
 import { FACT_COLUMNS, type Fact } from "./facts.js";
 import { readableScopes } from "./scope.js";
-import { embedQuery, overlaps, searchDocs, searchFacts, type SearchDeps } from "./search.js";
+import { embedQuery, HEADLINE, overlaps, searchDocs, searchFacts, TSQUERY, type SearchDeps } from "./search.js";
 
 /** Same strict gate the plugin's prefetch uses: a brief is injected, so only close facts. */
 export const BRIEF_MIN_SIMILARITY = 0.62;
 const FACTS_K = 5;
 const LOCATIONS_K = 8;
 const TESTS_K = 5;
+const RUNS_K = 3;
 
-export const SECTIONS = ["gotchas", "facts", "locations", "tests"] as const;
+export const SECTIONS = ["gotchas", "facts", "locations", "runs", "tests"] as const;
 type Section = (typeof SECTIONS)[number];
 
 export interface BriefFact {
@@ -31,6 +33,14 @@ export interface BriefLocation {
   ref: string;
   path: string;
   source: "doc" | "path";
+}
+export interface BriefRun {
+  /** The run's ref (its id in the factory). */
+  ref: string;
+  title: string | null;
+  pr_url: string | null;
+  merged_at: string;
+  snippet: string;
 }
 export interface BriefTest {
   path: string;
@@ -51,6 +61,7 @@ export interface Brief {
   gotchas: BriefFact[];
   facts: BriefFact[];
   locations: BriefLocation[];
+  runs: BriefRun[];
   tests: BriefTest[];
 }
 
@@ -134,11 +145,41 @@ async function overlappingGotchas(deps: SearchDeps, who: Instance, repoKey: stri
   return rows.filter((r) => overlaps(r.paths, paths)).map((r) => ({ id: r.id, text: r.text, kind: r.kind, scope: r.scope, locus: r.locus }));
 }
 
+/**
+ * Merged factory runs of the repo that touched the given paths or match the task's words. Best first: most
+ * of the paths touched, then a word match, then the newest merge (so a newer run on the same files wins).
+ */
+async function relatedRuns(deps: SearchDeps, repoKey: string, task: string, paths: string[]): Promise<BriefRun[]> {
+  const { rows } = await deps.pool.query<{ id: string; paths: unknown; merged_at: string; fts: boolean }>(
+    `select t.id, t.metadata->'paths' as paths, t.metadata->>'merged_at' as merged_at, t.content_tsv @@ ${TSQUERY} as fts
+     from episodes t where t.kind = 'asf_run' and t.repo_key = $2 and t.metadata->>'merged_at' is not null`,
+    [task, repoKey],
+  );
+  const ranked = rows
+    .map((r) => {
+      const runPaths = Array.isArray(r.paths) ? r.paths.filter((p): p is string => typeof p === "string") : [];
+      const hits = paths.filter((p) => overlaps(runPaths, [p])).length;
+      return { id: r.id, hits, fts: r.fts, at: Date.parse(r.merged_at) || 0 };
+    })
+    .filter((r) => r.hits > 0 || r.fts)
+    .sort((a, b) => b.hits - a.hits || Number(b.fts) - Number(a.fts) || b.at - a.at)
+    .slice(0, RUNS_K);
+  if (!ranked.length) return [];
+  const { rows: details } = await deps.pool.query<BriefRun & { id: string }>(
+    `select t.id, t.ref, t.metadata->>'title' as title, t.metadata->>'pr_url' as pr_url,
+            t.metadata->>'merged_at' as merged_at, ${HEADLINE} as snippet
+     from episodes t where t.id = any($2)`,
+    [task, ranked.map((r) => r.id)],
+  );
+  const byId = new Map(details.map(({ id, ...run }) => [id, run]));
+  return ranked.map((r) => byId.get(r.id)!);
+}
+
 /** Round-robin across sections in priority order; an item that doesn't fit is skipped (and counted). */
 export function packBudget(sections: Record<Section, unknown[]>, budget: number) {
   const out = Object.fromEntries(SECTIONS.map((s) => [s, [] as unknown[]])) as Record<Section, unknown[]>;
-  const tokens = { gotchas: 0, facts: 0, locations: 0, tests: 0, total: 0 };
-  const dropped = { gotchas: 0, facts: 0, locations: 0, tests: 0 };
+  const dropped = Object.fromEntries(SECTIONS.map((s) => [s, 0])) as Record<Section, number>;
+  const tokens = { ...dropped, total: 0 };
   const longest = Math.max(...SECTIONS.map((s) => sections[s].length));
   for (let i = 0; i < longest; i++) {
     for (const s of SECTIONS) {
@@ -176,6 +217,7 @@ export async function buildBrief(
   let locations: BriefLocation[] = [];
   let tests: BriefTest[] = [];
   let gotchas: BriefFact[] = [];
+  let runs: BriefRun[] = [];
   if (registered) {
     const [docs, paths] = await Promise.all([
       searchDocs(deps, { q: task, repoKey, k: LOCATIONS_K, qvec }),
@@ -197,12 +239,14 @@ export async function buildBrief(
       }
     }
     const locPaths = locations.map((l) => l.path);
-    const [testRows, overlapping] = await Promise.all([
+    const [testRows, overlapping, related] = await Promise.all([
       deps.pool.query<{ path: string }>("select path from repo_files where repo_key = $1 and path ~* '(test|spec)'", [repoKey]),
       overlappingGotchas(deps, who, repoKey, [...locPaths, ...changedPaths]),
+      relatedRuns(deps, repoKey, task, [...new Set([...locPaths, ...changedPaths])]),
     ]);
     tests = nearbyTests(testRows.rows.map((r) => r.path), locPaths);
     gotchas = overlapping;
+    runs = related;
   }
 
   const gotchaIds = new Set(gotchas.map((g) => g.id));
@@ -213,7 +257,7 @@ export async function buildBrief(
       ...(f.near_changes !== undefined ? { near_changes: f.near_changes } : {}),
     }));
 
-  const { out, tokens, dropped } = packBudget({ gotchas, facts, locations, tests }, budgetTokens);
+  const { out, tokens, dropped } = packBudget({ gotchas, facts, locations, runs, tests }, budgetTokens);
   return {
     repo_key: repoKey,
     repo_indexed: registered,
@@ -225,6 +269,7 @@ export async function buildBrief(
     gotchas: out.gotchas as BriefFact[],
     facts: out.facts as BriefFact[],
     locations: out.locations as BriefLocation[],
+    runs: out.runs as BriefRun[],
     tests: out.tests as BriefTest[],
   };
 }

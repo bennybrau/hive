@@ -126,8 +126,9 @@ without one. A webhook is `{id, url, events, active, created_at, created_by_user
 
 ## Worker (worker tokens only; members and curators get 403)
 
-The fact-agent container distills `session` and `asf_run` episodes into candidate facts. Every such episode enqueues
-one distill job on insert (`turn` episodes don't). A claim leases the job for `HIVE_DISTILL_LEASE_SECONDS` (default 600);
+The fact-agent container distills `session` episodes into candidate facts. Every such episode enqueues
+one distill job on insert (`turn` and `asf_run` episodes don't; `asf_run` jobs queued before migration 0009 may still
+be handed out). A claim leases the job for `HIVE_DISTILL_LEASE_SECONDS` (default 600);
 an expired lease puts it back in the queue, and after 3 attempts (expired or failed) it is `failed` for good.
 
 - `POST /v1/worker/distill/claim` → `200 {job:{id, attempts, lease_until}, episode:{id, kind, repo_key, content}, prompt_version, credential}`,
@@ -149,10 +150,14 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
 - `POST /v1/episodes` `{kind: turn|session|asf_run, session_id?, content, repo_key?, ref?, metadata?}` →
   `201 {episode:{id, created_at}, deduped:false}`. Up to 5 MB (whole-session transcripts). `session_id` is required
   for `turn` and `session` (400 without it).
-  `asf_run` is a software-factory run: the approved plan plus the review of the finished work, sent once the run is
-  done. It needs `repo_key` (a registered repo: `400 unknown repo_key` otherwise) and a non-empty `ref` (the run id),
-  and at most 200 KiB of content in UTF-8 bytes (`413` over that). It is keyed by `(repo_key, ref)`: posting the same
-  run again returns `200 {episode, deduped:true}` with the stored episode, unchanged, and queues no second distill job.
+  `asf_run` is a software-factory run record: the approved plan plus the review of the finished work, sent once its PR
+  is merged. It is not distilled; it is found by `history` search and listed in briefs. It needs `repo_key` (a
+  registered repo: `400 unknown repo_key` otherwise), a non-empty `ref` (the run id), at most 200 KiB of content in
+  UTF-8 bytes (`413` over that), and `metadata: {merged_at, pr_url?, title?, paths?}`: `merged_at` an ISO time
+  (`400 asf_run needs metadata.merged_at` without it, 400 if unparseable), `pr_url` and `title` strings, `paths` the
+  repo-relative files the run changed (strings, at most 500). It is keyed by `(repo_key, ref)`: posting the same run
+  again returns `200 {episode, deduped:true}` with the stored episode; its metadata is replaced by the new one (last
+  write wins), its content stays as first posted.
 
 ## Recall and search (hot path: SQL + one local query embedding, no LLM)
 
@@ -164,29 +169,33 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   cosine similarity ≥ `min_sim` to the question. Rows not embedded yet can't be judged and are kept.
   Keyword hits on embedded rows now report their `similarity` too.
 - `GET /v1/search?q=&source=all|fact,conversation,history,commit,doc&repo_key=&k=20&include_candidates=false` —
-  `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id | path+line_start+line_end+sha+remote_url | ref+subject, ...}]}`.
+  `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id | path+line_start+line_end+sha+remote_url | ref+subject | ref+title+pr_url+merged_at, ...}]}`.
   Doc hits' `sha` is the commit the repo was last ingested at (usable in a blob link); commit hits' `subject` is the message's first line.
   `conversation` = turn episodes, only YOUR user's. `history` = YOUR user's session episodes plus every `asf_run`
   episode: a factory run is repo history like a commit, not a private conversation, and every token can already read
-  every `repo:` scope.
+  every `repo:` scope. `asf_run` hits also carry the run's `title`, `pr_url` and `merged_at` (null when not sent).
   `commit` and `doc` are shared: commit messages and document chunks of registered repos (`repo_key` narrows to one).
 
 ## Brief (hot path: SQL + one local query embedding, no LLM)
 
 - `POST /v1/brief` `{task, repo_key, changed_paths?: string[] (≤200), budget_tokens?: 100–4000 (600)}` — what to know before
-  starting a task in a repo. `{repo_key, repo_indexed, mode, terms, budget_tokens, tokens:{gotchas, facts, locations, tests, total},
-  dropped:{gotchas, facts, locations, tests}, gotchas:[...], facts:[...], locations:[...], tests:[...]}`.
+  starting a task in a repo. `{repo_key, repo_indexed, mode, terms, budget_tokens, tokens:{gotchas, facts, locations, runs, tests, total},
+  dropped:{gotchas, facts, locations, runs, tests}, gotchas:[...], facts:[...], locations:[...], runs:[...], tests:[...]}`.
   - `terms`: the task's words as Postgres' `english` config sees them (stopwords dropped, stemmed), 3+ chars.
   - `facts` `[{id, text, kind, scope, locus, verify, near_changes?}]`: like `/v1/recall` with `k=5`, `min_sim=0.62` (the
     prefetch gate) and `changed=changed_paths` (locus boost).
   - `locations` `[{ref, path, source: doc|path}]`, up to 8, one per file: document passages (`ref` = `path:start-end`)
     alternating with tracked files whose path contains the most `terms` (a term in the file name counts double).
+  - `runs` `[{ref, title, pr_url, merged_at, snippet}]`, up to 3: the repo's `asf_run` records with a `merged_at` whose
+    `metadata.paths` overlap the locations or `changed_paths` (a file, or a directory containing it), or whose text
+    matches the task's words. Ranked: most of those paths touched, then a word match, then the newest `merged_at` (so a
+    newer run on the same files wins). `snippet` is the run's text around the task's words (its start if none match).
   - `tests` `[{path, near, why: name|folder|sibling}]`, up to 5: tracked files matching `test|spec`, ranked: the file name
     contains a location's name (minus extension), then in the location's folder or below it, then in a folder next to it.
   - `gotchas`: active `gotcha` facts you can read whose `locus` or anchor paths overlap the locations or `changed_paths`
     (a file, or a directory containing it). A fact listed here is not repeated under `facts`.
   - Budget: each item costs `ceil(JSON length / 4)` tokens; items are taken round-robin in the order gotchas → facts →
-    locations → tests, and one that doesn't fit is skipped and counted in `dropped`.
+    locations → runs → tests, and one that doesn't fit is skipped and counted in `dropped`.
   - A repo that isn't registered still answers 200, with `repo_indexed: false` and only `facts`. Code paths come from
     `repo_files` (every tracked file of the default branch except `node_modules`, `vendor`, `dist`, ...), filled by ingest;
     repos ingested before this existed get it on their next ingest.
