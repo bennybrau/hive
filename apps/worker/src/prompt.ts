@@ -48,6 +48,11 @@ const SOURCES: Record<string, { source: string; quoteRule: string }> = {
       "the record of a software-factory run: the approved plan for a change, then the review of the finished work. Keep the decisions it settled, with their reasons, and the gotchas and invariants the reviewer called out. Never turn a plan step (what the change does) into a fact; the code holds that",
     quoteRule: "from any line",
   },
+  asf_dialog: {
+    source:
+      "a person's note to a software factory, after the factory's text (assistant): the person's reply to a plan at an approval gate, or their answer to a question the factory asked. Keep what the person corrected, clarified, redirected or decided; the factory's plan or question is context only",
+    quoteRule: "from a line that starts with `user:` only. Never quote the assistant's text",
+  },
 };
 
 /** Filled into {{remember}} on a remember job (a turn the user flagged); empty otherwise. */

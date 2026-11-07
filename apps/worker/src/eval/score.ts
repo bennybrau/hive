@@ -14,6 +14,8 @@ export interface Label {
 export interface EvalCase {
   id: string;
   repo_key: string | null;
+  /** The episode kind the case is distilled as (default `session`). */
+  kind?: string;
   /** Facts a curator would accept: each one found counts toward recall. */
   expected: Label[];
   /** Borderline facts: proposing one is neither credited nor a false positive. */

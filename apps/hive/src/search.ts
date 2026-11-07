@@ -212,6 +212,8 @@ export interface TextHit {
   title?: string | null;
   pr_url?: string | null;
   merged_at?: string | null;
+  /** asf_dialog history hits: who wrote the note (metadata.author). */
+  author?: string | null;
   /** Doc hits: the commit the chunk was read at (the repo's last ingest), for links. */
   sha?: string | null;
   remote_url?: string | null;
@@ -221,8 +223,8 @@ export const HEADLINE = `ts_headline('english', left(t.content, 20000), ${TSQUER
 
 /**
  * Conversations (turn episodes) and session history: only the caller's own user's.
- * History also holds asf_run episodes (a factory run's plan and review), shared like commits: they are repo
- * history, and every token can read every repo scope.
+ * History also holds asf_run episodes (a factory run's plan and review) and asf_dialog episodes (what a person
+ * said to the factory), shared like commits: they are repo history, and every token can read every repo scope.
  * Commits: shared repo history, visible to everyone, optionally one repo's.
  */
 export async function searchEpisodes(
@@ -235,7 +237,7 @@ export async function searchEpisodes(
   if (source === "commit") {
     filter = opts.repoKey ? ["t.kind = 'commit' and t.repo_key = $2", [opts.repoKey]] : ["t.kind = 'commit'", []];
   } else if (source === "history") {
-    filter = ["((t.kind = 'session' and t.user_id = $2) or t.kind = 'asf_run')", [who.user_id]];
+    filter = ["((t.kind = 'session' and t.user_id = $2) or t.kind in ('asf_run','asf_dialog'))", [who.user_id]];
   } else {
     filter = ["t.kind = 'turn' and t.user_id = $2", [who.user_id]];
   }
@@ -243,16 +245,18 @@ export async function searchEpisodes(
   if (ranked.length === 0) return [];
   const { rows } = await deps.pool.query<{
     id: string; snippet: string; session_id: string | null; repo_key: string | null; ref: string | null; created_at: string;
-    subject: string; kind: string; title: string | null; pr_url: string | null; merged_at: string | null;
+    subject: string; kind: string; title: string | null; pr_url: string | null; merged_at: string | null; author: string | null;
   }>(
     `select t.id, ${HEADLINE} as snippet, t.session_id, t.repo_key, t.ref, t.created_at, split_part(t.content, E'\n', 1) as subject,
-            t.kind, t.metadata->>'title' as title, t.metadata->>'pr_url' as pr_url, t.metadata->>'merged_at' as merged_at
+            t.kind, t.metadata->>'title' as title, t.metadata->>'pr_url' as pr_url, t.metadata->>'merged_at' as merged_at,
+            t.metadata->>'author' as author
      from episodes t where t.id = any($2)`,
     [opts.q, ranked.map((r) => r.id)],
   );
-  return byRank(ranked, rows).map(({ subject, kind, title, pr_url, merged_at, ...r }) =>
+  return byRank(ranked, rows).map(({ subject, kind, title, pr_url, merged_at, author, ...r }) =>
     source === "commit" ? { source, ...r, subject }
     : kind === "asf_run" ? { source, ...r, title, pr_url, merged_at }
+    : kind === "asf_dialog" ? { source, ...r, author }
     : { source, ...r });
 }
 

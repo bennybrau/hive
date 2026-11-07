@@ -129,7 +129,7 @@ without one. A webhook is `{id, url, events, active, created_at, created_by_user
 
 ## Worker (worker tokens only; members and curators get 403)
 
-The fact-agent container distills `session` episodes into candidate facts. Every such episode enqueues
+The fact-agent container distills `session` and `asf_dialog` episodes into candidate facts. Every such episode enqueues
 one distill job on insert, at priority 0 (`asf_run` episodes don't; `asf_run` jobs queued before migration 0009 may still
 be handed out). A `turn` episode enqueues one only when it is flagged (`metadata.remember_request: true`), at priority 1:
 a remember job. A claim leases the job for `HIVE_DISTILL_LEASE_SECONDS` (default 600);
@@ -144,8 +144,8 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   output_tokens, cache_read_tokens, cost_usd, duration_ms}}` → `{result:{prompt_version, created:[ids], anchored:[ids], dropped:[{text, reason}],
   dropped_non_user_quote}}`. Dropped, checked in this order: `quote_not_in_episode` (the quote, whitespace collapsed,
   isn't in the episode), `non_user_quote` (it is, but not inside a user turn: a turn starts at a line beginning
-  `user: ` and ends before the next line starting with `user: `, `assistant` or `tool(`; not checked on a remember job
-  or an `asf_run` job), and `scope_not_allowed` (only `global`, `repo:<episode repo_key>`, `personal:<episode user>`).
+  `user: ` and ends before the next line starting with `user: `, `assistant` or `tool(`; checked on `session` and
+  `asf_dialog` jobs, not on a remember job or an `asf_run` job), and `scope_not_allowed` (only `global`, `repo:<episode repo_key>`, `personal:<episode user>`).
   `dropped_non_user_quote` counts the `non_user_quote` drops (always present, 0 when none). A fact with the same text as an existing one, or
   cosine > 0.92 to a candidate/active fact in its scope (when embeddings are on), gets an `{episode_id, quote, repo_key}`
   anchor instead of a new row; the rest become `origin: distilled`, `status: candidate` facts authored by the episode's
@@ -163,7 +163,7 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
 
 ## Episodes (raw evidence)
 
-- `POST /v1/episodes` `{kind: turn|session|asf_run, session_id?, content, repo_key?, ref?, metadata?}` →
+- `POST /v1/episodes` `{kind: turn|session|asf_run|asf_dialog, session_id?, content, repo_key?, ref?, metadata?}` →
   `201 {episode:{id, created_at}, deduped:false}`. Up to 5 MB (whole-session transcripts). `session_id` is required
   for `turn` and `session` (400 without it). `metadata.remember_request: true` on a `turn` flags it: the user asked
   for something in it to be remembered, and it is distilled before any other queued job (see Worker).
@@ -175,6 +175,14 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   repo-relative files the run changed (strings, at most 500). It is keyed by `(repo_key, ref)`: posting the same run
   again returns `200 {episode, deduped:true}` with the stored episode; its metadata is replaced by the new one (last
   write wins), its content stays as first posted.
+  `asf_dialog` is what a person said to the software factory: their note on a plan at a gate, or their answer to a
+  question it asked, after the factory's text (`assistant: ...` then `user: ...`). It is distilled like a session (a
+  priority-0 job on insert; a fact must quote a `user:` line), found by `history` search, and not listed in briefs.
+  It needs `repo_key` (a registered repo: `400 unknown repo_key` otherwise), a non-blank `ref` (which run and gate or
+  question; any string), content with a line starting `user: `, and `metadata.author` (a non-empty string: who wrote
+  the note); 400 otherwise, `413` over 200 KiB of UTF-8 content. `session_id` is optional. It is keyed by
+  `(repo_key, ref)`: posting it again returns `200 {episode, deduped:true}` with the stored episode and changes
+  nothing (content and metadata stay as first posted, no second job).
 
 ## Recall and search (hot path: SQL + one local query embedding, no LLM)
 
@@ -186,11 +194,12 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   cosine similarity ≥ `min_sim` to the question. Rows not embedded yet can't be judged and are kept.
   Keyword hits on embedded rows now report their `similarity` too.
 - `GET /v1/search?q=&source=all|fact,conversation,history,commit,doc&repo_key=&k=20&include_candidates=false` —
-  `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id | path+line_start+line_end+sha+remote_url | ref+subject | ref+title+pr_url+merged_at, ...}]}`.
+  `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id | path+line_start+line_end+sha+remote_url | ref+subject | ref+title+pr_url+merged_at | ref+author, ...}]}`.
   Doc hits' `sha` is the commit the repo was last ingested at (usable in a blob link); commit hits' `subject` is the message's first line.
-  `conversation` = turn episodes, only YOUR user's. `history` = YOUR user's session episodes plus every `asf_run`
-  episode: a factory run is repo history like a commit, not a private conversation, and every token can already read
-  every `repo:` scope. `asf_run` hits also carry the run's `title`, `pr_url` and `merged_at` (null when not sent).
+  `conversation` = turn episodes, only YOUR user's. `history` = YOUR user's session episodes plus every `asf_run` and
+  `asf_dialog` episode: factory runs and what people said to the factory are repo history like a commit, not a private
+  conversation, and every token can already read every `repo:` scope. `asf_run` hits also carry the run's `title`,
+  `pr_url` and `merged_at` (null when not sent); `asf_dialog` hits carry `ref` and `author` (`metadata.author`).
   `commit` and `doc` are shared: commit messages and document chunks of registered repos (`repo_key` narrows to one).
 
 ## Brief (hot path: SQL + one local query embedding, no LLM)

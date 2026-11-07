@@ -1,0 +1,12 @@
+assistant: # ADHOC-77C0: per-ticket event log page
+
+Show everything that happened to a ticket on one page in the web app.
+
+## Changes
+- `apps/web/src/pages/TicketEvents.tsx`: a new "Events" page at `/tickets/:key/events`, listing plan, gate, review and merge events newest first.
+- `apps/web/src/nav.ts`: an "Events" tab on the ticket view, after "Plan".
+- `apps/api/src/routes/events.ts`: `GET /v1/tickets/:key/events`, paged 50 at a time.
+
+## Tests
+- Route test for paging; a render test for the empty state.
+user: Call it Activity, not Events: the page, the tab and the route (/tickets/:key/activity). "Activity" is what we call this everywhere in the UI and the docs, and "events" already means webhook events in the API. Rest of the plan is fine.

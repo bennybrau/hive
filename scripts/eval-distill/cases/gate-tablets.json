@@ -1,0 +1,16 @@
+{
+  "id": "gate-tablets",
+  "kind": "asf_dialog",
+  "source": {"synthetic": "written for asf_dialog: a person answers a question the factory asked before planning"},
+  "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
+  "expected": [
+    {
+      "text": "The factory web app supports two layouts only, phone and desktop, with no tablet breakpoint: below 1024px a tablet gets the phone layout, because nobody runs the factory from a tablet and a third breakpoint isn't worth maintaining.",
+      "kind": "decision",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "no tablets. we only support phones and desktop for the web app: a tablet gets the phone layout under 1024px. nobody runs the factory from an iPad and I don't want a third breakpoint to maintain."
+    }
+  ],
+  "acceptable": [],
+  "notes": "SYNTHETIC answer to a factory question. The assistant offers a tablet layout; the person decides on phone and desktop only, with the reason. The decision is the fact; the assistant's tablet design (two columns, 768-1024px) is not."
+}

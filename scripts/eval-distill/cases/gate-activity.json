@@ -1,0 +1,23 @@
+{
+  "id": "gate-activity",
+  "kind": "asf_dialog",
+  "source": {"synthetic": "written for asf_dialog: a person renames a feature in a factory plan at the after_plan gate"},
+  "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
+  "expected": [
+    {
+      "text": "A ticket's history page is called Activity (page, tab and route /tickets/:key/activity), not Events: Activity is the name used across the UI and docs, and \"events\" already means webhook events in the API.",
+      "kind": "convention",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "Call it Activity, not Events: the page, the tab and the route (/tickets/:key/activity). \"Activity\" is what we call this everywhere in the UI and the docs, and \"events\" already means webhook events in the API."
+    }
+  ],
+  "acceptable": [
+    {
+      "text": "In the factory API, \"events\" means webhook events.",
+      "kind": "convention",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "\"events\" already means webhook events in the API"
+    }
+  ],
+  "notes": "SYNTHETIC gate note. The plan names the page Events; the person renames it Activity, with the reason. The naming rule is the fact; the plan's paging, tab order and tests are not."
+}

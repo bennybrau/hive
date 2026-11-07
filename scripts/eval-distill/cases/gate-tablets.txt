@@ -1,0 +1,2 @@
+assistant: Before I plan ADHOC-9D15 (responsive layout for the run view), one question: the ticket says "make the run view work on small screens". Should I also design a tablet layout (768–1024 px, two columns with the plan beside the log), or only phones (one column) and desktop? Tablets add a third breakpoint and about a third more CSS and screenshot tests.
+user: no tablets. we only support phones and desktop for the web app: a tablet gets the phone layout under 1024px. nobody runs the factory from an iPad and I don't want a third breakpoint to maintain.

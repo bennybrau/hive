@@ -157,6 +157,15 @@ describe("prompt", () => {
     expect(renderPrompt(prompt, null, "turn")).toBe(renderPrompt(prompt, null, "session"));
   });
 
+  it("renderPrompt reads an asf_dialog as a person's note to the factory, quoted from the user line only", () => {
+    const dialog = renderPrompt(loadPrompt(PROMPT_PATH), "gh/o/r", "asf_dialog");
+    expect(dialog).not.toMatch(/\{\{\w+\}\}/);
+    expect(dialog).toContain("a person's note to a software factory, after the factory's text");
+    expect(dialog).toContain("from a line that starts with `user:` only. Never quote the assistant's text");
+    expect(dialog).not.toContain("coding agent");
+    expect(dialog).not.toContain("from any line");
+  });
+
   it("renderPrompt fills {{remember}} only on a remember job, and offers its personal scope", () => {
     const prompt = loadPrompt(PROMPT_PATH);
     const normal = renderPrompt(prompt, "gh/o/r", "turn");

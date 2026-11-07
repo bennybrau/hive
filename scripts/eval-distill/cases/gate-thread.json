@@ -1,0 +1,16 @@
+{
+  "id": "gate-thread",
+  "kind": "asf_dialog",
+  "source": {"synthetic": "written for asf_dialog: a person's note on a factory plan at the after_plan gate"},
+  "repo_key": "gh/RAG-Against-the-Machine/agentic-software-factory",
+  "expected": [
+    {
+      "text": "Factory Slack notices for a ticket go in one thread: the first status post starts it, its ts is kept on the ticket, and each later status is a reply in that thread, because a new message per status floods #factory.",
+      "kind": "decision",
+      "scope": "repo:gh/RAG-Against-the-Machine/agentic-software-factory",
+      "evidence": "Reply in the ticket's thread: the first post starts it, keep its ts on the ticket and post each later status as a reply to it. A message per status floods #factory and nobody can follow one ticket."
+    }
+  ],
+  "acceptable": [],
+  "notes": "SYNTHETIC gate note. The plan (assistant) posts a new Slack message per status; the person redirects it to one thread per ticket, with the reason. The redirect is the fact; the plan's steps (retries, postStatus, tests) are not."
+}
