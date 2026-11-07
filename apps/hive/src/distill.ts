@@ -73,6 +73,48 @@ export function userTurns(content: string): string[] {
   return turns;
 }
 
+/** The bot's reply before a quoted user turn keeps only its last this-many chars. */
+export const EXCHANGE_ASSISTANT_CHARS = 600;
+
+/**
+ * The exchange a quote came from: the first user turn containing it (same check as distill) and the `assistant:` text
+ * turns since the previous user turn (tool calls and output skipped), prefixes removed. null when no user turn has it.
+ */
+export function exchangeFor(content: string, quote: string): { assistant: string | null; user: string } | null {
+  const q = normalizeText(quote);
+  if (!q) return null;
+  let said: string[] = [];
+  let turn: { role: "user" | "assistant" | "other"; lines: string[] } | null = null;
+  const close = (): string | null => {
+    if (turn?.role === "assistant") said.push(turn.lines.join("\n"));
+    else if (turn?.role === "user") {
+      const text = turn.lines.join("\n");
+      if (normalizeText(text).includes(q)) return text;
+      said = [];
+    }
+    return null;
+  };
+  for (const line of [...content.split("\n"), "user: "]) {
+    const role = line.startsWith("user: ")
+      ? "user"
+      : line.startsWith("assistant: ")
+        ? "assistant"
+        : line.startsWith("assistant") || line.startsWith("tool(")
+          ? "other"
+          : null;
+    if (!role) {
+      turn?.lines.push(line);
+      continue;
+    }
+    const user = close();
+    if (user !== null) {
+      return { assistant: said.length ? said.join("\n").slice(-EXCHANGE_ASSISTANT_CHARS) : null, user: user.slice("user: ".length) };
+    }
+    turn = { role, lines: [role === "assistant" ? line.slice("assistant: ".length) : line] };
+  }
+  return null;
+}
+
 /** SQL (on episodes `e`): this is a remember job, a turn the user flagged. */
 const REMEMBER_SQL = `(e.kind = 'turn' and coalesce(e.metadata->>'remember_request' = 'true', false))`;
 

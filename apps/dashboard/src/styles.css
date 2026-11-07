@@ -197,6 +197,9 @@ kbd {
 .review-evidence ul { margin: 0; padding-left: 18px; }
 .review-evidence li + li { margin-top: 8px; }
 .review-evidence .quote.snippet { color: var(--muted); }
+.review-evidence .exchange { display: grid; gap: 8px; margin: 0 0 12px; }
+.review-evidence .exchange-label { color: var(--muted); font-size: 12px; }
+.review-evidence .exchange-user .quote { border-left: 2px solid var(--accent); }
 .similar .pct { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
 
 .toast {

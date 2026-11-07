@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type pg from "pg";
+import { exchangeFor } from "../distill.js";
 import { ConflictError, FACT_COLUMNS, reviewFact, type Fact, type ReviewInput } from "../facts.js";
 import { readableScopes } from "../scope.js";
 
@@ -50,15 +51,16 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
         params,
       );
       const ids = candidates.map((c) => c.id);
-      // Anchors, and for conversation anchors ~300 chars of the episode around the quote (start of it when not found).
-      const anchors = await pool.query<{ fact_id: string }>(
+      // Anchors, and for conversation anchors ~300 chars of the episode around the quote (start of it when not found)
+      // plus the exchange the quote came from; `content` is only read here, never sent.
+      const anchors = await pool.query<{ fact_id: string; quote: string | null; content: string | null }>(
         `select a.fact_id, a.id, a.episode_id, a.repo_key, a.commit_sha, a.path, a.line_start, a.line_end, a.quote,
                 a.verify_status, a.verified_at, a.verify_note,
                 case when e.id is null then null
                      else substr(e.content, greatest(1,
                        coalesce(nullif(strpos(lower(e.content), lower(coalesce(a.quote, ''))), 0), 1)
                        + length(coalesce(a.quote, '')) / 2 - ${SNIPPET_CHARS / 2}), ${SNIPPET_CHARS})
-                end as episode_snippet
+                end as episode_snippet, e.content
          from anchors a left join episodes e on e.id = a.episode_id
          where a.fact_id = any($1::uuid[])`,
         [ids],
@@ -84,7 +86,12 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
         last_distill_at: at ? at.toISOString() : null,
         candidates: candidates.map((c) => ({
           ...c,
-          anchors: anchors.rows.filter((a) => a.fact_id === c.id).map(({ fact_id: _, ...a }) => a),
+          anchors: anchors.rows
+            .filter((a) => a.fact_id === c.id)
+            .map(({ fact_id: _, content, ...a }) => ({
+              ...a,
+              exchange: content === null ? null : exchangeFor(content, a.quote ?? ""),
+            })),
           similar: similar.rows
             .filter((s) => s.candidate_id === c.id)
             .map(({ candidate_id: _, ...s }) => ({ ...s, similarity: Number(s.similarity) })),

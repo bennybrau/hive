@@ -13,6 +13,8 @@ interface Anchor {
   quote: string | null;
   verify_status: string;
   episode_snippet: string | null;
+  /** The user turn the quote came from and what the bot said just before it; null when the quote is in no user turn. */
+  exchange: { assistant: string | null; user: string } | null;
 }
 
 interface Similar {
@@ -81,9 +83,25 @@ function Evidence({
       submit();
     }
   };
+  // The first conversation the fact came from, shown as the exchange; its snippet would only repeat it.
+  const shown = c.anchors.find((a) => a.exchange);
   return (
     <aside className="review-evidence" aria-label="Evidence">
       {c.metadata?.asked && <span className="badge asked">asked to remember</span>}
+      {shown?.exchange && (
+        <section className="exchange" aria-label="Exchange">
+          {shown.exchange.assistant !== null && (
+            <div>
+              <span className="exchange-label">bot said</span>
+              <pre className="quote">{shown.exchange.assistant}</pre>
+            </div>
+          )}
+          <div className="exchange-user">
+            <span className="exchange-label">you said</span>
+            <pre className="quote">{shown.exchange.user}</pre>
+          </div>
+        </section>
+      )}
       {editing?.kind === "fix" ? (
         <div className="field">
           <label htmlFor="r-fix">Fixed text</label>
@@ -141,7 +159,7 @@ function Evidence({
                 <span className="help">From a conversation</span>
               ) : null}
               {a.quote && <pre className="quote">{a.quote}</pre>}
-              {a.episode_snippet && <pre className="quote snippet">{a.episode_snippet}</pre>}
+              {a.episode_snippet && a !== shown && <pre className="quote snippet">{a.episode_snippet}</pre>}
             </li>
           ))}
         </ul>

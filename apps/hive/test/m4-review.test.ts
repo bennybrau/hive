@@ -257,6 +257,39 @@ describe("queue", () => {
     expect((await queue()).map((c) => c.id)).toEqual([c2.id, c3.fact.id]);
   });
 
+  it("an episode anchor carries the exchange its quote came from: bot said, you said", async () => {
+    const anchorOn = async (content: string, quote: string) => {
+      const ep = await post(alice.token, "/v1/episodes", { kind: "session", session_id: `s${Math.random()}`, content });
+      const f = await remember(alice.token, { text: `Fact about ${quote}`, anchors: [{ episode_id: ep.json().episode.id, quote }] });
+      return (await queue()).find((c) => c.id === f.id).anchors[0];
+    };
+    const session = [
+      "user: set up the cache",
+      "assistant: I'll add Redis for the cache.",
+      "assistant -> terminal({})",
+      "tool(terminal): ok",
+      "user: no, we use Postgres for everything",
+      "assistant: Got it, Postgres then.",
+    ].join("\n");
+
+    const a = await anchorOn(session, "we use Postgres for everything");
+    expect(a.exchange).toEqual({ assistant: "I'll add Redis for the cache.", user: "no, we use Postgres for everything" });
+    expect(a.episode_snippet).toContain("Postgres");
+    expect(a.content).toBeUndefined();
+
+    expect((await anchorOn(session, "set up the cache")).exchange).toEqual({ assistant: null, user: "set up the cache" });
+    expect((await anchorOn(session, "I'll add Redis")).exchange).toBeNull();
+
+    const reply = "a".repeat(400) + "b".repeat(600);
+    expect((await anchorOn(`user: hi\nassistant: ${reply}\nuser: ok then, ship it`, "ship it")).exchange).toEqual({
+      assistant: "b".repeat(600),
+      user: "ok then, ship it",
+    });
+
+    const r = await remember(alice.token, { text: "Readme says billing", anchors: [{ path: "README.md", quote: "billing" }] });
+    expect((await queue()).find((c) => c.id === r.id).anchors[0].exchange).toBeNull();
+  });
+
   it("lists asked candidates first, then oldest", async () => {
     const old = await remember(alice.token, { text: "Payments retry three times" });
     const asked = await remember(alice.token, { text: "We deploy to Cloud Run from main only" });

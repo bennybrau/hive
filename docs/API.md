@@ -49,6 +49,10 @@ The queue only lists scopes the curator can read (never another user's personal 
   `origin`: `authored | distilled | ingested`; `limit` ≤ 100). `{candidates, last_distill_at}`; each candidate is `{...fact, supersedes, anchors, similar}`:
   - `anchors[]` include `verify_status`; an anchor on an episode carries `episode_snippet`, ~300 chars of the episode
     around the quote (case-insensitive; the episode's start when the quote isn't found).
+    It also carries `exchange: {assistant, user}`: the first `user:` turn containing the quote (whitespace-normalized,
+    `user: ` removed) and the `assistant:` text turns between the previous user turn and it (tool calls and output
+    skipped, prefixes removed, last 600 chars; `null` when there are none). `exchange` is `null` when the quote is in no
+    user turn, and on anchors without an episode.
   - `similar[]`: up to 3 `active` facts in the candidate's scope or `global` with cosine similarity ≥ 0.85, with
     `similarity`. Empty until the candidate is embedded.
   - `last_distill_at`: when the last `done` distill job finished (ISO timestamp), or `null` if none has.

@@ -81,8 +81,8 @@ describe("review queue", () => {
   it("lists candidates oldest first with the first one's evidence", async () => {
     queue.candidates[0] = candidate("c1", {
       anchors: [
-        { id: "a1", episode_id: null, repo_key: "gh/o/a", path: "src/a.ts", line_start: 10, line_end: 14, quote: "const a = 1;", verify_status: "unverified", episode_snippet: null },
-        { id: "a2", episode_id: "e1", repo_key: null, path: null, line_start: null, line_end: null, quote: "we agreed", verify_status: "unverified", episode_snippet: "so then we agreed on it" },
+        { id: "a1", episode_id: null, repo_key: "gh/o/a", path: "src/a.ts", line_start: 10, line_end: 14, quote: "const a = 1;", verify_status: "unverified", episode_snippet: null, exchange: null },
+        { id: "a2", episode_id: "e1", repo_key: null, path: null, line_start: null, line_end: null, quote: "we agreed", verify_status: "unverified", episode_snippet: "so then we agreed on it", exchange: null },
       ],
       similar: [{ id: "s1", text: "an active twin", scope: "global", similarity: 0.912 }],
     });
@@ -95,6 +95,39 @@ describe("review queue", () => {
     expect(within(panel).getByText("const a = 1;")).toBeTruthy();
     expect(within(panel).getByText("so then we agreed on it")).toBeTruthy();
     expect(within(panel).getByText("91%")).toBeTruthy();
+  });
+
+  it("shows the exchange a quote came from instead of its snippet; without one, the snippet", async () => {
+    const anchor = { id: "a1", episode_id: "e1", repo_key: null, path: null, line_start: null, line_end: null, verify_status: "unverified" };
+    queue.candidates[0] = candidate("c1", {
+      anchors: [
+        { ...anchor, quote: "we use Postgres", episode_snippet: "...no, we use Postgres...", exchange: { assistant: "I'll add Redis.", user: "no, we use Postgres" } },
+        { ...anchor, id: "a2", quote: "billing", episode_snippet: "the billing snippet", exchange: null },
+      ],
+    });
+    queue.candidates[1] = candidate("c2", {
+      anchors: [{ ...anchor, quote: "deploys", episode_snippet: "we ship deploys on Fridays", exchange: { assistant: null, user: "deploys go out on Fridays" } }],
+    });
+    queue.candidates[2] = candidate("c3", {
+      anchors: [{ ...anchor, quote: "kafka", episode_snippet: "assistant: use kafka", exchange: null }],
+    });
+    await open();
+    const panel = () => screen.getByRole("complementary", { name: "Evidence" });
+    const exchange = () => within(panel()).queryByRole("region", { name: "Exchange" });
+    expect(within(exchange()!).getByText("bot said")).toBeTruthy();
+    expect(within(exchange()!).getByText("I'll add Redis.")).toBeTruthy();
+    expect(within(exchange()!).getByText("you said")).toBeTruthy();
+    expect(within(exchange()!).getByText("no, we use Postgres")).toBeTruthy();
+    expect(within(panel()).queryByText("...no, we use Postgres...")).toBeNull();
+    expect(within(panel()).getByText("the billing snippet")).toBeTruthy();
+
+    press("j");
+    expect(within(exchange()!).queryByText("bot said")).toBeNull();
+    expect(within(exchange()!).getByText("deploys go out on Fridays")).toBeTruthy();
+
+    press("j");
+    expect(exchange()).toBeNull();
+    expect(within(panel()).getByText("assistant: use kafka")).toBeTruthy();
   });
 
   it("j and k move the current row and the evidence follows", async () => {
