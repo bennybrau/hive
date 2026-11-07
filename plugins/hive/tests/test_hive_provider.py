@@ -44,6 +44,7 @@ class FakeHive:
         self.url = ""
         self.role = "member"
         self.queue: list[dict] = []
+        self.brief: dict | None = None  # None: /v1/brief answers 404, like a hive without it (prefetch uses recall)
 
     def handle(self, method, path, body, auth):
         u = urllib.parse.urlparse(path)
@@ -68,6 +69,8 @@ class FakeHive:
             k = int(q.get("k", 10))
             facts = [f for f in self.facts if f["similarity"] >= float(q.get("min_sim", 0))][:k]
             return 200, {"mode": "hybrid", "facts": facts}
+        if u.path == "/v1/brief" and method == "POST" and self.brief is not None:
+            return 200, self.brief
         if u.path == "/v1/search":
             return 200, {"mode": "hybrid", "facts": self.facts[:1], "results": [{"source": "conversation", "id": "e1"}]}
         if u.path == "/v1/facts" and method == "POST":
@@ -289,6 +292,135 @@ def test_prefetch_nothing_relevant_injects_nothing(monkeypatch, fake):
     fake.facts = []
     p = _provider(monkeypatch, fake.url)
     assert p.prefetch("best pizza in chicago") == ""
+
+
+# --- brief ----------------------------------------------------------------------------
+
+G1 = {"id": "77777777-aaaa-bbbb-cccc-000000000007", "text": "Never edit a shipped migration.", "kind": "gotcha",
+      "scope": "repo:gh/acme/api", "locus": ["migrations/"]}
+BRIEF = {
+    "repo_key": "gh/acme/api", "repo_indexed": True, "mode": "hybrid", "terms": [], "budget_tokens": 600,
+    "tokens": {"gotchas": 30, "facts": 40, "locations": 20, "runs": 25, "tests": 10, "total": 125},
+    "dropped": {"gotchas": 0, "facts": 0, "locations": 0, "runs": 0, "tests": 0},
+    "gotchas": [G1],
+    "facts": [{k: F1[k] for k in ("id", "text", "kind", "scope")}],
+    "locations": [{"ref": "docs/deploy.md:10-24", "path": "docs/deploy.md", "source": "doc"},
+                  {"ref": "src/db.ts", "path": "src/db.ts", "source": "path"}],
+    "runs": [{"ref": "run_1", "title": "Add retries to the db pool", "pr_url": "https://github.com/acme/api/pull/7",
+              "merged_at": "2026-10-01", "snippet": "..."},
+             {"ref": "run_2", "title": None, "pr_url": None, "merged_at": "2026-10-02", "snippet": "..."}],
+    "tests": [{"path": "src/db.test.ts", "near": "src/db.ts", "why": "name"}],
+}
+
+
+def test_first_turn_in_a_repo_injects_the_brief_instead_of_recall(monkeypatch, fake, tmp_path):
+    _git(tmp_path, "init", "-q")
+    (tmp_path / "x.ts").write_text("1")
+    fake.brief = BRIEF
+    p = _provider(monkeypatch, fake.url, cwd=str(tmp_path))
+    block = p.prefetch("add retries to the db pool")
+    assert fake.last("/v1/brief")[0]["body"] == {"task": "add retries to the db pool", "repo_key": "gh/acme/api",
+                                                "changed_paths": ["x.ts"], "budget_tokens": 600}
+    assert fake.last("/v1/recall") == []
+    assert block.splitlines() == [
+        "## Hive brief for this task (shared team memory) - cite a fact you use as [hive:<id>]",
+        "Gotchas:",
+        "- [hive:77777777] Never edit a shipped migration. (repo:gh/acme/api, gotcha)",
+        "Facts:",
+        "- [hive:11111111] Use vitest, never jest. (global, convention)",
+        "Where to look: docs/deploy.md:10-24, src/db.ts",
+        "Past runs:",
+        "- Add retries to the db pool (https://github.com/acme/api/pull/7)",
+        "- run_2",
+        "Tests: src/db.test.ts",
+    ]
+    assert p.recall_status().count == 7
+
+
+def test_second_turn_uses_recall_and_skips_facts_the_brief_injected(monkeypatch, fake):
+    fake.brief = BRIEF
+    p = _provider(monkeypatch, fake.url)
+    p.prefetch("add retries")
+    block = p.prefetch("which test runner?")
+    assert len(fake.last("/v1/brief")) == 1 and len(fake.last("/v1/recall")) == 1
+    assert "vitest" not in block and "Cloud Run" in block
+
+
+def test_format_brief_is_empty_for_an_empty_brief():
+    assert hive.format_brief({k: [] for k in hive.BRIEF_SECTIONS}) == ""
+    assert hive.format_brief({}) == ""
+
+
+@pytest.mark.parametrize("kw,query", [
+    ({"repo_key": "", "cwd": "/"}, "tests?"),
+    ({"env": {"HIVE_BRIEF": "off"}}, "tests?"),
+    ({"env": {"HIVE_BRIEF": "0"}}, "tests?"),
+    ({}, "   "),
+])
+def test_no_brief_outside_a_repo_when_off_or_for_an_empty_query(monkeypatch, fake, kw, query):
+    fake.brief = BRIEF
+    p = _provider(monkeypatch, fake.url, **kw)
+    p.prefetch(query)
+    assert fake.last("/v1/brief") == []
+    if query.strip():
+        assert len(fake.last("/v1/recall")) == 1
+
+
+def test_empty_first_query_does_not_consume_the_brief(monkeypatch, fake):
+    fake.brief = BRIEF
+    p = _provider(monkeypatch, fake.url)
+    assert p.prefetch("   ") == ""
+    assert fake.last("/v1/brief") == []
+    assert "Gotchas:" in p.prefetch("add retries")
+    assert len(fake.last("/v1/brief")) == 1
+
+
+def test_prefetch_k_zero_still_briefs(monkeypatch, fake):
+    fake.brief = BRIEF
+    p = _provider(monkeypatch, fake.url, env={"HIVE_PREFETCH_K": "0"})
+    assert "Gotchas:" in p.prefetch("add retries")
+    assert p.prefetch("more") == ""
+    assert fake.last("/v1/recall") == []
+
+
+@pytest.mark.parametrize("down", [False, True])
+def test_failed_brief_falls_back_to_recall_and_is_not_retried(monkeypatch, fake, down):
+    fake.brief = BRIEF
+    fake.overrides["/v1/brief"] = (500, {"error": "boom"})
+    p = _provider(monkeypatch, fake.url)
+    if down:
+        p._client = hive.HiveClient("http://127.0.0.1:9", GOOD)
+        assert p.prefetch("add retries") == ""
+        p._client = hive.HiveClient(fake.url, GOOD)
+    else:
+        assert "vitest" in p.prefetch("add retries")
+    del fake.overrides["/v1/brief"]
+    p.prefetch("more")
+    assert len(fake.last("/v1/brief")) == (0 if down else 1)
+    assert len(fake.last("/v1/recall")) == (1 if down else 2)
+
+
+def test_reset_briefs_again_and_branch_does_not(monkeypatch, fake):
+    fake.brief = BRIEF
+    p = _provider(monkeypatch, fake.url)
+    p.prefetch("add retries")
+    p.on_session_switch("s2", parent_session_id="s1")  # /branch or compression
+    assert "Gotchas:" not in p.prefetch("more", session_id="s2")
+    assert call(p, "hive_status")["brief"] == {"enabled": True, "tokens": 125, "items": 7}
+    p.on_session_switch("s2", reset=True)  # /new
+    assert call(p, "hive_status")["brief"] == {"enabled": True, "tokens": None, "items": None}
+    assert "Gotchas:" in p.prefetch("add retries", session_id="s2")
+    assert len(fake.last("/v1/brief")) == 2
+
+
+def test_status_shows_the_brief_size(monkeypatch, fake):
+    fake.brief = BRIEF
+    p = _provider(monkeypatch, fake.url)
+    assert call(p, "hive_status")["brief"] == {"enabled": True, "tokens": None, "items": None}
+    p.prefetch("add retries")
+    assert call(p, "hive_status")["brief"] == {"enabled": True, "tokens": 125, "items": 7}
+    off = _provider(monkeypatch, fake.url, env={"HIVE_BRIEF": "off"})
+    assert call(off, "hive_status")["brief"] == {"enabled": False, "tokens": None, "items": None}
 
 
 # --- writes ---------------------------------------------------------------------------

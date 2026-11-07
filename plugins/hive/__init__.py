@@ -3,6 +3,8 @@
 Connects this Hermes instance to a shared Hive service (one per team, see the repo README).
 
 What it does each turn:
+  * brief      - on the first turn of a session in a repo: POST /v1/brief with the message as the task and
+                 inject the brief (gotchas, facts, where to look, past runs, tests) instead of recall.
   * prefetch   - before the model sees the message: GET /v1/recall with a strict relevance gate,
                  inject at most HIVE_PREFETCH_K facts as a short cited list. Hermes replays the
                  injected block on EVERY later request of the session, so each line costs tokens
@@ -20,6 +22,7 @@ Config (env, via `hermes memory setup` or the profile's .env):
   HIVE_PREFETCH_K        max facts injected per turn (default 5; 0 disables prefetch)
   HIVE_PREFETCH_MIN_SIM  cosine floor for injected facts (default 0.62)
   HIVE_SYNC              "off" to stop sending turns/sessions (recall + tools still work)
+  HIVE_BRIEF             "off" to skip the first-turn brief (default on; independent of HIVE_PREFETCH_K)
 Stdlib only: no new dependencies for Hermes.
 """
 
@@ -42,6 +45,8 @@ from agent.secret_scope import get_secret
 logger = logging.getLogger(__name__)
 
 PREFETCH_TIMEOUT_S = 2.0
+BRIEF_TIMEOUT_S = 3.0
+BRIEF_BUDGET_TOKENS = 600
 WRITE_TIMEOUT_S = 10.0
 DEFAULT_PREFETCH_K = 5
 DEFAULT_PREFETCH_MIN_SIM = 0.62
@@ -216,11 +221,43 @@ def format_facts(facts: list[dict[str, Any]]) -> str:
     if not facts:
         return ""
     lines = ["## Hive (shared team memory) - cite a fact you use as [hive:<id>]"]
-    for f in facts:
-        scope = f.get("scope", "")
-        label = "personal" if scope.startswith("personal:") else scope
-        note = {"drifted": ", source changed since", "missing": ", source gone"}.get(str(f.get("verify") or ""), "")
-        lines.append(f"- [hive:{str(f.get('id', ''))[:8]}] {f.get('text', '').strip()} ({label}, {f.get('kind', '')}{note})")
+    lines += [_fact_line(f) for f in facts]
+    return "\n".join(lines)
+
+
+def _fact_line(f: dict[str, Any]) -> str:
+    scope = f.get("scope", "")
+    label = "personal" if scope.startswith("personal:") else scope
+    note = {"drifted": ", source changed since", "missing": ", source gone"}.get(str(f.get("verify") or ""), "")
+    return f"- [hive:{str(f.get('id', ''))[:8]}] {f.get('text', '').strip()} ({label}, {f.get('kind', '')}{note})"
+
+
+BRIEF_SECTIONS = ("gotchas", "facts", "locations", "runs", "tests")
+
+
+def brief_items(b: dict[str, Any]) -> int:
+    return sum(len(b.get(s) or []) for s in BRIEF_SECTIONS)
+
+
+def format_brief(b: dict[str, Any]) -> str:
+    """The first-turn block from POST /v1/brief: gotchas, facts, where to look, past runs, tests.
+    Empty when the brief has nothing. Replayed every turn like format_facts, so keep it compact."""
+    if not brief_items(b):
+        return ""
+    lines = ["## Hive brief for this task (shared team memory) - cite a fact you use as [hive:<id>]"]
+    if b.get("gotchas"):
+        lines += ["Gotchas:"] + [_fact_line(f) for f in b["gotchas"]]
+    if b.get("facts"):
+        lines += ["Facts:"] + [_fact_line(f) for f in b["facts"]]
+    if b.get("locations"):
+        lines.append("Where to look: " + ", ".join(str(l.get("ref") or l.get("path", "")) for l in b["locations"]))
+    if b.get("runs"):
+        lines.append("Past runs:")
+        for r in b["runs"]:
+            pr = f" ({r['pr_url']})" if r.get("pr_url") else ""
+            lines.append(f"- {r.get('title') or r.get('ref', '')}{pr}")
+    if b.get("tests"):
+        lines.append("Tests: " + ", ".join(str(t.get("path", "")) for t in b["tests"]))
     return "\n".join(lines)
 
 
@@ -366,9 +403,12 @@ class HiveMemoryProvider(MemoryProvider):
         self._prefetch_k = DEFAULT_PREFETCH_K
         self._prefetch_min_sim = DEFAULT_PREFETCH_MIN_SIM
         self._sync = True
+        self._brief = True
         self._lock = threading.Lock()
         self._injected: dict[str, set[str]] = {}  # session_id -> fact ids already injected
         self._last_assistant: dict[str, str] = {}  # session_id -> previous assistant reply
+        self._briefed: set[str] = set()  # sessions that already asked for a brief (ok or not)
+        self._brief_size: dict[str, dict[str, int]] = {}  # session_id -> {tokens, items} of its brief
         self._last_count: Optional[int] = None
         self._curator: Optional[bool] = None  # cached after the first successful /v1/status
         self._curator_key: Optional[tuple[str, str]] = None  # (url, token) the cached role belongs to
@@ -399,6 +439,7 @@ class HiveMemoryProvider(MemoryProvider):
         self._prefetch_k = _int_env("HIVE_PREFETCH_K", DEFAULT_PREFETCH_K)
         self._prefetch_min_sim = _float_env("HIVE_PREFETCH_MIN_SIM", DEFAULT_PREFETCH_MIN_SIM)
         self._sync = (get_secret("HIVE_SYNC", "") or "").strip().lower() not in ("off", "0", "false", "no")
+        self._brief = (get_secret("HIVE_BRIEF", "") or "").strip().lower() not in ("off", "0", "false", "no")
 
     def on_session_switch(self, new_session_id: str, *, parent_session_id: str = "", reset: bool = False,
                           rewound: bool = False, **kwargs) -> None:
@@ -407,12 +448,18 @@ class HiveMemoryProvider(MemoryProvider):
                 # New conversation, or the transcript that held earlier injections was cut: re-allow them.
                 self._injected.pop(new_session_id, None)
                 self._last_assistant.pop(new_session_id, None)
+                self._briefed.discard(new_session_id)
+                self._brief_size.pop(new_session_id, None)
             elif parent_session_id:
                 # /branch, compression: the child still carries the parent's injected context.
                 if parent_session_id in self._injected:
                     self._injected[new_session_id] = set(self._injected[parent_session_id])
                 if parent_session_id in self._last_assistant:
                     self._last_assistant[new_session_id] = self._last_assistant[parent_session_id]
+                if parent_session_id in self._briefed:
+                    self._briefed.add(new_session_id)
+                if parent_session_id in self._brief_size:
+                    self._brief_size[new_session_id] = dict(self._brief_size[parent_session_id])
         self._session_id = new_session_id
 
     def shutdown(self) -> None:
@@ -439,9 +486,19 @@ class HiveMemoryProvider(MemoryProvider):
 
     def prefetch(self, query: str, *, session_id: str = "") -> str:
         self._last_count = None
-        if not self._client or self._prefetch_k <= 0 or not (query or "").strip():
+        if not self._client or not (query or "").strip():
             return ""
         sid = session_id or self._session_id
+        if self._brief and self._repo_key:
+            with self._lock:
+                first = sid not in self._briefed
+                self._briefed.add(sid)  # a failed brief is not retried every turn
+            if first:
+                block = self._prefetch_brief(sid, query)
+                if block is not None:
+                    return block
+        if self._prefetch_k <= 0:
+            return ""
         with self._lock:
             seen = set(self._injected.get(sid, ()))
         # Ask for extra so already-injected facts don't starve the turn.
@@ -458,6 +515,23 @@ class HiveMemoryProvider(MemoryProvider):
             self._injected.setdefault(sid, set()).update(f["id"] for f in fresh)
         self._last_count = len(fresh)
         return format_facts(fresh)
+
+    def _prefetch_brief(self, sid: str, query: str) -> Optional[str]:
+        """The session's first-turn brief; None when it failed, so the turn falls back to recall."""
+        res = self._client.post("/v1/brief", {  # type: ignore[union-attr]
+            "task": query[:4000], "repo_key": self._repo_key, "changed_paths": changed_paths(self._cwd),
+            "budget_tokens": BRIEF_BUDGET_TOKENS,
+        }, timeout=BRIEF_TIMEOUT_S)
+        if not res.get("ok"):
+            logger.debug("hive brief failed: %s", res.get("error"))
+            return None
+        items = brief_items(res)
+        with self._lock:
+            self._injected.setdefault(sid, set()).update(
+                f["id"] for f in (res.get("gotchas") or []) + (res.get("facts") or []) if f.get("id"))
+            self._brief_size[sid] = {"tokens": int((res.get("tokens") or {}).get("total") or 0), "items": items}
+        self._last_count = items
+        return format_brief(res)
 
     def _changed(self) -> Optional[str]:
         if not self._repo_key:
@@ -560,6 +634,9 @@ class HiveMemoryProvider(MemoryProvider):
         res = self._client.get("/v1/status")  # type: ignore[union-attr]
         if res.get("ok"):
             res["repo_key"] = self._repo_key or None
+            with self._lock:
+                size = self._brief_size.get(self._session_id) or {}
+            res["brief"] = {"enabled": self._brief, "tokens": size.get("tokens"), "items": size.get("items")}
         return res
 
     def _tool_recall(self, args: dict[str, Any]) -> dict[str, Any]:
