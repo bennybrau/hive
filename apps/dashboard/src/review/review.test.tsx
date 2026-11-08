@@ -17,6 +17,7 @@ function candidate(id: string, over: Partial<Candidate> = {}): Candidate {
     supersedes: null,
     anchors: [],
     similar: [],
+    replaces: null,
     ...over,
   };
 }
@@ -76,6 +77,47 @@ describe("review queue", () => {
     expect(badges(screen.getByRole("complementary", { name: "Evidence" }))).toEqual([["badge asked", "asked to remember"]]);
     press("j");
     expect(badges(screen.getByRole("complementary", { name: "Evidence" }))).toEqual([]);
+  });
+
+  it("shows the fact a candidate replaces, links to it, and keeps it out of similar", async () => {
+    const old = { id: "0d5e6f70-aaaa-bbbb-cccc-000000000001", text: "we deploy on Fridays", kind: "decision", scope: "global", status: "active" };
+    queue.candidates[0] = candidate("c1", {
+      metadata: { replaces: old.id },
+      replaces: old,
+      similar: [
+        { id: old.id, text: old.text, scope: "global", similarity: 0.95 },
+        { id: "s2", text: "another twin", scope: "global", similarity: 0.88 },
+      ],
+    });
+    await open();
+    const panel = () => screen.getByRole("complementary", { name: "Evidence" });
+    const section = within(panel()).getByRole("region", { name: "Replaces" });
+    expect(within(section).getByRole("heading", { name: "Replaces" })).toBeTruthy();
+    expect(section.querySelector(".old")!.textContent).toBe("we deploy on Fridays");
+    const link = within(section).getByRole("link", { name: "0d5e6f70" });
+    expect(link.getAttribute("href")).toBe(`/facts/${old.id}`);
+    expect(section.querySelector(".help")!.textContent).toMatch(/Approve or fix retires it\. Reject leaves it as it is\.$/);
+    expect([...panel().querySelectorAll(".similar li")].map((li) => li.textContent)).toEqual(["88% another twin"]);
+
+    press("j");
+    expect(within(panel()).queryByRole("region", { name: "Replaces" })).toBeNull();
+  });
+
+  it("says when the replaced fact is no longer active", async () => {
+    const old = { id: "0d5e6f70-aaaa-bbbb-cccc-000000000001", text: "we deploy on Fridays", kind: "decision", scope: "global", status: "superseded" };
+    queue.candidates[0] = candidate("c1", { replaces: old });
+    await open();
+    const section = screen.getByRole("region", { name: "Replaces" });
+    expect(section.querySelector(".help")!.textContent).toMatch(/Already superseded\. Approving won't change it\.$/);
+  });
+
+  it("a on a replacing candidate still posts a plain approve", async () => {
+    const old = { id: "0d5e6f70-aaaa-bbbb-cccc-000000000001", text: "we deploy on Fridays", kind: "decision", scope: "global", status: "active" };
+    queue.candidates[0] = candidate("c1", { replaces: old });
+    await open();
+    press("a");
+    await tick(5000);
+    expect(posts()).toEqual([["c1", { action: "approve" }]]);
   });
 
   it("lists candidates oldest first with the first one's evidence", async () => {

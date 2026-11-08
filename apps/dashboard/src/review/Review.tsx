@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { apiFetch, type Role } from "../api";
+import { navigate } from "../App";
 import type { Fact } from "../facts/query";
 import { usePendingDecision, type Decision } from "./usePendingDecision";
 
@@ -24,10 +25,20 @@ interface Similar {
   similarity: number;
 }
 
+/** The fact a distilled candidate says it replaces, whatever its status now. */
+interface Replaced {
+  id: string;
+  text: string;
+  kind: string;
+  scope: string;
+  status: string;
+}
+
 export interface Candidate extends Fact {
   supersedes: string | null;
   anchors: Anchor[];
   similar: Similar[];
+  replaces: Replaced | null;
 }
 
 interface Queue {
@@ -85,6 +96,9 @@ function Evidence({
   };
   // The first conversation the fact came from, shown as the exchange; its snippet would only repeat it.
   const shown = c.anchors.find((a) => a.exchange);
+  // The replaced fact has its own section; don't list it again as similar.
+  const old = c.replaces;
+  const similar = c.similar.filter((s) => s.id !== old?.id);
   return (
     <aside className="review-evidence" aria-label="Evidence">
       {c.metadata?.asked && <span className="badge asked">asked to remember</span>}
@@ -132,6 +146,26 @@ function Evidence({
           <p className="help">Enter rejects, Esc cancels.</p>
         </div>
       )}
+      {old && (
+        <section className="replaces" aria-label="Replaces">
+          <h3>Replaces</h3>
+          <p className="old">{old.text}</p>
+          <p className="help">
+            <a
+              href={`/facts/${encodeURIComponent(old.id)}`}
+              onClick={(e) => {
+                e.preventDefault();
+                navigate(`/facts/${encodeURIComponent(old.id)}`);
+              }}
+            >
+              {old.id.slice(0, 8)}
+            </a>{" "}
+            {old.status === "active"
+              ? "Approve or fix retires it. Reject leaves it as it is."
+              : `Already ${old.status}. Approving won't change it.`}
+          </p>
+        </section>
+      )}
 
       <dl>
         <dt>Kind</dt>
@@ -165,11 +199,11 @@ function Evidence({
         </ul>
       )}
 
-      {c.similar.length > 0 && (
+      {similar.length > 0 && (
         <>
           <h3>Similar active facts</h3>
           <ul className="similar">
-            {c.similar.slice(0, 3).map((s) => (
+            {similar.slice(0, 3).map((s) => (
               <li key={s.id}>
                 <span className="pct">{Math.round(s.similarity * 100)}%</span> {s.text}
               </li>

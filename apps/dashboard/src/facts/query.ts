@@ -17,7 +17,7 @@ export interface Fact {
   status_note: string | null;
   author_user_id: string | null;
   recorded_at: string;
-  metadata?: { asked?: boolean };
+  metadata?: { asked?: boolean; replaces?: string };
 }
 
 /** The table's filters; "" means any. All of it lives in the query string. */

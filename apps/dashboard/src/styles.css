@@ -200,6 +200,9 @@ kbd {
 .review-evidence .exchange { display: grid; gap: 8px; margin: 0 0 12px; }
 .review-evidence .exchange-label { color: var(--muted); font-size: 12px; }
 .review-evidence .exchange-user .quote { border-left: 2px solid var(--accent); }
+.review-evidence .replaces { margin: 0 0 12px; }
+.review-evidence .replaces h3 { margin-top: 0; }
+.review-evidence .replaces .old { color: var(--muted); text-decoration: line-through; margin: 0 0 4px; }
 .similar .pct { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
 
 .toast {
