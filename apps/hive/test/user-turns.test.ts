@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { distillView, exchangeFor, isPlainQuestion, questionsOnly, userTurns } from "../src/distill.js";
+import { distillView, exchangeFor, isPlainQuestion, questionsOnly, quotedUserTurn, userTurns } from "../src/distill.js";
 import { normalizeText } from "../src/facts.js";
 
 describe("userTurns", () => {
@@ -98,6 +98,33 @@ describe("exchangeFor", () => {
   it("keeps the last 600 chars of the assistant text", () => {
     const reply = "a".repeat(400) + "b".repeat(600);
     expect(exchangeFor(`assistant: ${reply}\nuser: ok then`, "ok then")?.assistant).toBe("b".repeat(600));
+  });
+});
+
+describe("quotedUserTurn", () => {
+  it("finds the first user turn containing the quote and where it starts, with user: stripped", () => {
+    const content = "assistant: hi\nuser: no, run it from the replica\nassistant: ok";
+    expect(quotedUserTurn(content, "run it from the replica")).toEqual({
+      start: content.indexOf("user: "),
+      text: "no, run it from the replica",
+    });
+  });
+
+  it("matches across whitespace, and null when no user turn has it", () => {
+    expect(quotedUserTurn("user: run   it\n  from the replica", "run it from the replica")).toEqual({
+      start: 0,
+      text: "run   it\n  from the replica",
+    });
+    expect(quotedUserTurn("user: something else", "run it from the replica")).toBeNull();
+    expect(quotedUserTurn("user: x", "")).toBeNull();
+  });
+
+  it("a clarify answer's text is unescaped, and matching stops at the first turn (clarify or user:) that has it", () => {
+    const clarify = 'tool(clarify): {"responses": [{"question": "Which?", "user_response": "Postgres, \\"always\\""}]}';
+    const hit = quotedUserTurn(`user: plan it\n${clarify}`, 'Postgres, \\"always\\"');
+    expect(hit).toEqual({ start: "user: plan it\n".length, text: 'Postgres, "always"' });
+
+    expect(quotedUserTurn(`user: plan it\n${clarify}\nuser: plan it again`, "plan it")).toEqual({ start: 0, text: "plan it" });
   });
 });
 

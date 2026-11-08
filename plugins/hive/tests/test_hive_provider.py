@@ -44,6 +44,7 @@ class FakeHive:
         self.url = ""
         self.role = "member"
         self.queue: list[dict] = []
+        self.flagged: list[dict] = []
         self.brief: dict | None = None  # None: /v1/brief answers 404, like a hive without it (prefetch uses recall)
 
     def handle(self, method, path, body, auth):
@@ -59,7 +60,7 @@ class FakeHive:
         if u.path == "/v1/review/queue":
             if self.role != "curator":
                 return 403, {"error": "only a curator can review facts"}
-            return 200, {"candidates": self.queue[: int(q.get("limit", 20))]}
+            return 200, {"candidates": self.queue[: int(q.get("limit", 20))], "flagged": self.flagged}
         if u.path.endswith("/review") and method == "POST":
             if self.role != "curator":
                 return 403, {"error": "only a curator can review facts"}
@@ -459,6 +460,54 @@ def test_sync_turn_sends_the_reply_citations(monkeypatch, fake):
     assert "cited" not in fake.last("/v1/episodes")[-1]["body"]["metadata"]
 
 
+CORRECTION_YES = [
+    "That's wrong, we deploy from the release branch.",
+    "thats wrong",
+    "No, that is WRONG.",
+    "That’s wrong: staging has its own database.",
+    "not true, the cache is per-branch",
+    "Your answer is incorrect.",
+    "That's outdated, we moved to vitest.",
+    "We no longer use Redis for that.",
+    "It doesn't work like that anymore.",
+    "the deploy does not work like that",
+    "**Incorrect** - check the docs.",
+]
+
+CORRECTION_NO = [
+    "",
+    "how do we deploy?",
+    "Thanks, that's right.",
+    "Is the cache per-branch?",
+    "The docs say \"that's wrong\" for this case, why?",
+    "The error reads “incorrect password”, what now?",
+    "Why does `is_outdated()` return False?",
+    "> not true\nwhat does that line mean?",
+    "```\n# no longer used\n```\ncan I delete this?",
+    "It works like that.",
+]
+
+
+@pytest.mark.parametrize("text", CORRECTION_YES)
+def test_is_correction_flags_corrections(text):
+    assert hive.is_correction(text)
+
+
+@pytest.mark.parametrize("text", CORRECTION_NO)
+def test_is_correction_ignores_other_messages_and_quotes(text):
+    assert not hive.is_correction(text)
+
+
+def test_correction_turn_is_marked(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    p.sync_turn("how do we deploy?", "From main [hive:abcd1234].", session_id="s1")
+    assert "correction" not in fake.last("/v1/episodes")[-1]["body"]["metadata"]
+    p.sync_turn("That's wrong, we deploy from release.", "Sorry, release [hive:bcde2345].", session_id="s1")
+    body = fake.last("/v1/episodes")[-1]["body"]
+    assert body["metadata"] == {"correction": True, "cited": ["bcde2345"]}
+    assert body["content"] == "user: That's wrong, we deploy from release.\nassistant: Sorry, release [hive:bcde2345]."
+
+
 REMEMBER_YES = [
     "remember this",
     "Remember this: we deploy from the release branch only.",
@@ -759,8 +808,25 @@ def test_review_list_is_compact(monkeypatch, fake):
          "supersedes": "11111111", "similar": ["[11111111] Use vitest, never jest. (0.91)"]},
         {"id": C2["id"], "id8": "66666666", "text": "Deploys need a tag.", "kind": "system",
          "scope": "repo:gh/acme/api", "supersedes": None, "similar": []},
-    ]}
+    ], "flagged": []}
     assert fake.last("/v1/review/queue")[0]["query"] == {"limit": "20"}
+
+
+def test_review_list_shows_flagged_facts(monkeypatch, fake):
+    fake.role = "curator"
+    fake.flagged = [
+        {**F1, "status": "active", "metadata": {}, "correction": {"text": "that's wrong, use vitest 2", "episode_id": "e1",
+                                                               "candidate_id": C1["id"], "at": "2026-11-08T00:00:00Z"},
+         "replacing": {"id": C1["id"], "text": "Use vitest 2."}},
+        {**F2, "status": "active", "correction": {"text": "not true", "episode_id": "e2", "candidate_id": None, "at": "x"},
+         "replacing": None},
+    ]
+    out = call(_provider(monkeypatch, fake.url), "hive_review", action="list")
+    assert out["flagged"] == [
+        {"id": F1["id"], "id8": F1["id"][:8], "text": F1["text"], "scope": F1["scope"],
+         "correction": "that's wrong, use vitest 2", "replacing": {"id8": "55555555", "text": "Use vitest 2."}},
+        {"id": F2["id"], "id8": F2["id"][:8], "text": F2["text"], "scope": F2["scope"], "correction": "not true", "replacing": None},
+    ]
 
 
 def test_review_actions_send_the_right_bodies(monkeypatch, fake):

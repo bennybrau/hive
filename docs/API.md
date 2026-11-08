@@ -55,9 +55,13 @@ A fact is **stale** when it is `active`, not `pinned`, and its idle time — sin
     locus (not its anchors) that supersedes it; `new_fact` is that fact. 409 if the text is already a fact (the old
     fact is left alone).
   - `retire` → `retracted` with `status_note: "retired: <note>"` (or `"retired: stale"`).
+  - `fix` and `retire` also remove `metadata.correction` from the old fact.
 
 Every fact carries `metadata` (`{}` by default). `metadata.asked: true` = a person asked for it to be remembered
-(a flagged turn; see Worker).
+(a flagged turn; see Worker). `metadata.correction: {text, episode_id, candidate_id, at}` = a person corrected an
+answer that cited this fact (see Episodes and Worker): `text` is what they said (first 500 chars), `episode_id` where,
+`candidate_id` the distilled candidate that replaces it (or `null`). Only an `active` fact is flagged, and the latest
+flag wins. It is listed in the review queue's `flagged` until curated with `keep`, `fix` or `retire`.
 
 Readable scopes for every call: `global`, all `repo:*` (or only `repo:<repo_key>` when given), and
 your own `personal:<user>`. Other users' personal facts are never returned.
@@ -68,7 +72,7 @@ Shared-scope facts from members, and every distilled fact, start as `candidate` 
 The queue only lists scopes the curator can read (never another user's personal facts).
 
 - `GET /v1/review/queue?scope=&origin=&limit=20` — candidates, asked candidates first, then oldest (`scope` as stored, e.g. `repo:<key>`;
-  `origin`: `authored | distilled | ingested`; `limit` ≤ 100). `{candidates, last_distill_at}`; each candidate is `{...fact, supersedes, anchors, similar, replaces}`:
+  `origin`: `authored | distilled | ingested`; `limit` ≤ 100). `{candidates, flagged, last_distill_at}`; each candidate is `{...fact, supersedes, anchors, similar, replaces}`:
   - `anchors[]` include `verify_status`; an anchor on an episode carries `episode_snippet`, ~300 chars of the episode
     around the quote (case-insensitive; the episode's start when the quote isn't found).
     It also carries `exchange: {assistant, user}`: the first `user:` turn containing the quote (whitespace-normalized,
@@ -79,6 +83,11 @@ The queue only lists scopes the curator can read (never another user's personal 
     `similarity`. Empty until the candidate is embedded.
   - `replaces`: the fact a distilled candidate says it corrects (its `metadata.replaces`, see Worker) as
     `{id, text, kind, scope, status}` with its status now, or `null`.
+  - `flagged[]`: `active` facts with a `metadata.correction`, in readable scopes (`scope` applies, `origin` doesn't),
+    newest flag first, up to `limit`. Each is `{...fact, correction, replacing}`: `correction` is the
+    `metadata.correction`, `replacing` is `{id, text}` of its `candidate_id` while that is still a `candidate`, else
+    `null`. Approving that candidate supersedes the fact, so it leaves `flagged`; rejecting it leaves the flag. Curate
+    the fact (`keep`, `fix`, `retire`) to clear it.
   - `last_distill_at`: when the last `done` distill job finished (ISO timestamp), or `null` if none has.
 - `POST /v1/facts/:id/review` `{action: approve|fix|reject, note?, new_text?}` → `{fact, merged_into}`. 404 no such fact,
   409 when it isn't a `candidate`. Every decision writes a `reviews` row (`new_text` on fix).
@@ -216,7 +225,11 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   user, with that anchor. Such a new candidate keeps `replaces` (≤ 100 chars) as `metadata.replaces` only when it is an id
   the claim sent in `related` and that fact is in the candidate's scope; otherwise (and on an anchored fact or a remember
   job) it is dropped without a word. A retracted fact matched by its quote gains the anchor and stays retracted, so a rejected
-  fact isn't sent back for review. Writes one `llm_calls` row (`job: distill`); the job is `done` with `result` stored.
+  fact isn't sent back for review. When the fact a new candidate `replaces` was cited before the person said it, that
+  fact is flagged as corrected (`metadata.correction` with `candidate_id` = the candidate, `text` = the user turn
+  holding the quote, `user: ` removed), in the same transaction: on a `session` or `asf_dialog`, `[hive:<its first 8
+  id chars>` (any case) appears in the content before that user turn; on a `turn`, the previous `turn` of the same
+  session by the same instance has it in `metadata.cited`. Writes one `llm_calls` row (`job: distill`); the job is `done` with `result` stored.
   A remember job records what the user asked for. Its window runs from the previous `turn` episode of the same session
   by the same instance (or 15 minutes back, without one) to the flagged turn; that instance's candidate/active facts
   from the window are embedded first if they aren't yet. A fact matching an existing one (same text, cosine > 0.92, or the same quote as above;
@@ -239,6 +252,11 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   (case-insensitive) that names exactly one `active` fact you can read, in any repo, adds 1 to that fact's
   `cite_count` and sets `last_used_at`, once per fact per turn; an ambiguous or unknown prefix is ignored. A failure
   here is logged and the turn still gets its 201.
+  `metadata.correction: true` on a `turn` (a boolean, 400 otherwise; the plugin sends it) says the person corrected the
+  answer before it. After the turn is stored, each `metadata.cited` prefix of the previous `turn` of the same session
+  by the same instance that names exactly one `active` fact you can read (as above) is flagged as corrected
+  (`metadata.correction` with `candidate_id: null` and `text` = this turn's first `user: ` turn, prefix removed). A
+  failure here is logged and the turn still gets its 201.
   `asf_run` is a software-factory run record: the approved plan plus the review of the finished work, sent once its PR
   is merged. It is not distilled; it is found by `history` search and listed in briefs. It needs `repo_key` (a
   registered repo: `400 unknown repo_key` otherwise), a non-empty `ref` (the run id), at most 200 KiB of content in

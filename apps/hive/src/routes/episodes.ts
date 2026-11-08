@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
 import type { Instance } from "../auth.js";
+import { userTurns } from "../distill.js";
+import { flagCorrection } from "../facts.js";
 import { readableScopes } from "../scope.js";
 
 interface Body {
@@ -31,21 +33,46 @@ function citedError(cited: unknown): string | null {
 }
 
 /**
- * Count a citation once per fact per turn. A prefix counts only when it names exactly one active fact the sender can
+ * The facts a turn's cited prefixes name. A prefix counts only when it names exactly one active fact the sender can
  * read (any repo, like /v1/facts/:id); an ambiguous or unknown prefix is ignored.
  */
-async function recordCitations(pool: pg.Pool, who: Instance, cited: string[]): Promise<void> {
+async function resolveCited(pool: pg.Pool, who: Instance, cited: string[]): Promise<string[]> {
   const prefixes = [...new Set(cited.map((c) => c.toLowerCase()))];
   const [scopeSql, scopeParams] = readableScopes(who, undefined, 2, "f.scope");
-  await pool.query(
-    `update facts set cite_count = cite_count + 1, last_used_at = now()
-     where id in (
-       select min(f.id::text)::uuid from unnest($1::text[]) p
-       join facts f on f.id::text like p || '%' and f.status = 'active' and ${scopeSql}
-       group by p having count(*) = 1
-     )`,
+  const { rows } = await pool.query<{ id: string }>(
+    `select min(f.id::text) as id from unnest($1::text[]) p
+     join facts f on f.id::text like p || '%' and f.status = 'active' and ${scopeSql}
+     group by p having count(*) = 1`,
     [prefixes, ...scopeParams],
   );
+  return [...new Set(rows.map((r) => r.id))];
+}
+
+/** Count a citation once per fact per turn (see resolveCited). */
+async function recordCitations(pool: pg.Pool, who: Instance, cited: string[]): Promise<void> {
+  const ids = await resolveCited(pool, who, cited);
+  if (!ids.length) return;
+  await pool.query("update facts set cite_count = cite_count + 1, last_used_at = now() where id = any($1::uuid[])", [ids]);
+}
+
+/**
+ * A turn marked `metadata.correction`: the person corrected the answer before it. Each fact the previous turn of this
+ * session by the same instance cited (resolved as in resolveCited) is flagged with this turn's user text.
+ */
+async function flagCorrected(pool: pg.Pool, who: Instance, episode: { id: string; content: string }): Promise<void> {
+  const prev = await pool.query<{ cited: unknown }>(
+    `select p.metadata->'cited' as cited from episodes e join episodes p
+       on p.kind = 'turn' and p.session_id = e.session_id and p.instance_id = e.instance_id and p.created_at < e.created_at
+     where e.id = $1 order by p.created_at desc, p.id desc limit 1`,
+    [episode.id],
+  );
+  const cited = prev.rows[0]?.cited;
+  if (!Array.isArray(cited) || !cited.length || citedError(cited)) return;
+  const said = userTurns(episode.content).find((t) => t.startsWith("user: "));
+  const text = said ? said.slice("user: ".length) : episode.content;
+  for (const id of await resolveCited(pool, who, cited as string[])) {
+    await flagCorrection(pool, id, { text, episode_id: episode.id, candidate_id: null });
+  }
 }
 
 /** Why an asf_run's metadata is unusable, or null. A run record needs merged_at; the rest is optional but typed. */
@@ -133,6 +160,9 @@ export function episodeRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =
           const bad = citedError(b.metadata.cited);
           if (bad) return reply.code(400).send({ error: bad });
         }
+        if (b.kind === "turn" && b.metadata?.correction !== undefined && typeof b.metadata.correction !== "boolean") {
+          return reply.code(400).send({ error: "metadata.correction must be a boolean" });
+        }
       } else {
         if (!b.repo_key || !b.ref?.trim()) return reply.code(400).send({ error: "asf_run needs repo_key and ref" });
         if (Buffer.byteLength(b.content) > ASF_RUN_MAX_BYTES) {
@@ -154,6 +184,11 @@ export function episodeRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =
       if (!inserted) return reply.code(200).send({ episode, deduped: true });
       if (b.kind === "turn" && b.metadata?.cited !== undefined) {
         await recordCitations(pool, who, b.metadata.cited as string[]).catch((err) => req.log.warn({ err }, "citations not recorded"));
+      }
+      if (b.kind === "turn" && b.metadata?.correction === true) {
+        await flagCorrected(pool, who, { id: episode.id, content: b.content }).catch((err) =>
+          req.log.warn({ err }, "correction not flagged"),
+        );
       }
       onWrite();
       return reply.code(201).send({ episode, deduped: false });

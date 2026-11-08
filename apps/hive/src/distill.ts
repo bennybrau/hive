@@ -1,7 +1,7 @@
 import type pg from "pg";
 import type { Instance } from "./auth.js";
 import { toPgVector, type Embedder } from "./embed.js";
-import { ConflictError, contentHash, initialStatus, normalizeText, type FactKind } from "./facts.js";
+import { ConflictError, contentHash, flagCorrection, initialStatus, normalizeText, type FactKind } from "./facts.js";
 
 /** A job that has been claimed this many times and fails (or its lease expires) again is given up on. */
 export const MAX_ATTEMPTS = 3;
@@ -92,6 +92,35 @@ export function userTurns(content: string): string[] {
   }
   if (turn) turns.push(turn.join("\n"));
   return turns;
+}
+
+/**
+ * The first user turn (as in userTurns) containing the quote, whitespace collapsed: where it starts in the content and
+ * its text (`user: ` removed; a clarify answer unescaped). null when no user turn has it.
+ */
+export function quotedUserTurn(content: string, quote: string): { start: number; text: string } | null {
+  const q = normalizeText(quote);
+  if (!q) return null;
+  let turn: { start: number; lines: string[] } | null = null;
+  const close = () => {
+    const text = turn?.lines.join("\n");
+    return turn && text !== undefined && normalizeText(text).includes(q) ? { start: turn.start, text: text.slice("user: ".length) } : null;
+  };
+  let at = 0;
+  for (const line of [...content.split("\n"), "user: "]) {
+    const start = at;
+    at += line.length + 1;
+    if (line.startsWith("user: ") || line.startsWith("assistant") || line.startsWith("tool(")) {
+      const hit = close();
+      if (hit) return hit;
+      turn = line.startsWith("user: ") ? { start, lines: [line] } : null;
+      if (line.startsWith(CLARIFY_PREFIX)) {
+        const m = [...line.matchAll(USER_RESPONSE)].find((r) => normalizeText(r[1]!).includes(q));
+        if (m) return { start, text: unescapeJson(m[1]!) };
+      }
+    } else turn?.lines.push(line);
+  }
+  return null;
 }
 
 /** Words that make a question a redirect or a decision ("Can we use Postgres instead?"), matched lower-case anywhere. */
@@ -550,6 +579,7 @@ export async function completeJob(
         );
         factId = ins.rows[0]!.id;
         result.created.push(factId);
+        if (replaces) await flagIfCited(client, ep, job.episode_id, replaces, factId, f.quote);
       }
       await client.query(`insert into anchors (fact_id, episode_id, quote, repo_key) values ($1, $2, $3, $4)`, [
         factId,
@@ -577,6 +607,37 @@ export async function completeJob(
   } finally {
     client.release();
   }
+}
+
+/**
+ * A new candidate replaces fact `target`: when an answer cited it before the person said the quoted line, the
+ * person corrected it, so flag it (see flagCorrection). In a session or asf_dialog, `[hive:<target's first 8>`
+ * appears in the content before that user turn; in a turn, the previous turn (same session and instance) cited it.
+ */
+async function flagIfCited(
+  client: pg.PoolClient,
+  ep: { kind: string; content: string },
+  episodeId: string,
+  target: string,
+  candidateId: string,
+  quote: string,
+): Promise<void> {
+  const said = quotedUserTurn(ep.content, quote);
+  if (!said) return;
+  let cited = false;
+  if (ep.kind === "turn") {
+    const prev = await client.query<{ cited: unknown }>(
+      `select p.metadata->'cited' as cited from episodes e join episodes p
+         on p.kind = 'turn' and p.session_id = e.session_id and p.instance_id = e.instance_id and p.created_at < e.created_at
+       where e.id = $1 order by p.created_at desc, p.id desc limit 1`,
+      [episodeId],
+    );
+    const list = prev.rows[0]?.cited;
+    cited = Array.isArray(list) && list.some((c) => typeof c === "string" && target.startsWith(c.toLowerCase()));
+  } else {
+    cited = ep.content.slice(0, said.start).toLowerCase().includes(`[hive:${target.slice(0, 8)}`);
+  }
+  if (cited) await flagCorrection(client, target, { text: said.text, episode_id: episodeId, candidate_id: candidateId });
 }
 
 /** The worker gave up on its claim: back to `queued` for another try, or `failed` after MAX_ATTEMPTS. */

@@ -191,6 +191,20 @@ def is_remember_request(text: str) -> bool:
     return any(p.search(t) for p in _REMEMBER_POSITIVE)
 
 
+# Telling the assistant its answer was wrong: "that's wrong", "not true", "that's outdated", "it doesn't work like that".
+_CORRECTION = re.compile(
+    r"\b(?:that's|thats|that is) wrong\b|\bnot true\b|\bincorrect\b|\boutdated\b|\bno longer\b"
+    r"|\b(?:doesn't|doesnt|does not) work like that\b"
+)
+
+
+def is_correction(text: str) -> bool:
+    """Whether a user message says the answer before it was wrong ("that's wrong", "not true", "outdated"...).
+    Ignores quoted text and code."""
+    t = _strip_quoted(text or "").lower().replace("’", "'")
+    return bool(_CORRECTION.search(re.sub(r"[ \t]+", " ", re.sub(r"[*_]+", "", t))))
+
+
 _CITED = re.compile(r"\[hive:([0-9a-fA-F-]{8,36})\]")
 
 
@@ -385,7 +399,8 @@ _REVIEW_SCHEMA = {
     "name": "hive_review",
     "description": "Curator only: review candidate facts waiting for approval before other assistants see them. "
                    "action=list shows the queue (oldest first) with each candidate's full id, the fact it would "
-                   "supersede and similar active facts. approve / fix (with new_text) / reject need the full id.",
+                   "supersede and similar active facts, plus `flagged`: active facts a person corrected after an "
+                   "answer cited them. approve / fix (with new_text) / reject need the full id.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -579,6 +594,8 @@ class HiveMemoryProvider(MemoryProvider):
             meta["remember_request"] = True
             if previous.strip():
                 content = f"assistant: {previous[-MAX_PREVIOUS_REPLY_CHARS:]}\n{content}"
+        if is_correction(user_content):
+            meta["correction"] = True  # Hive flags the facts the previous answer cited
         cited = cited_ids(assistant_content)
         if cited:
             meta["cited"] = cited[:20]  # the server takes at most 20
@@ -717,7 +734,8 @@ class HiveMemoryProvider(MemoryProvider):
             res = self._client.get("/v1/review/queue", {"limit": REVIEW_QUEUE_LIMIT})  # type: ignore[union-attr]
             if not res.get("ok"):
                 return res
-            return {"ok": True, "candidates": [_slim_candidate(c) for c in res.get("candidates", [])]}
+            return {"ok": True, "candidates": [_slim_candidate(c) for c in res.get("candidates", [])],
+                    "flagged": [_slim_flagged(f) for f in res.get("flagged", [])]}
         if action not in ("approve", "fix", "reject"):
             return {"ok": False, "error": "action must be list, approve, fix or reject"}
         fid = str(args.get("id", "")).strip()
@@ -754,6 +772,15 @@ def _slim_candidate(c: dict[str, Any]) -> dict[str, Any]:
             "supersedes": str(sup)[:8] if sup else None,
             "similar": [f"[{str(s.get('id', ''))[:8]}] {s.get('text', '')} ({float(s.get('similarity') or 0):.2f})"
                         for s in c.get("similar") or []]}
+
+
+def _slim_flagged(f: dict[str, Any]) -> dict[str, Any]:
+    """An active fact a person corrected after an answer cited it: the correction and the candidate replacing it."""
+    fid = str(f.get("id", ""))
+    rep = f.get("replacing")
+    return {"id": fid, "id8": fid[:8], "text": f.get("text"), "scope": f.get("scope"),
+            "correction": (f.get("correction") or {}).get("text"),
+            "replacing": {"id8": str(rep.get("id", ""))[:8], "text": rep.get("text")} if rep else None}
 
 
 def _slim_hit(h: dict[str, Any]) -> dict[str, Any]:

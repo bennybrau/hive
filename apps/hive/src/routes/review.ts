@@ -14,7 +14,10 @@ function curatorOnly(req: FastifyRequest, reply: FastifyReply): boolean {
   return false;
 }
 
-/** The review gate: curators see shared-scope candidates (asked first, then oldest) and approve, fix or reject them. */
+/**
+ * The review gate: curators see shared-scope candidates (asked first, then oldest) and approve, fix or reject them,
+ * and the active facts flagged as corrected (`flagged`, curated with /v1/facts/:id/curate).
+ */
 export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => void): void {
   app.get<{ Querystring: { scope?: string; origin?: string; limit?: number } }>(
     "/v1/review/queue",
@@ -84,6 +87,21 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
          where c.id = any($1::uuid[])`,
         [ids],
       );
+      // Active facts a person corrected after an answer cited them, newest flag first, with the candidate that would
+      // replace each while it is still a candidate.
+      const [flagScopeSql, flagParams] = readableScopes(req.instance!, undefined, 1, "f.scope");
+      if (qs.scope) flagParams.push(qs.scope);
+      flagParams.push(qs.limit ?? 20);
+      const flagged = await pool.query(
+        `select ${FACT_COLUMNS.split(", ").map((c) => `f.${c}`).join(", ")}, f.metadata->'correction' as correction,
+                (select jsonb_build_object('id', c.id, 'text', c.text) from facts c
+                 where c.id::text = f.metadata->'correction'->>'candidate_id' and c.status = 'candidate') as replacing
+         from facts f
+         where f.status = 'active' and f.metadata ? 'correction' and ${flagScopeSql}
+           ${qs.scope ? `and f.scope = $${flagParams.length - 1}` : ""}
+         order by (f.metadata->'correction'->>'at')::timestamptz desc, f.id limit $${flagParams.length}`,
+        flagParams,
+      );
       // When the distiller last finished a job, so an empty queue can say how fresh it is.
       const lastDistill = await pool.query<{ at: Date | null }>(
         "select max(finished_at) as at from distill_jobs where status = 'done'",
@@ -104,6 +122,7 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
             .map(({ candidate_id: _, ...s }) => ({ ...s, similarity: Number(s.similarity) })),
           replaces: replaces.rows.filter((r) => r.candidate_id === c.id).map(({ candidate_id: _, ...r }) => r)[0] ?? null,
         })),
+        flagged: flagged.rows,
       };
     },
   );

@@ -43,9 +43,39 @@ export interface Fact {
   recorded_at: string;
   /**
    * Per-fact flags; `asked: true` = a person asked for this fact to be remembered. `replaces` = the active fact a
-   * distilled candidate corrects; approving it supersedes that fact.
+   * distilled candidate corrects; approving it supersedes that fact. `correction` = a person corrected an answer that
+   * cited this fact (see flagCorrection); it is back in the review queue until curated.
    */
-  metadata: { asked?: boolean; replaces?: string };
+  metadata: { asked?: boolean; replaces?: string; correction?: Correction };
+}
+
+export interface Correction {
+  text: string;
+  episode_id: string;
+  /** The distilled candidate that replaces this fact, or null (a turn the plugin marked as a correction). */
+  candidate_id: string | null;
+  at: string;
+}
+
+/** Correction text kept on a flagged fact. */
+const CORRECTION_TEXT_MAX = 500;
+
+/**
+ * A person corrected an answer that cited this fact: set `metadata.correction` (the latest flag wins). Only an active
+ * fact is flagged; true when it was.
+ */
+export async function flagCorrection(
+  db: pg.Pool | pg.PoolClient,
+  factId: string,
+  c: { text: string; episode_id: string; candidate_id: string | null },
+): Promise<boolean> {
+  const res = await db.query(
+    `update facts set metadata = metadata || jsonb_build_object('correction',
+       jsonb_build_object('text', $2::text, 'episode_id', $3::uuid, 'candidate_id', $4::uuid, 'at', now()))
+     where id = $1 and status = 'active'`,
+    [factId, c.text.slice(0, CORRECTION_TEXT_MAX), c.episode_id, c.candidate_id],
+  );
+  return (res.rowCount ?? 0) > 0;
 }
 
 export const FACT_COLUMNS = "id, text, kind, scope, locus, origin, status, status_note, author_user_id, recorded_at, metadata";
@@ -321,6 +351,7 @@ export interface CurateInput {
  * A curator decides on an active fact. keep -> still true: kept_at = now() (its idle time restarts) and
  * metadata.correction cleared; pin/unpin -> pinned facts are never stale; fix -> a new active fact with the new text
  * (same kind, scope and locus; no anchors) supersedes it; retire -> retracted with `retired: <note>` (or `retired: stale`).
+ * fix and retire clear metadata.correction too.
  * Every decision is a reviews row on this fact. null = no such fact; ConflictError = not active, or a fix whose text
  * is already a fact (this one is left alone).
  */
@@ -341,7 +372,10 @@ export async function curateFact(
     ]);
 
   if (input.action === "fix" || input.action === "retire") {
-    const reread = async () => (await pool.query(`select ${CURATED_COLUMNS} from facts where id = $1`, [id])).rows[0]!;
+    const reread = async () => {
+      await pool.query("update facts set metadata = metadata - 'correction' where id = $1", [id]);
+      return (await pool.query(`select ${CURATED_COLUMNS} from facts where id = $1`, [id])).rows[0]!;
+    };
     const sel = await pool.query<Fact>(
       `select ${FACT_COLUMNS} from facts where id = $1 and ${scopeSql}`,
       [id, ...scopeParams],
