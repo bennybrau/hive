@@ -74,6 +74,59 @@ The curator creates and edits them in the dashboard; distill can propose "add th
 person's correction; the brief includes a matching playbook. Spike the shape on ASF's real corrections first (do
 enough of them group into procedures?).
 
+*WP6 spike (2026-11-08):* the maintainer exported the active facts that came from conversations, read-only:
+
+```sql
+select f.id, f.scope, f.kind, f.locus, left(f.text, 300) as text, e.kind as ep_kind, e.repo_key
+from facts f join anchors a on a.fact_id = f.id join episodes e on e.id = a.episode_id
+where f.status = 'active' and e.kind in ('asf_dialog','session')
+group by f.id, e.kind, e.repo_key order by f.scope, f.recorded_at;
+```
+
+59 facts. All 59 come from `asf_dialog` episodes and 0 from `session` episodes. 53 are in ASF and 6 in hive. By kind:
+53 decision, 3 convention, 2 gotcha, 1 preference. Each fact was put in a group by repo and task class, using only its
+text. A fact counts as procedural only if it is clearly a step or a pitfall for doing that kind of task; anything else
+(mostly "the product should do X") does not. Ids below are the first 8 characters of the fact id.
+
+| Group | Facts | Procedural |
+|---|---|---|
+| hive: writing an e2e acceptance script | 5 | 5 |
+| hive: distill duplicate matching | 1 | 0 |
+| ASF: changing registry Postgres code | 2 | 2 |
+| ASF: Orchestrator / planner chat | 9 | 0 |
+| ASF: Things to do and dependencies | 9 | 0 |
+| ASF: releases, versions and updates | 7 | 0 |
+| ASF: setup, workers and credentials | 6 | 0 |
+| ASF: web UI navigation and layout | 5 | 0 |
+| ASF: runtimes and the setup questionnaire | 4 | 0 |
+| ASF: PR/MR review | 3 | 0 |
+| ASF: skills | 3 | 0 |
+| ASF: run retry | 2 | 0 |
+| ASF: avatars | 2 | 0 |
+| ASF: writing docs | 1 | 1 |
+| **Total** | **59** | **8** |
+
+Two groups have ≥ 2 procedural facts (steps and pitfalls both count). As playbooks:
+
+**Playbook: hive, writing an e2e acceptance script.** Applies when: `scripts/e2e-*.sh`; task words *e2e*, *acceptance*,
+*probe*. Steps:
+1. Run the Hive side (service, Postgres, hive-worker) in containers; run Hermes on the host with throwaway profiles. (9d1160a7)
+2. Create the script's own Hermes profiles and tokens. (4143622b)
+3. Approve facts through the review API with a curator token, not the browser; a `--manual` flag pauses for a real click. (50e80343)
+4. Read cost from `/v1/stats` for this run's distill, not the total. (c9d8257a)
+5. On exit, delete the probe episode, facts, job and Hermes profiles and revoke the tokens, but keep the cost record. (c9d8257a, 4143622b)
+6. Leave the numbers that need real credentials (timings, cost) blank; the maintainer runs it on the host before merge and adds them to the PR. (801dc93c)
+
+**Playbook: ASF, changing registry Postgres code.** Applies when: `apps/registry/src/**`; task words *query*, *column*,
+*Postgres*, *DB test*. Pitfalls:
+1. The client maps columns to camelCase (`transform` in `pool.ts`); read results as camelCase, since snake_case fields are silently undefined. (b47b2cd0)
+2. Postgres-backed tests are skipped on the worker, which has no database; a worker pass does not verify them, so run them against real Postgres. (6fc0da11)
+
+Finding: the ASF dialog mostly produces product decisions (what to build), not procedures (how to do a kind of task):
+53 of 59 facts are decisions, and only 8 are procedural.
+
+Decision: go. Group 2 is thin (two pitfalls); if only steps counted, just group 1 would qualify.
+
 **WP7 — Use counts and retirement (#79).** Count each fact's real use: brief/recall injections and `[hive:<id>]`
 citations in answers. A fact unused for `HIVE_STALE_DAYS` (default 60) is marked stale and listed on a dashboard
 *Stale* tab for the curator to keep, fix or retire; nothing is retired automatically. A fact cited in an answer a
