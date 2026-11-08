@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
+import type { Instance } from "../auth.js";
+import { readableScopes } from "../scope.js";
 
 interface Body {
   kind: "turn" | "session" | "asf_run" | "asf_dialog";
@@ -16,6 +18,35 @@ const ASF_RUN_MAX_PATHS = 500;
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})?$/;
 
 type Episode = { id: string; created_at: string };
+
+/** A turn's metadata.cited: the [hive:<id>] prefixes its answer cited. */
+const MAX_CITED = 20;
+const CITED_PREFIX = /^[0-9a-fA-F-]{8,36}$/;
+
+function citedError(cited: unknown): string | null {
+  if (!Array.isArray(cited) || cited.length > MAX_CITED || !cited.every((c) => typeof c === "string" && CITED_PREFIX.test(c))) {
+    return `metadata.cited must be an array of at most ${MAX_CITED} fact id prefixes`;
+  }
+  return null;
+}
+
+/**
+ * Count a citation once per fact per turn. A prefix counts only when it names exactly one active fact the sender can
+ * read (any repo, like /v1/facts/:id); an ambiguous or unknown prefix is ignored.
+ */
+async function recordCitations(pool: pg.Pool, who: Instance, cited: string[]): Promise<void> {
+  const prefixes = [...new Set(cited.map((c) => c.toLowerCase()))];
+  const [scopeSql, scopeParams] = readableScopes(who, undefined, 2, "f.scope");
+  await pool.query(
+    `update facts set cite_count = cite_count + 1, last_used_at = now()
+     where id in (
+       select min(f.id::text)::uuid from unnest($1::text[]) p
+       join facts f on f.id::text like p || '%' and f.status = 'active' and ${scopeSql}
+       group by p having count(*) = 1
+     )`,
+    [prefixes, ...scopeParams],
+  );
+}
 
 /** Why an asf_run's metadata is unusable, or null. A run record needs merged_at; the rest is optional but typed. */
 function asfRunMetadataError(m: Record<string, unknown>): string | null {
@@ -98,6 +129,10 @@ export function episodeRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =
       }
       if (b.kind !== "asf_run") {
         if (!b.session_id) return reply.code(400).send({ error: `session_id is required for kind ${b.kind}` });
+        if (b.kind === "turn" && b.metadata?.cited !== undefined) {
+          const bad = citedError(b.metadata.cited);
+          if (bad) return reply.code(400).send({ error: bad });
+        }
       } else {
         if (!b.repo_key || !b.ref?.trim()) return reply.code(400).send({ error: "asf_run needs repo_key and ref" });
         if (Buffer.byteLength(b.content) > ASF_RUN_MAX_BYTES) {
@@ -117,6 +152,9 @@ export function episodeRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =
       );
       const { inserted, ...episode } = rows[0]!;
       if (!inserted) return reply.code(200).send({ episode, deduped: true });
+      if (b.kind === "turn" && b.metadata?.cited !== undefined) {
+        await recordCitations(pool, who, b.metadata.cited as string[]).catch((err) => req.log.warn({ err }, "citations not recorded"));
+      }
       onWrite();
       return reply.code(201).send({ episode, deduped: false });
     },

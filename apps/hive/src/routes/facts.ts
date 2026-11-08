@@ -17,6 +17,9 @@ const anchorSchema = {
   },
 } as const;
 
+/** List and detail also show how much a fact is used; other responses keep FACT_COLUMNS. */
+const FACT_USE_COLUMNS = `${FACT_COLUMNS}, use_count, cite_count, last_used_at`;
+
 interface CreateBody {
   text: string;
   kind: (typeof FACT_KINDS)[number];
@@ -110,7 +113,7 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
       const limit = qs.limit ?? 50;
       params.push(limit + 1, qs.offset ?? 0); // one extra row tells us whether there's another page
       const { rows } = await pool.query<Fact>(
-        `select ${FACT_COLUMNS} from facts where ${where.join(" and ")}
+        `select ${FACT_USE_COLUMNS} from facts where ${where.join(" and ")}
          order by recorded_at desc, id desc limit $${params.length - 1} offset $${params.length}`,
         params,
       );
@@ -126,7 +129,7 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
       const who = req.instance!;
       const [scopeSql, params] = readableScopes(who, undefined, 2);
       const { rows } = await pool.query<Fact>(
-        `select ${FACT_COLUMNS} from facts where id = $1 and ${scopeSql}`,
+        `select ${FACT_USE_COLUMNS} from facts where id = $1 and ${scopeSql}`,
         [req.params.id, ...params],
       );
       if (!rows[0]) return reply.code(404).send({ error: "no such fact" });

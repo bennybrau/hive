@@ -440,6 +440,25 @@ def test_sync_turn_posts_an_episode(monkeypatch, fake):
                     "repo_key": "gh/acme/api", "metadata": {"author": "Jon"}}
 
 
+
+def test_cited_ids_finds_each_citation_once_in_order():
+    text = "Use [hive:22222222] and [hive:11111111-aaaa]; again [hive:22222222]. Not [hive:zz], [hive:1234567] or hive:33333333."
+    assert hive.cited_ids(text) == ["22222222", "11111111-aaaa"]
+    assert hive.cited_ids("") == []
+    assert hive.cited_ids(None) == []
+
+
+def test_sync_turn_sends_the_reply_citations(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    p.sync_turn("how do we deploy?", "Cloud Run [hive:abcd1234], tagged [hive:abcd1234].", session_id="s1")
+    assert fake.last("/v1/episodes")[-1]["body"]["metadata"] == {"cited": ["abcd1234"]}
+    many = " ".join(f"[hive:{i:08x}]" for i in range(25))
+    p.sync_turn("and then?", many, session_id="s1")
+    assert fake.last("/v1/episodes")[-1]["body"]["metadata"]["cited"] == [f"{i:08x}" for i in range(20)]
+    p.sync_turn("thanks", "No citation here.", session_id="s1")
+    assert "cited" not in fake.last("/v1/episodes")[-1]["body"]["metadata"]
+
+
 REMEMBER_YES = [
     "remember this",
     "Remember this: we deploy from the release branch only.",

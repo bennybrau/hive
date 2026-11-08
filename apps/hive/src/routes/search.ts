@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { recordUse } from "../facts.js";
 import { embedQuery, searchDocs, searchEpisodes, searchFacts, type SearchDeps, type TextHit } from "../search.js";
 
 const SOURCES = ["fact", "conversation", "history", "commit", "doc"] as const;
@@ -37,6 +38,7 @@ export function searchRoutes(app: FastifyInstance, deps: SearchDeps): void {
       const facts = await searchFacts(deps, req.instance!, {
         q, repoKey: repo_key, k: k ?? 10, statuses: ["active"], qvec, minSimilarity: min_sim, changedPaths,
       });
+      await recordUse(deps.pool, facts.map((f) => f.id), req.log);
       return { mode: qvec ? "hybrid" : "keyword", facts };
     },
   );

@@ -32,6 +32,9 @@ may only use `/v1/worker/*` and `/v1/status`; every other `/v1` call is a 403
   `reviews[]` is the review history, oldest first, as `{action, note, new_text, reviewer_user_id, created_at}`.
   `supersedes`/`superseded_by` are the supersede chain, nearest first, as `{id, text, status, recorded_at}`:
   what this fact replaced (older) and what replaced it (newer).
+- The list and the detail's `fact` also carry `use_count` (times a brief or recall returned it), `cite_count` (turns
+  whose answer cited it; see Episodes) and `last_used_at` (the latest of either; null if never). Other responses that
+  return a fact don't.
 - `POST /v1/facts/:id/retract` `{reason}` — author or curator only (403 otherwise). Kept as history.
 
 Every fact carries `metadata` (`{}` by default). `metadata.asked: true` = a person asked for it to be remembered
@@ -194,6 +197,11 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   `201 {episode:{id, created_at}, deduped:false}`. Up to 5 MB (whole-session transcripts). `session_id` is required
   for `turn` and `session` (400 without it). `metadata.remember_request: true` on a `turn` flags it: the user asked
   for something in it to be remembered, and it is distilled before any other queued job (see Worker).
+  `metadata.cited` on a `turn` lists the fact ids its answer cited as `[hive:<id>]` (the plugin sends it): an array of
+  at most 20 strings of 8–36 hex digits or `-` (400 otherwise, nothing stored). After the turn is stored, each prefix
+  (case-insensitive) that names exactly one `active` fact you can read, in any repo, adds 1 to that fact's
+  `cite_count` and sets `last_used_at`, once per fact per turn; an ambiguous or unknown prefix is ignored. A failure
+  here is logged and the turn still gets its 201.
   `asf_run` is a software-factory run record: the approved plan plus the review of the finished work, sent once its PR
   is merged. It is not distilled; it is found by `history` search and listed in briefs. It needs `repo_key` (a
   registered repo: `400 unknown repo_key` otherwise), a non-empty `ref` (the run id), at most 200 KiB of content in
@@ -220,6 +228,8 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   `min_sim` is a strict gate (the plugin's prefetch uses 0.62): every hit, keyword matches included, must have
   cosine similarity ≥ `min_sim` to the question. Rows not embedded yet can't be judged and are kept.
   Keyword hits on embedded rows now report their `similarity` too.
+  Each returned fact gets `use_count + 1` and `last_used_at = now()` (best effort: a failure is logged, the answer is
+  unchanged). `/v1/search` does not count.
 - `GET /v1/search?q=&source=all|fact,conversation,history,commit,doc&repo_key=&k=20&include_candidates=false` —
   `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id | path+line_start+line_end+sha+remote_url | ref+subject | ref+title+pr_url+merged_at | ref+author, ...}]}`.
   Doc hits' `sha` is the commit the repo was last ingested at (usable in a blob link); commit hits' `subject` is the message's first line.
@@ -252,6 +262,8 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   - A repo that isn't registered still answers 200, with `repo_indexed: false` and only `facts`. Code paths come from
     `repo_files` (every tracked file of the default branch except `node_modules`, `vendor`, `dist`, ...), filled by ingest;
     repos ingested before this existed get it on their next ingest.
+  - Each fact in the answer's `gotchas` and `facts` (after the budget) gets `use_count + 1` and `last_used_at = now()`,
+    like `/v1/recall`.
 
 ## Repos (ingest + verify)
 

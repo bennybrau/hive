@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { buildBrief } from "../brief.js";
+import { recordUse } from "../facts.js";
 import type { SearchDeps } from "../search.js";
 
 /** Task brief: pure SQL plus one local query embedding, no LLM (see brief.ts). */
@@ -22,9 +23,11 @@ export function briefRoutes(app: FastifyInstance, deps: SearchDeps): void {
     },
     async (req) => {
       const { task, repo_key, changed_paths, budget_tokens } = req.body;
-      return buildBrief(deps, req.instance!, {
+      const brief = await buildBrief(deps, req.instance!, {
         task, repoKey: repo_key, changedPaths: changed_paths ?? [], budgetTokens: budget_tokens ?? 600,
       });
+      await recordUse(deps.pool, [...brief.gotchas, ...brief.facts].map((f) => f.id), req.log);
+      return brief;
     },
   );
 }

@@ -50,6 +50,22 @@ export interface Fact {
 
 export const FACT_COLUMNS = "id, text, kind, scope, locus, origin, status, status_note, author_user_id, recorded_at, metadata";
 
+/**
+ * A brief or recall returned these facts: count it. Best effort: a failure is logged, never fails the request.
+ */
+export async function recordUse(pool: pg.Pool, ids: string[], log: { warn: (obj: unknown, msg?: string) => void }): Promise<void> {
+  const unique = [...new Set(ids)];
+  if (!unique.length) return;
+  try {
+    await pool.query(
+      `update facts set use_count = use_count + 1, last_used_at = now() where id = any($1::uuid[]) and status = 'active'`,
+      [unique],
+    );
+  } catch (err) {
+    log.warn({ err }, "fact use not recorded");
+  }
+}
+
 export function normalizeText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }

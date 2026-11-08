@@ -191,6 +191,14 @@ def is_remember_request(text: str) -> bool:
     return any(p.search(t) for p in _REMEMBER_POSITIVE)
 
 
+_CITED = re.compile(r"\[hive:([0-9a-fA-F-]{8,36})\]")
+
+
+def cited_ids(text: str) -> list[str]:
+    """The fact ids (or id prefixes) an answer cites as [hive:<id>], first-seen order, each once."""
+    return list(dict.fromkeys(_CITED.findall(text or "")))
+
+
 def render_transcript(messages: list[dict[str, Any]]) -> str:
     """Readable transcript for a `session` episode. Tool results are clipped: they're bulky and the
     distiller needs the decisions, not every byte of a file listing. A `clarify` result holds the user's
@@ -571,6 +579,9 @@ class HiveMemoryProvider(MemoryProvider):
             meta["remember_request"] = True
             if previous.strip():
                 content = f"assistant: {previous[-MAX_PREVIOUS_REPLY_CHARS:]}\n{content}"
+        cited = cited_ids(assistant_content)
+        if cited:
+            meta["cited"] = cited[:20]  # the server takes at most 20
         res = self._client.post("/v1/episodes", {  # type: ignore[union-attr]
             "kind": "turn", "session_id": sid, "content": content,
             **({"repo_key": self._repo_key} if self._repo_key else {}), "metadata": meta,
