@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch, getToken, onSignOut, type Status } from "./api";
 import { Facts } from "./facts/Facts";
+import { Playbooks } from "./playbooks/Playbooks";
 import { Repos } from "./repos/Repos";
 import { Review } from "./review/Review";
 import { Search } from "./search/Search";
@@ -60,6 +61,8 @@ export function App() {
         <Stats role={status.instance.role} />
       ) : path === "/repos" ? (
         <Repos role={status.instance.role} />
+      ) : path === "/playbooks" || path.startsWith("/playbooks/") ? (
+        <Playbooks role={status.instance.role} path={path} />
       ) : (
         <main className="page">
           <h1>Not found</h1>

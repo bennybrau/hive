@@ -78,6 +78,25 @@ describe("dashboard shell", () => {
     expect(screen.getByRole("link", { name: "Review" }).getAttribute("aria-current")).toBe("page");
   });
 
+  it("shows the Playbooks nav link to curators only, and /playbooks opens it", async () => {
+    sessionStorage.setItem("hive.token", "good-token");
+    const { unmount } = render(<App />);
+    await screen.findByText("bennys-laptop");
+    expect(screen.queryByRole("link", { name: "Playbooks" })).toBeNull();
+    unmount();
+
+    fetchMock.mockImplementation(async (url) =>
+      String(url) === "/v1/status"
+        ? json(200, { ...STATUS, instance: { ...STATUS.instance, role: "curator" } })
+        : json(200, { playbooks: [], facts: [], has_more: false, repos: [] }),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("link", { name: "Playbooks" }));
+    expect(location.pathname).toBe("/playbooks");
+    expect(await screen.findByText("No playbooks yet.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Playbooks" }).getAttribute("aria-current")).toBe("page");
+  });
+
   it("uses a token already stored in this tab without asking again", async () => {
     sessionStorage.setItem("hive.token", "good-token");
     render(<App />);

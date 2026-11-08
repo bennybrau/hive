@@ -256,3 +256,30 @@ table.stats .num { text-align: right; font-variant-numeric: tabular-nums; }
 .repos-files { border-collapse: collapse; background: var(--surface); }
 .repos-files th { text-align: left; font-size: 12px; font-weight: 500; color: var(--muted); }
 .repos-files th, .repos-files td { padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+
+.playbooks-list { list-style: none; margin: 0 0 8px; padding: 0; max-width: 100ch; }
+.playbooks-list li { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.playbooks-page h2 { font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+.playbook-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.playbook-head h1 { margin: 0; }
+.playbook-detail { position: static; max-height: none; max-width: 100ch; }
+.playbook-detail ol { margin: 0; padding-left: 22px; }
+.playbook-detail li + li { margin-top: 8px; }
+.playbook-actions, .playbook-item-actions { display: flex; gap: 8px; }
+.playbook-form { display: grid; gap: 14px; max-width: 80ch; }
+.playbook-form input[type="text"], .playbook-form textarea {
+  font: inherit;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+.playbook-form textarea { resize: vertical; }
+.playbook-scope { display: flex; gap: 12px; align-items: end; }
+.playbook-items { display: grid; gap: 8px; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); }
+.playbook-items legend { font-weight: 600; padding: 0 4px; }
+.playbook-items ol { display: grid; gap: 12px; margin: 0; padding-left: 22px; }
+.playbook-items li { display: grid; gap: 6px; }
+.playbook-items > button { justify-self: start; }
