@@ -14,6 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
  && rm -rf /var/lib/apt/lists/* \
  && npm i -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
  && npm cache clean --force
+# The lean flags ClaudeRunner passes (CLAUDE_LEAN_FLAGS and --system-prompt): fail the build if this claude lacks one.
+RUN claude --help > /tmp/claude-help \
+ && for f in --tools --strict-mcp-config --setting-sources --system-prompt; do \
+      grep -qE -- "^ +$f " /tmp/claude-help || { echo "claude ${CLAUDE_CODE_VERSION} lacks $f" >&2; exit 1; }; \
+    done \
+ && rm /tmp/claude-help
 WORKDIR /app
 ENV NODE_ENV=production DISABLE_AUTOUPDATER=1
 # No runtime dependencies: the worker uses only Node's fetch and child_process.

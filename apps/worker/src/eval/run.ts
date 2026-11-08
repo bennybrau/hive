@@ -32,6 +32,7 @@ const { values: args } = parseArgs({
   },
 });
 const env = process.env;
+const JUDGE_SYSTEM_PROMPT = "You match proposed facts to labels; follow the user message; reply with JSON only.";
 const ollamaUrl = (env.OLLAMA_URL || "http://127.0.0.1:11434").replace(/\/$/, "");
 
 function loadCases(dir: string, only?: string): EvalCase[] {
@@ -150,7 +151,7 @@ async function main(): Promise<void> {
   const cases = loadCases(args.cases!, args.only);
   if (!cases.length) throw new Error(`no cases in ${args.cases}`);
   if (!credential) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not set (the judge runs on claude)");
-  const judgeRunner = new ClaudeRunner(exec, env.HIVE_EVAL_JUDGE_MODEL || undefined);
+  const judgeRunner = new ClaudeRunner(exec, env.HIVE_EVAL_JUDGE_MODEL || undefined, env, JUDGE_SYSTEM_PROMPT);
   console.log(`distill eval: ${cases.length} cases, runner=${runnerName} model=${runner.model} prompt=${prompt.version} judge=${judgeRunner.model}`);
   const deps: LoopDeps = { hive: undefined as never, runner, prompt };
   const runs: CaseResult[][] = [];

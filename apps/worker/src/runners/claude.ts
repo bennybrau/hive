@@ -8,6 +8,12 @@ import { cost, count, RUN_TIMEOUT_MS, type RunResult, type Runner, type Usage } 
 
 export const DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5";
 
+export const DISTILL_SYSTEM_PROMPT =
+  "You extract durable team facts from a session; follow the user message exactly and reply with JSON only.";
+
+/** No tools, no MCP servers, no settings files: a one-turn JSON reply needs none of them. */
+export const CLAUDE_LEAN_FLAGS = ["--tools", "", "--strict-mcp-config", "--setting-sources", ""];
+
 interface Envelope {
   is_error?: boolean;
   subtype?: string;
@@ -47,12 +53,19 @@ export function parseEnvelope(stdout: string, model: string): { text: string; us
   };
 }
 
-/** `claude -p` on the curator's subscription token, one turn, in an empty directory. */
+/**
+ * `claude -p` on the curator's subscription token, one turn, in an empty directory.
+ *
+ * Lean: `CLAUDE_LEAN_FLAGS` plus a one-line `--system-prompt` replace Claude Code's default system prompt
+ * and tool definitions, which cost ~16.8k input tokens a call (a distill went from $0.0285 to $0.0095).
+ * apps/worker/Dockerfile checks that the pinned claude accepts every one of these flags.
+ */
 export class ClaudeRunner implements Runner {
   constructor(
     private exec: Exec,
     readonly model = DEFAULT_CLAUDE_MODEL,
     private baseEnv: NodeJS.ProcessEnv = process.env,
+    private systemPrompt = DISTILL_SYSTEM_PROMPT,
   ) {}
 
   async run(prompt: string, input: string, credential: string): Promise<RunResult> {
@@ -60,7 +73,11 @@ export class ClaudeRunner implements Runner {
     try {
       const res = await this.exec(
         "claude",
-        ["-p", "--output-format", "json", "--max-turns", "1", "--model", this.model],
+        [
+          ...["-p", "--output-format", "json", "--max-turns", "1", "--model", this.model],
+          ...CLAUDE_LEAN_FLAGS,
+          ...["--system-prompt", this.systemPrompt],
+        ],
         { input: `${prompt}\n${input}\n`, env: spawnEnv(this.baseEnv, credential), cwd, timeoutMs: RUN_TIMEOUT_MS },
       );
       if (res.code !== 0 && !res.stdout.trim()) throw new Error(`claude exited ${res.code}: ${res.stderr.slice(0, 500)}`);

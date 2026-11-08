@@ -5,7 +5,7 @@ import { chunkTranscript, splitTurns } from "../src/chunk.js";
 import { spawnEnv } from "../src/env.js";
 import type { Exec, ExecOptions } from "../src/exec.js";
 import { allowedScopes, loadPrompt, parseFacts, PROMPT_PATH, renderPrompt } from "../src/prompt.js";
-import { ClaudeRunner, parseEnvelope } from "../src/runners/claude.js";
+import { CLAUDE_LEAN_FLAGS, ClaudeRunner, DISTILL_SYSTEM_PROMPT, parseEnvelope } from "../src/runners/claude.js";
 
 describe("spawnEnv", () => {
   it("strips every billing variable and sets only the OAuth token", () => {
@@ -94,9 +94,31 @@ describe("claude envelope", () => {
     const res = await runner.run("PROMPT", "user: hi", "oat");
     expect(res.json).toEqual({ facts: [] });
     expect(seen!.cmd).toBe("claude");
-    expect(seen!.args).toEqual(["-p", "--output-format", "json", "--max-turns", "1", "--model", "claude-sonnet-5-5"]);
+    expect(seen!.args).toEqual([
+      ...["-p", "--output-format", "json", "--max-turns", "1", "--model", "claude-sonnet-5-5"],
+      ...["--tools", "", "--strict-mcp-config", "--setting-sources", ""],
+      ...["--system-prompt", DISTILL_SYSTEM_PROMPT],
+    ]);
     expect(seen!.opts!.input).toBe("PROMPT\nuser: hi\n");
     expect(seen!.opts!.env).toEqual({ PATH: "/bin", CLAUDE_CODE_OAUTH_TOKEN: "oat" });
+  });
+
+  it("passes a custom system prompt", async () => {
+    let args: string[] = [];
+    const exec: Exec = async (_cmd, a) => {
+      args = a;
+      return { code: 0, stdout: JSON.stringify(envelope), stderr: "" };
+    };
+    await new ClaudeRunner(exec, "m", {}, "JUDGE").run("P", "I", "oat");
+    expect(args.slice(-2)).toEqual(["--system-prompt", "JUDGE"]);
+    expect(args).not.toContain(DISTILL_SYSTEM_PROMPT);
+  });
+
+  it("the Dockerfile checks every lean flag the runner passes", () => {
+    const dockerfile = readFileSync(new URL("../Dockerfile", import.meta.url), "utf8");
+    const checked = dockerfile.match(/for f in ([^;]+);/)![1]!.trim().split(/\s+/);
+    const passed = [...CLAUDE_LEAN_FLAGS, "--system-prompt"].filter((f) => f.startsWith("--"));
+    expect(checked.sort()).toEqual(passed.sort());
   });
 });
 

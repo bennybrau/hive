@@ -19,6 +19,7 @@ import { ClaudeRunner } from "../runners/claude.js";
 import type { Runner } from "../runners/types.js";
 
 export const DEFAULT_JUDGE_MODEL = "claude-sonnet-5-5";
+const JUDGE_SYSTEM_PROMPT = "You grade an answer against its answer key; follow the user message; reply with JSON only.";
 
 export interface Question {
   id: string;
@@ -110,7 +111,12 @@ async function main(): Promise<void> {
   const credential = process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "";
   if (!credential) throw new Error("CLAUDE_CODE_OAUTH_TOKEN is not set");
   await new ClaudeAuth(exec).check(credential);
-  const runner = new ClaudeRunner(exec, process.env.HIVE_EXPERIMENT_JUDGE_MODEL || DEFAULT_JUDGE_MODEL);
+  const runner = new ClaudeRunner(
+    exec,
+    process.env.HIVE_EXPERIMENT_JUDGE_MODEL || DEFAULT_JUDGE_MODEL,
+    process.env,
+    JUDGE_SYSTEM_PROMPT,
+  );
   const questions = new Map(
     (JSON.parse(readFileSync(args.questions!, "utf8")) as { questions: Question[] }).questions.map((q) => [q.id, q]),
   );
