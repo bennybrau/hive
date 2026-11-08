@@ -41,8 +41,15 @@ export interface Candidate extends Fact {
   replaces: Replaced | null;
 }
 
+/** An active fact a person corrected after an answer cited it, with the candidate that would replace it, if any. */
+export interface Flagged extends Fact {
+  correction: { text: string; episode_id: string; candidate_id: string | null; at: string };
+  replacing: { id: string; text: string } | null;
+}
+
 interface Queue {
   candidates: Candidate[];
+  flagged: Flagged[];
   last_distill_at: string | null;
 }
 
@@ -70,7 +77,13 @@ function lines(a: Anchor): string {
   return a.line_end && a.line_end !== a.line_start ? `:L${a.line_start}–L${a.line_end}` : `:L${a.line_start}`;
 }
 
-const DONE: Record<Decision["action"], string> = { approve: "Approved", fix: "Fixed", reject: "Rejected" };
+const DONE: Record<Decision["action"], string> = {
+  approve: "Approved",
+  fix: "Fixed",
+  reject: "Rejected",
+  keep: "Kept",
+  retire: "Retired",
+};
 
 type Editing = { kind: "fix"; text: string } | { kind: "reject"; note: string } | null;
 
@@ -215,6 +228,134 @@ function Evidence({
   );
 }
 
+type FlagEditing = { kind: "fix"; text: string } | { kind: "retire"; note: string } | null;
+
+/** A flagged fact: what the person said, the candidate replacing it, and keep / fix / retire. */
+function FlaggedCard({
+  f,
+  candidateLoaded,
+  selectCandidate,
+  decide,
+}: {
+  f: Flagged;
+  candidateLoaded: boolean;
+  selectCandidate: (id: string) => void;
+  decide: (d: Decision) => void;
+}) {
+  const [editing, setEditing] = useState<FlagEditing>(null);
+  const fixOk = editing?.kind === "fix" && editing.text.trim().length >= 3;
+
+  function submit() {
+    if (!editing) return;
+    if (editing.kind === "fix") {
+      if (!fixOk) return;
+      decide({ id: f.id, via: "curate", action: "fix", new_text: editing.text.trim() });
+    } else {
+      const note = editing.note.trim();
+      decide({ id: f.id, via: "curate", action: "retire", ...(note ? { note } : {}) });
+    }
+    setEditing(null);
+  }
+  const onKey = (e: ReactKeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setEditing(null);
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
+  };
+  const replacing = f.replacing;
+  const short = replacing?.id.slice(0, 8);
+
+  return (
+    <li className="flagged-card" data-id={f.id}>
+      {editing?.kind === "fix" ? (
+        <div className="field">
+          <label htmlFor={`fl-fix-${f.id}`}>Fixed text</label>
+          <textarea
+            id={`fl-fix-${f.id}`}
+            autoFocus
+            rows={3}
+            value={editing.text}
+            onChange={(e) => setEditing({ kind: "fix", text: e.target.value })}
+            onKeyDown={onKey}
+          />
+          <p className="help">Enter saves, Esc cancels.</p>
+        </div>
+      ) : (
+        <p className="fact-text">{f.text}</p>
+      )}
+      <p className="meta">
+        {f.kind} in {f.scope}. Corrected {timeAgo(f.correction.at)}.
+      </p>
+      <blockquote className="quote">{f.correction.text}</blockquote>
+      {replacing && (
+        <p className="help">
+          Replaced by candidate{" "}
+          {candidateLoaded ? (
+            <a
+              href={`#${encodeURIComponent(replacing.id)}`}
+              onClick={(e) => {
+                e.preventDefault();
+                selectCandidate(replacing.id);
+              }}
+            >
+              {short}
+            </a>
+          ) : (
+            short
+          )}
+        </p>
+      )}
+      {editing?.kind === "retire" && (
+        <div className="field">
+          <label htmlFor={`fl-note-${f.id}`}>Why retire it? (optional)</label>
+          <input
+            id={`fl-note-${f.id}`}
+            type="text"
+            autoFocus
+            value={editing.note}
+            onChange={(e) => setEditing({ kind: "retire", note: e.target.value })}
+            onKeyDown={onKey}
+          />
+          <p className="help">Enter retires, Esc cancels.</p>
+        </div>
+      )}
+      <div className="stale-actions">
+        {editing ? (
+          <>
+            {editing.kind === "fix" ? (
+              <button type="button" disabled={!fixOk} onClick={submit}>
+                Save fix
+              </button>
+            ) : (
+              <button type="button" className="danger" onClick={submit}>
+                Retire fact
+              </button>
+            )}
+            <button type="button" onClick={() => setEditing(null)}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" onClick={() => decide({ id: f.id, via: "curate", action: "keep" })}>
+              Keep
+            </button>
+            <button type="button" onClick={() => setEditing({ kind: "fix", text: f.text })}>
+              Fix
+            </button>
+            <button type="button" onClick={() => setEditing({ kind: "retire", note: "" })}>
+              Retire
+            </button>
+          </>
+        )}
+      </div>
+    </li>
+  );
+}
+
 function isTyping(t: EventTarget | null): boolean {
   return t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
 }
@@ -258,6 +399,7 @@ function ReviewQueue() {
   }, []);
 
   const shown = useMemo(() => queue?.candidates.filter((c) => !hidden.has(c.id)) ?? [], [queue, hidden]);
+  const flagged = useMemo(() => queue?.flagged.filter((f) => !hidden.has(f.id)) ?? [], [queue, hidden]);
   const index = Math.min(active, Math.max(shown.length - 1, 0));
   const current = shown[index];
 
@@ -270,15 +412,23 @@ function ReviewQueue() {
     if (listRef.current?.contains(document.activeElement)) rowRefs.current[next]?.focus();
   }
 
+  /** Make a candidate the current row and focus it (from a flagged fact's "Replaced by" link). */
+  function selectCandidate(id: string) {
+    const i = shown.findIndex((c) => c.id === id);
+    if (i < 0) return;
+    setActive(i);
+    rowRefs.current[i]?.focus();
+  }
+
   function submitEdit() {
     if (!current || !editing) return;
     if (editing.kind === "fix") {
       const text = editing.text.trim();
       if (text.length < 3) return;
-      decide({ id: current.id, action: "fix", new_text: text });
+      decide({ id: current.id, via: "review", action: "fix", new_text: text });
     } else {
       const note = editing.note.trim();
-      decide({ id: current.id, action: "reject", ...(note ? { note } : {}) });
+      decide({ id: current.id, via: "review", action: "reject", ...(note ? { note } : {}) });
     }
     setEditing(null);
   }
@@ -289,7 +439,7 @@ function ReviewQueue() {
     if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target) || !current) return;
     if (e.key === "j" || e.key === "ArrowDown") move(index + 1);
     else if (e.key === "k" || e.key === "ArrowUp") move(index - 1);
-    else if (e.key === "a") decide({ id: current.id, action: "approve" });
+    else if (e.key === "a") decide({ id: current.id, via: "review", action: "approve" });
     else if (e.key === "f") setEditing({ kind: "fix", text: current.text });
     else if (e.key === "r") setEditing({ kind: "reject", note: "" });
     else return;
@@ -305,10 +455,15 @@ function ReviewQueue() {
     <main className="page review-page">
       <header className="review-head">
         <h1>Review</h1>
-        {queue && shown.length > 0 && (
+        {queue && shown.length + flagged.length > 0 && (
           <p className="help keys">
-            {shown.length} to review. <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>a</kbd> approve, <kbd>f</kbd> fix,{" "}
-            <kbd>r</kbd> reject.
+            {shown.length + flagged.length} to review.
+            {shown.length > 0 && (
+              <>
+                {" "}
+                <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>a</kbd> approve, <kbd>f</kbd> fix, <kbd>r</kbd> reject.
+              </>
+            )}
           </p>
         )}
       </header>
@@ -325,13 +480,30 @@ function ReviewQueue() {
       )}
       {!queue && !loadError && <p className="help">Loading…</p>}
 
-      {queue && shown.length === 0 && (
+      {queue && shown.length === 0 && flagged.length === 0 && (
         <p className="review-empty">
           Nothing to review.{" "}
           <span className="help">
             {queue.last_distill_at ? `Last distill ran ${timeAgo(queue.last_distill_at)}.` : "No distill has run yet."}
           </span>
         </p>
+      )}
+
+      {flagged.length > 0 && (
+        <section className="flagged" aria-label="Corrected after citation">
+          <h2>Corrected after citation</h2>
+          <ul>
+            {flagged.map((f) => (
+              <FlaggedCard
+                key={f.id}
+                f={f}
+                candidateLoaded={!!f.replacing && shown.some((c) => c.id === f.replacing!.id)}
+                selectCandidate={selectCandidate}
+                decide={decide}
+              />
+            ))}
+          </ul>
+        </section>
       )}
 
       {current && (

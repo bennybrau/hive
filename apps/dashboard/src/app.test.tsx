@@ -69,7 +69,7 @@ describe("dashboard shell", () => {
     fetchMock.mockImplementation(async (url) =>
       String(url) === "/v1/status"
         ? json(200, { ...STATUS, instance: { ...STATUS.instance, role: "curator" } })
-        : json(200, { candidates: [], last_distill_at: null }),
+        : json(200, { candidates: [], flagged: [], last_distill_at: null }),
     );
     render(<App />);
     fireEvent.click(await screen.findByRole("link", { name: "Review" }));

@@ -1,6 +1,6 @@
 # M5b — Learn like Hermes: cheaper, cleaner learning
 
-Status: **IN PROGRESS** — milestone https://github.com/bennybrau/hive/milestone/8. WP1 (#73) and WP3 (#75) done; WP2 dropped; WP1b (#85) added.
+Status: **IN PROGRESS** — milestone https://github.com/bennybrau/hive/milestone/8. WP1 (#73), WP3 (#75) and WP7 (#79) done; WP2 dropped; WP1b (#85) added.
 
 **Scope rule:** Hermes is not changed. M5b takes ideas from how Hermes self-improves and applies them inside Hive only.
 
@@ -127,7 +127,7 @@ Finding: the ASF dialog mostly produces product decisions (what to build), not p
 
 Decision: go. Group 2 is thin (two pitfalls); if only steps counted, just group 1 would qualify.
 
-**WP7 — Use counts and retirement (#79).** Count each fact's real use: brief/recall injections and `[hive:<id>]`
+**WP7 — Use counts and retirement (#79).** Done (2026-11-08). Count each fact's real use: brief/recall injections and `[hive:<id>]`
 citations in answers. A fact unused for `HIVE_STALE_DAYS` (default 60) is marked stale and listed on a dashboard
 *Stale* tab for the curator to keep, fix or retire; nothing is retired automatically. A fact cited in an answer a
 person then corrects goes back to the review queue with the correction attached.

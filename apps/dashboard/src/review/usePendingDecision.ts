@@ -5,13 +5,15 @@ export const UNDO_MS = 5000;
 
 export interface Decision {
   id: string;
-  action: "approve" | "fix" | "reject";
+  /** `review` decides a candidate; `curate` decides a flagged active fact. */
+  via: "review" | "curate";
+  action: "approve" | "fix" | "reject" | "keep" | "retire";
   note?: string;
   new_text?: string;
 }
 
 /**
- * Holds one review decision back for UNDO_MS so it can be undone. The decided row is hidden at once; the POST goes
+ * Holds one review or curate decision back for UNDO_MS so it can be undone. The decided row is hidden at once; the POST goes
  * out when the timer ends, when the next decision is made, on unmount, or on pagehide. A non-2xx brings the row back.
  */
 export function usePendingDecision() {
@@ -37,13 +39,13 @@ export function usePendingDecision() {
       pendingRef.current = null;
       clearTimeout(timer.current);
       if (mounted.current) setPending(null);
-      const { id, ...body } = d;
+      const { id, via, ...body } = d;
       const fail = (why: string) => {
         if (!mounted.current) return;
         show(id);
         setError(`Couldn't save that decision: ${why}`);
       };
-      apiFetch(`/v1/facts/${encodeURIComponent(id)}/review`, {
+      apiFetch(`/v1/facts/${encodeURIComponent(id)}/${via}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),

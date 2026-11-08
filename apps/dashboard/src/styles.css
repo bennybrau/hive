@@ -205,6 +205,32 @@ kbd {
 .review-evidence .replaces .old { color: var(--muted); text-decoration: line-through; margin: 0 0 4px; }
 .similar .pct { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
 
+.flagged { margin: 0 0 24px; }
+.flagged h2 { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
+.flagged ul { display: grid; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.flagged-card {
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+}
+.flagged-card .fact-text { font-size: 15px; margin: 0 0 4px; }
+.flagged-card .meta { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
+.flagged-card blockquote.quote { margin: 0 0 8px; border-left: 2px solid var(--accent); }
+.flagged-card .help { margin: 0; }
+.flagged-card .field { margin: 8px 0; }
+.flagged-card textarea, .flagged-card input {
+  font: inherit;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+.flagged-card .stale-actions { margin-top: 12px; }
+
 .stale-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 .stale-confirm { margin-top: 16px; }
 .stale-confirm .stale-actions { margin-top: 0; }

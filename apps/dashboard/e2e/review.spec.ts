@@ -57,6 +57,53 @@ test("a curator reviews a member's candidate from the keyboard, with undo", asyn
     .toBe(`retracted rejected: e2e ${marker}`);
 });
 
+test("a curator keeps a fact the member corrected after an answer cited it", async ({ page }) => {
+  expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
+  expect(CURATOR, "HIVE_E2E_CURATOR_TOKEN is not set").not.toBe("");
+  const marker = `zc${Date.now()}`;
+  // The curator's global fact is active at once.
+  const res = await page.request.post(`${HIVE}/v1/facts`, {
+    headers: { authorization: `Bearer ${CURATOR}` },
+    data: { text: `Dashboard e2e cited fact ${marker}: exports run hourly.`, kind: "convention", scope: "global" },
+  });
+  expect(res.status()).toBe(201);
+  const id = (await res.json()).fact.id as string;
+  expect((await res.json()).fact.status).toBe("active");
+
+  // The member's answer cites it, and the next turn of the session corrects that answer.
+  const turn = (content: string, metadata: Record<string, unknown>) =>
+    page.request.post(`${HIVE}/v1/episodes`, {
+      headers: { authorization: `Bearer ${MEMBER}` },
+      data: { kind: "turn", session_id: `e2e-${marker}`, content, metadata },
+    });
+  expect((await turn("user: how often do exports run?\nassistant: Hourly.", { cited: [id.slice(0, 8)] })).status()).toBe(201);
+  const said = `no, exports run daily now ${marker}`;
+  expect((await turn(`user: ${said}\nassistant: Sorry.`, { correction: true })).status()).toBe(201);
+
+  await page.goto(`${HIVE}/`);
+  await page.getByLabel("Token").fill(CURATOR);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/facts$/);
+  await page.getByRole("link", { name: "Review" }).click();
+  await expect(page).toHaveURL(/\/review$/);
+
+  const card = page.getByRole("region", { name: "Corrected after citation" }).locator(`li[data-id="${id}"]`);
+  await expect(card).toContainText(marker);
+  await expect(card.locator("blockquote")).toHaveText(said);
+  await card.getByRole("button", { name: "Keep" }).click();
+  await expect(card).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("Kept");
+  await expect(page.getByRole("status")).toHaveCount(0, { timeout: 10_000 });
+
+  await expect
+    .poll(async () => {
+      const got = await page.request.get(`${HIVE}/v1/facts/${id}`, { headers: { authorization: `Bearer ${CURATOR}` } });
+      const f = (await got.json()).fact;
+      return `${f.status} ${"correction" in (f.metadata ?? {})}`;
+    })
+    .toBe("active false");
+});
+
 test("a member sees no Review link and a curators-only note at /review", async ({ page }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   await page.goto(`${HIVE}/`);

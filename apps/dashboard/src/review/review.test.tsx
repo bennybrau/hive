@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Review, timeAgo, type Candidate } from "./Review";
+import { Review, timeAgo, type Candidate, type Flagged } from "./Review";
 
 function candidate(id: string, over: Partial<Candidate> = {}): Candidate {
   return {
@@ -22,12 +22,31 @@ function candidate(id: string, over: Partial<Candidate> = {}): Candidate {
   };
 }
 
+function flaggedFact(id: string, over: Partial<Flagged> = {}): Flagged {
+  return {
+    id,
+    text: `flagged ${id}`,
+    kind: "convention",
+    scope: "global",
+    locus: [],
+    origin: "authored",
+    status: "active",
+    status_note: null,
+    author_user_id: "u1",
+    recorded_at: "2026-09-01T12:00:00Z",
+    correction: { text: `no, ${id} is wrong`, episode_id: "e1", candidate_id: null, at: new Date(Date.now() - 2 * 3600_000).toISOString() },
+    replacing: null,
+    ...over,
+  };
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-let queue: { candidates: Candidate[]; last_distill_at: string | null };
+let queue: { candidates: Candidate[]; flagged: Flagged[]; last_distill_at: string | null };
 let reviewStatus: number;
+let curateStatus: number;
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
   const url = new URL(String(input), "http://hive");
@@ -35,14 +54,18 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) =>
   if (/^\/v1\/facts\/[^/]+\/review$/.test(url.pathname)) {
     return reviewStatus === 200 ? json({ fact: {}, merged_into: null }) : json({ error: "fact is not a candidate" }, reviewStatus);
   }
+  if (/^\/v1\/facts\/[^/]+\/curate$/.test(url.pathname)) {
+    return curateStatus === 200 ? json({ fact: {} }) : json({ error: "fact is not active" }, curateStatus);
+  }
   return json({ error: "not found" }, 404);
 });
 
-/** The review POSTs made so far, as [fact id, body]. */
-function posts(): [string, unknown][] {
+/** The POSTs to /v1/facts/:id/<via> made so far, as [fact id, body]. */
+function posts(via: "review" | "curate" = "review"): [string, unknown][] {
+  const re = new RegExp(`/v1/facts/([^/]+)/${via}$`);
   return fetchMock.mock.calls
-    .filter(([, init]) => init?.method === "POST")
-    .map(([u, init]) => [/\/v1\/facts\/([^/]+)\/review/.exec(String(u))![1]!, JSON.parse(String(init!.body))]);
+    .filter(([u, init]) => init?.method === "POST" && re.test(String(u)))
+    .map(([u, init]) => [re.exec(String(u))![1]!, JSON.parse(String(init!.body))]);
 }
 
 const rows = () => within(screen.getByRole("list", { name: "Candidates" })).getAllByRole("listitem");
@@ -51,8 +74,9 @@ const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeA
 
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
-  queue = { candidates: [candidate("c1"), candidate("c2"), candidate("c3")], last_distill_at: null };
+  queue = { candidates: [candidate("c1"), candidate("c2"), candidate("c3")], flagged: [], last_distill_at: null };
   reviewStatus = 200;
+  curateStatus = 200;
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -300,15 +324,163 @@ describe("review queue", () => {
   });
 });
 
+describe("corrected after citation", () => {
+  const C2 = "c2aaaaaa-0000-0000-0000-000000000002";
+  const section = () => screen.getByRole("region", { name: "Corrected after citation" });
+  const card = (id: string) => section().querySelector<HTMLElement>(`li[data-id="${id}"]`);
+
+  beforeEach(() => {
+    queue.candidates[1] = candidate(C2);
+    queue.flagged = [
+      flaggedFact("f1", { correction: { ...flaggedFact("f1").correction, candidate_id: C2 }, replacing: { id: C2, text: `candidate ${C2}` } }),
+      flaggedFact("f2"),
+    ];
+  });
+
+  it("shows the fact, when and how it was corrected, and links to the replacing candidate", async () => {
+    await open();
+    const f1 = card("f1")!;
+    expect(within(section()).getByRole("heading", { name: "Corrected after citation" })).toBeTruthy();
+    expect(f1.querySelector(".fact-text")!.textContent).toBe("flagged f1");
+    expect(f1.querySelector(".meta")!.textContent).toBe("convention in global. Corrected 2 hours ago.");
+    expect(f1.querySelector("blockquote")!.textContent).toBe("no, f1 is wrong");
+    expect(f1.querySelector(".help")!.textContent).toBe("Replaced by candidate c2aaaaaa");
+    expect(within(f1).getByRole("link", { name: "c2aaaaaa" })).toBeTruthy();
+    expect(card("f2")!.textContent).not.toMatch(/Replaced by/);
+    expect(screen.getByText(/to review\./).textContent).toMatch(/^5 to review\./);
+  });
+
+  it("the link selects the replacing candidate and focuses its row", async () => {
+    await open();
+    fireEvent.click(within(card("f1")!).getByRole("link", { name: "c2aaaaaa" }));
+    expect(rows()[1]!.getAttribute("aria-current")).toBe("true");
+    expect(document.activeElement).toBe(rows()[1]);
+    expect(screen.getByRole("complementary", { name: "Evidence" }).querySelector(".fact-text")!.textContent).toBe(`candidate ${C2}`);
+  });
+
+  it("names the replacing candidate without a link when it isn't loaded", async () => {
+    queue.candidates.splice(1, 1);
+    await open();
+    expect(card("f1")!.querySelector(".help")!.textContent).toBe("Replaced by candidate c2aaaaaa");
+    expect(within(card("f1")!).queryByRole("link")).toBeNull();
+  });
+
+  it("Keep curates after the undo window", async () => {
+    await open();
+    fireEvent.click(within(card("f2")!).getByRole("button", { name: "Keep" }));
+    expect(card("f2")).toBeNull();
+    expect(screen.getByRole("status").textContent).toMatch(/^Kept·Undo$/);
+    await tick(4900);
+    expect(posts("curate")).toEqual([]);
+    await tick(200);
+    expect(posts("curate")).toEqual([["f2", { action: "keep" }]]);
+    expect(posts("review")).toEqual([]);
+  });
+
+  it("Fix opens the text; Enter curates a fix with new_text, and under 3 chars does nothing", async () => {
+    await open();
+    fireEvent.click(within(card("f1")!).getByRole("button", { name: "Fix" }));
+    const box = within(card("f1")!).getByLabelText("Fixed text") as HTMLTextAreaElement;
+    expect(box.value).toBe("flagged f1");
+    expect(document.activeElement).toBe(box);
+    fireEvent.change(box, { target: { value: " x " } });
+    press("Enter", box);
+    expect(card("f1")).not.toBeNull();
+    fireEvent.change(box, { target: { value: "  flagged f1, fixed  " } });
+    press("Enter", box);
+    expect(card("f1")).toBeNull();
+    expect(screen.getByRole("status").textContent).toMatch(/^Fixed/);
+    await tick(5000);
+    expect(posts("curate")).toEqual([["f1", { action: "fix", new_text: "flagged f1, fixed" }]]);
+  });
+
+  it("Esc closes the fix box without deciding anything", async () => {
+    await open();
+    fireEvent.click(within(card("f1")!).getByRole("button", { name: "Fix" }));
+    press("Escape", within(card("f1")!).getByLabelText("Fixed text"));
+    expect(within(card("f1")!).queryByLabelText("Fixed text")).toBeNull();
+    await tick(6000);
+    expect(posts("curate")).toEqual([]);
+  });
+
+  it("Retire asks for an optional note and curates a retire", async () => {
+    await open();
+    fireEvent.click(within(card("f1")!).getByRole("button", { name: "Retire" }));
+    const note = within(card("f1")!).getByLabelText(/Why retire it/);
+    fireEvent.change(note, { target: { value: "wrong since v2" } });
+    press("Enter", note);
+    expect(screen.getByRole("status").textContent).toMatch(/^Retired/);
+    fireEvent.click(within(card("f2")!).getByRole("button", { name: "Retire" }));
+    fireEvent.click(within(card("f2")!).getByRole("button", { name: "Retire fact" }));
+    await tick(5000);
+    expect(posts("curate")).toEqual([
+      ["f1", { action: "retire", note: "wrong since v2" }],
+      ["f2", { action: "retire" }],
+    ]);
+  });
+
+  it("Undo puts the card back and sends nothing", async () => {
+    await open();
+    fireEvent.click(within(card("f1")!).getByRole("button", { name: "Keep" }));
+    expect(card("f1")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Undo" }));
+    expect(card("f1")).not.toBeNull();
+    await tick(10_000);
+    expect(posts("curate")).toEqual([]);
+  });
+
+  it("a 409 brings the card back and says why", async () => {
+    curateStatus = 409;
+    await open();
+    fireEvent.click(within(card("f1")!).getByRole("button", { name: "Keep" }));
+    expect(card("f1")).toBeNull();
+    await tick(5000);
+    expect((await screen.findByRole("alert")).textContent).toMatch(/fact is not active \(409\)/);
+    expect(card("f1")).not.toBeNull();
+  });
+
+  it("a, f and r still act only on candidates", async () => {
+    await open();
+    press("f");
+    expect(screen.getByRole("complementary", { name: "Evidence" }).querySelector("textarea")).not.toBeNull();
+    expect(section().querySelector("textarea")).toBeNull();
+    press("Escape", screen.getByLabelText("Fixed text", { selector: "#r-fix" }));
+    press("a");
+    await tick(5000);
+    expect(posts("review")).toEqual([["c1", { action: "approve" }]]);
+    expect(posts("curate")).toEqual([]);
+    expect(card("f1")).not.toBeNull();
+  });
+
+  it("shows no section when nothing is flagged", async () => {
+    queue.flagged = [];
+    await open();
+    expect(screen.queryByRole("region", { name: "Corrected after citation" })).toBeNull();
+    expect(screen.getByText(/to review\./).textContent).toMatch(/^3 to review\./);
+  });
+
+  it("is not empty while a flagged fact is left, and is once both lists are", async () => {
+    queue.candidates = [];
+    queue.flagged = [flaggedFact("f1")];
+    render(<Review role="curator" />);
+    await screen.findByText("flagged f1");
+    expect(screen.queryByText(/Nothing to review/)).toBeNull();
+    expect(screen.queryByRole("list", { name: "Candidates" })).toBeNull();
+    expect(screen.getByText(/to review\./).textContent).toBe("1 to review.");
+    fireEvent.click(screen.getByRole("button", { name: "Keep" }));
+    expect(screen.getByText(/Nothing to review/)).toBeTruthy();
+  });
+});
+
 describe("empty and gated", () => {
   it("says when the last distill ran", async () => {
-    queue = { candidates: [], last_distill_at: new Date(Date.now() - 3 * 3600_000).toISOString() };
+    queue = { candidates: [], flagged: [], last_distill_at: new Date(Date.now() - 3 * 3600_000).toISOString() };
     render(<Review role="curator" />);
     expect((await screen.findByText(/Nothing to review/)).textContent).toBe("Nothing to review. Last distill ran 3 hours ago.");
   });
 
   it("says when no distill has run", async () => {
-    queue = { candidates: [], last_distill_at: null };
+    queue = { candidates: [], flagged: [], last_distill_at: null };
     render(<Review role="curator" />);
     expect((await screen.findByText(/Nothing to review/)).textContent).toBe("Nothing to review. No distill has run yet.");
   });
