@@ -130,7 +130,7 @@ describe("units", () => {
   it("budget: round-robin in priority order, skipping what doesn't fit", () => {
     const item = (n: number) => ({ t: "x".repeat(n) });
     const { out, tokens, dropped } = packBudget(
-      { gotchas: [item(30), item(30)], facts: [item(390)], locations: [item(30), item(30)], runs: [item(30)], tests: [item(30)] },
+      { playbook: [], gotchas: [item(30), item(30)], facts: [item(390)], locations: [item(30), item(30)], runs: [item(30)], tests: [item(30)] },
       50,
     );
     // gotcha 1, (fact too big), location 1, run 1, test 1, gotcha 2 -> location 2 no longer fits
@@ -140,8 +140,8 @@ describe("units", () => {
     expect(out.locations).toHaveLength(1);
     expect(out.runs).toHaveLength(1);
     expect(out.tests).toHaveLength(1);
-    expect(dropped).toEqual({ gotchas: 0, facts: 1, locations: 1, runs: 0, tests: 0 });
-    expect(tokens).toEqual({ gotchas: 2 * cost, facts: 0, locations: cost, runs: cost, tests: cost, total: 5 * cost });
+    expect(dropped).toEqual({ playbook: 0, gotchas: 0, facts: 1, locations: 1, runs: 0, tests: 0 });
+    expect(tokens).toEqual({ playbook: 0, gotchas: 2 * cost, facts: 0, locations: cost, runs: cost, tests: cost, total: 5 * cost });
   });
 });
 
@@ -172,8 +172,9 @@ describe("POST /v1/brief", () => {
     expect(b.tests.length).toBeLessThanOrEqual(5);
     expect(paths(b.tests).filter((p: string) => locs.includes(p))).toEqual([]);
     expect(b.runs).toEqual([]);
-    expect(b.dropped).toEqual({ gotchas: 0, facts: 0, locations: 0, runs: 0, tests: 0 });
-    const sum = (["gotchas", "facts", "locations", "runs", "tests"] as const).reduce((n, s) => n + b.tokens[s], 0);
+    expect(b.playbook).toEqual([]);
+    expect(b.dropped).toEqual({ playbook: 0, gotchas: 0, facts: 0, locations: 0, runs: 0, tests: 0 });
+    const sum = (["playbook", "gotchas", "facts", "locations", "runs", "tests"] as const).reduce((n, s) => n + b.tokens[s], 0);
     expect(b.tokens.total).toBe(sum);
   });
 

@@ -1,11 +1,12 @@
 /**
- * A task brief: before an agent starts on a task, the few things worth knowing — gotchas on the
+ * A task brief: before an agent starts on a task, the few things worth knowing — a matching playbook, gotchas on the
  * files it will touch, relevant facts, where to look, past factory runs on the same files, and which
  * tests cover it — packed into a
  * token budget. Pure SQL plus one local query embedding; no LLM.
  */
 import type { Instance } from "./auth.js";
 import { FACT_COLUMNS, type Fact } from "./facts.js";
+import { bestPlaybook, trimPlaybook, type BriefPlaybook } from "./playbooks.js";
 import { readableScopes } from "./scope.js";
 import { embedQuery, HEADLINE, overlaps, searchDocs, searchFacts, TSQUERY, type SearchDeps } from "./search.js";
 
@@ -16,7 +17,7 @@ const LOCATIONS_K = 8;
 const TESTS_K = 5;
 const RUNS_K = 3;
 
-export const SECTIONS = ["gotchas", "facts", "locations", "runs", "tests"] as const;
+export const SECTIONS = ["playbook", "gotchas", "facts", "locations", "runs", "tests"] as const;
 type Section = (typeof SECTIONS)[number];
 
 export interface BriefFact {
@@ -58,6 +59,8 @@ export interface Brief {
   budget_tokens: number;
   tokens: Record<Section | "total", number>;
   dropped: Record<Section, number>;
+  /** The best-matching playbook (0 or 1), trimmed to PLAYBOOK_MAX_TOKENS. */
+  playbook: BriefPlaybook[];
   gotchas: BriefFact[];
   facts: BriefFact[];
   locations: BriefLocation[];
@@ -206,13 +209,15 @@ export async function buildBrief(
   const { task, repoKey, budgetTokens } = opts;
   const changedPaths = opts.changedPaths.filter(Boolean);
   const qvec = await embedQuery(deps.embedder, task);
-  const [terms, registered, factHits] = await Promise.all([
+  const [terms, registered, factHits, matched] = await Promise.all([
     taskTerms(deps, task),
     deps.pool.query("select 1 from repos where key = $1", [repoKey]).then((r) => (r.rowCount ?? 0) > 0),
     searchFacts(deps, who, {
       q: task, repoKey, k: FACTS_K, statuses: ["active"], qvec, minSimilarity: BRIEF_MIN_SIMILARITY, changedPaths,
     }),
+    bestPlaybook(deps.pool, repoKey, task, changedPaths),
   ]);
+  const playbook = matched ? [trimPlaybook(matched)] : [];
 
   let locations: BriefLocation[] = [];
   let tests: BriefTest[] = [];
@@ -257,7 +262,7 @@ export async function buildBrief(
       ...(f.near_changes !== undefined ? { near_changes: f.near_changes } : {}),
     }));
 
-  const { out, tokens, dropped } = packBudget({ gotchas, facts, locations, runs, tests }, budgetTokens);
+  const { out, tokens, dropped } = packBudget({ playbook, gotchas, facts, locations, runs, tests }, budgetTokens);
   return {
     repo_key: repoKey,
     repo_indexed: registered,
@@ -266,6 +271,7 @@ export async function buildBrief(
     budget_tokens: budgetTokens,
     tokens,
     dropped,
+    playbook: out.playbook as BriefPlaybook[],
     gotchas: out.gotchas as BriefFact[],
     facts: out.facts as BriefFact[],
     locations: out.locations as BriefLocation[],

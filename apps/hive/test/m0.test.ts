@@ -20,7 +20,7 @@ describe("migrations", () => {
       "select table_name from information_schema.tables where table_schema = 'public' order by 1",
     );
     expect(rows.map((r) => r.table_name)).toEqual([
-      "anchors", "distill_jobs", "doc_chunks", "doc_files", "episodes", "facts", "instances", "llm_calls", "repo_files", "repos", "reviews", "schema_migrations", "settings", "webhook_deliveries", "webhooks",
+      "anchors", "distill_jobs", "doc_chunks", "doc_files", "episodes", "facts", "instances", "llm_calls", "playbooks", "repo_files", "repos", "reviews", "schema_migrations", "settings", "webhook_deliveries", "webhooks",
     ]);
     const ext = await pool.query("select 1 from pg_extension where extname = 'vector'");
     expect(ext.rowCount).toBe(1);

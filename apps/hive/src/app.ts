@@ -10,6 +10,7 @@ import { briefRoutes } from "./routes/brief.js";
 import { episodeRoutes } from "./routes/episodes.js";
 import { factRoutes } from "./routes/facts.js";
 import { repoRoutes, type RepoDeps } from "./routes/repos.js";
+import { playbookRoutes } from "./routes/playbooks.js";
 import { reviewRoutes } from "./routes/review.js";
 import { healthRoutes } from "./routes/health.js";
 import { searchRoutes } from "./routes/search.js";
@@ -64,6 +65,7 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
       notifier.kick();
     });
     reviewRoutes(v1, pool, onWrite);
+    playbookRoutes(v1, pool);
     settingsRoutes(v1, pool, opts.secretKey ?? null);
     statsRoutes(v1, pool);
     webhookRoutes(v1, pool, opts.secretKey ?? null);

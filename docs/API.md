@@ -72,6 +72,24 @@ The queue only lists scopes the curator can read (never another user's personal 
     candidate). 409 if that fact is `retracted` or `superseded`.
   - `reject` → `retracted`, `status_note: "rejected: <note>"` (or `"rejected"`), `valid_to = now()`.
 
+## Playbooks
+
+A playbook is a short procedure for a class of task: when it applies, its steps and its pitfalls. Shared scopes only
+(`global` or `repo:<key>`); everyone can read them, only a curator writes (members get 403).
+`{id, scope, title, applies_paths, applies_words, steps, pitfalls, status: active|superseded|retracted, supersedes, author_user_id, created_at}`;
+`steps` and `pitfalls` are `[{text, fact_ids}]` (the facts the item came from).
+
+- `GET /v1/playbooks?scope=` → `{playbooks}`: active ones, newest first (`scope` as stored, e.g. `repo:<key>`).
+- `GET /v1/playbooks/:id` → `{playbook}`, whatever its status. 404 no such playbook.
+- `POST /v1/playbooks` `{scope, repo_key?, title, applies_paths?, applies_words?, steps?, pitfalls?}` → 201 `{playbook}`.
+  `scope` is `global`, `repo` (with `repo_key`) or `repo:<key>`; `personal` → 400. `title` ≤ 200 chars; ≤ 20 globs,
+  words, steps and pitfalls; each text ≤ 1000 chars. Globs: `**` = any folders, `*` = any characters except `/`,
+  `?` = one character except `/`. Every `fact_ids` entry must be an existing fact, else 400 listing the unknown ids.
+- `PUT /v1/playbooks/:id` (same fields, all optional) → `{playbook}`: a new active version with `supersedes` = the old
+  one, which becomes `superseded`. Fields left out (scope too) keep the old values. 404 no such playbook; 409 when it
+  isn't `active`.
+- `DELETE /v1/playbooks/:id` → `{playbook}` now `retracted`. 404 no such playbook; 409 when it isn't `active`.
+
 ## Stats (curator only)
 
 - `GET /v1/stats?days=30` — `days` 1–365 (400 otherwise); members get 403 `{error: "only a curator can see stats"}`.
@@ -242,8 +260,12 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
 ## Brief (hot path: SQL + one local query embedding, no LLM)
 
 - `POST /v1/brief` `{task, repo_key, changed_paths?: string[] (≤200), budget_tokens?: 100–4000 (600)}` — what to know before
-  starting a task in a repo. `{repo_key, repo_indexed, mode, terms, budget_tokens, tokens:{gotchas, facts, locations, runs, tests, total},
-  dropped:{gotchas, facts, locations, runs, tests}, gotchas:[...], facts:[...], locations:[...], runs:[...], tests:[...]}`.
+  starting a task in a repo. `{repo_key, repo_indexed, mode, terms, budget_tokens, tokens:{playbook, gotchas, facts, locations, runs, tests, total},
+  dropped:{playbook, gotchas, facts, locations, runs, tests}, playbook:[...], gotchas:[...], facts:[...], locations:[...], runs:[...], tests:[...]}`.
+  - `playbook` `[{id, title, scope, steps, pitfalls}]`, 0 or 1: the active playbook in `global` or `repo:<repo_key>` that
+    fits best: most `changed_paths` matching its `applies_paths`, then most of its `applies_words` in the task (whole
+    words, any case), then the repo's own over a global one, then the newest. None when nothing matches. Cut to 300
+    tokens by dropping steps from the end, then pitfalls.
   - `terms`: the task's words as Postgres' `english` config sees them (stopwords dropped, stemmed), 3+ chars.
   - `facts` `[{id, text, kind, scope, locus, verify, near_changes?}]`: like `/v1/recall` with `k=5`, `min_sim=0.62` (the
     prefetch gate) and `changed=changed_paths` (locus boost).
@@ -257,7 +279,7 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
     contains a location's name (minus extension), then in the location's folder or below it, then in a folder next to it.
   - `gotchas`: active `gotcha` facts you can read whose `locus` or anchor paths overlap the locations or `changed_paths`
     (a file, or a directory containing it). A fact listed here is not repeated under `facts`.
-  - Budget: each item costs `ceil(JSON length / 4)` tokens; items are taken round-robin in the order gotchas → facts →
+  - Budget: each item costs `ceil(JSON length / 4)` tokens; items are taken round-robin in the order playbook → gotchas → facts →
     locations → runs → tests, and one that doesn't fit is skipped and counted in `dropped`.
   - A repo that isn't registered still answers 200, with `repo_indexed: false` and only `facts`. Code paths come from
     `repo_files` (every tracked file of the default branch except `node_modules`, `vendor`, `dist`, ...), filled by ingest;
