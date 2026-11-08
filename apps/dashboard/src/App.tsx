@@ -6,6 +6,7 @@ import { Repos } from "./repos/Repos";
 import { Review } from "./review/Review";
 import { Search } from "./search/Search";
 import { Shell } from "./Shell";
+import { Stale } from "./stale/Stale";
 import { Stats } from "./stats/Stats";
 import { SignIn } from "./SignIn";
 
@@ -55,6 +56,8 @@ export function App() {
         <Facts />
       ) : path === "/review" ? (
         <Review role={status.instance.role} />
+      ) : path === "/stale" ? (
+        <Stale role={status.instance.role} />
       ) : path === "/search" ? (
         <Search />
       ) : path === "/stats" ? (

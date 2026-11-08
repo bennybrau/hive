@@ -21,9 +21,18 @@ HIVE_E2E_TOKEN=$(mint "e2e-$(date +%s)" member)
 HIVE_E2E_CURATOR_TOKEN=$(mint "e2e-curator-$(date +%s)" curator)
 export HIVE_E2E_TOKEN HIVE_E2E_CURATOR_TOKEN
 
+# Four global facts nobody has used for 400 days, for the Stale tab to keep, fix, retire and pin.
+stale_marker="zs$(date +%s)"
+HIVE_E2E_STALE_IDS=$(docker compose exec -T postgres psql -U hive -d hive -v ON_ERROR_STOP=1 -tAq -c "
+  insert into facts (text, kind, scope, origin, status, content_hash, valid_from, recorded_at)
+  select t, 'decision', 'global', 'authored', 'active', md5(t), now() - interval '400 days', now() - interval '400 days'
+  from (select 'Dashboard e2e stale fact ${stale_marker} #' || n as t from generate_series(1, 4) n) s
+  returning id" | paste -sd, -)
+export HIVE_E2E_STALE_IDS
+
 # The spec imports @playwright/test, so install it next to the spec rather than run it from the npx cache.
 docker run --rm --init --ipc=host --network "container:$hive" \
-  -e HIVE_E2E_TOKEN -e HIVE_E2E_CURATOR_TOKEN -v "$PWD/apps/dashboard/e2e:/spec:ro" \
+  -e HIVE_E2E_TOKEN -e HIVE_E2E_CURATOR_TOKEN -e HIVE_E2E_STALE_IDS -v "$PWD/apps/dashboard/e2e:/spec:ro" \
   "mcr.microsoft.com/playwright:v$PW_VERSION-noble" \
   bash -c "set -e; mkdir /tmp/e2e && cp /spec/*.spec.ts /tmp/e2e/ && cd /tmp/e2e \
     && npm init -y >/dev/null && npm install --silent --no-audit --no-fund @playwright/test@$PW_VERSION \

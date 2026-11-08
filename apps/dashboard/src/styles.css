@@ -205,6 +205,11 @@ kbd {
 .review-evidence .replaces .old { color: var(--muted); text-decoration: line-through; margin: 0 0 4px; }
 .similar .pct { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
 
+.stale-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.stale-confirm { margin-top: 16px; }
+.stale-confirm .stale-actions { margin-top: 0; }
+button.danger { border-color: var(--error); color: var(--error); font-weight: 500; }
+
 .toast {
   position: fixed;
   left: 50%;
