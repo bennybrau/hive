@@ -1,6 +1,8 @@
 # M5b — Learn like Hermes: cheaper, cleaner learning
 
-Status: **PLANNED** — milestone https://github.com/bennybrau/hive/milestone/8, issues #73–#80.
+Status: **IN PROGRESS** — milestone https://github.com/bennybrau/hive/milestone/8. WP1 (#73) and WP3 (#75) done; WP2 dropped; WP1b (#85) added.
+
+**Scope rule:** Hermes is not changed. M5b takes ideas from how Hermes self-improves and applies them inside Hive only.
 
 ## Why
 
@@ -27,7 +29,7 @@ what's learned cleaner and more useful. It ends by re-running the experiment.
 - **Never save:** environment/setup failures, "tool X is broken" claims (they harden into refusals), transient errors,
   one-off task narratives, unresolved failures presented as a method.
 - **Lifecycle:** the curator tracks per-skill use, marks idle agent-made skills stale and archives them; never deletes.
-- **Relevant to WP2:** the review fork runs with `skip_memory=True` (`_fork_init_kwargs`), so its memory writes are
+- **Why WP2 was dropped:** the review fork runs with `skip_memory=True` (`_fork_init_kwargs`), so its memory writes are
   **not** mirrored to an external memory provider today. Foreground memory-tool writes are mirrored
   (`MemoryManager.notify_memory_tool_write` → provider `on_memory_write(action, target, content, metadata)`, with
   `metadata.write_origin`). The metadata already has a `background_review` origin, but nothing forwards the fork's
@@ -36,9 +38,8 @@ what's learned cleaner and more useful. It ends by re-running the experiment.
 ## Decisions
 
 1. Keep the human rule from M5: a fact must quote what a person said. Nothing here relaxes it.
-2. Cut the cost first (WP1, WP2), measure, then improve quality (WP3–WP6), measure again.
-3. Hermes's review is a **trigger**, not a source of truth: it can tell Hive "this session has something", but Hive
-   still reads the person's words and anchors the fact to a quote.
+2. Cut the cost first (WP1, WP1b), measure, then improve quality (WP3–WP6), measure again.
+3. Hermes is not modified. Hive borrows its ideas (skip what can't teach anything, short rules, fix in place, a don't-save list, use counts) and implements them in the hive and its plugin.
 4. Don't copy Hermes's counter trigger (it fires regardless of content) or its "a pass that does nothing is a miss"
    bias (fine for a private skill library, floods a shared review queue).
 
@@ -49,13 +50,9 @@ questions finishes with no model call. For the rest, the distiller gets the user
 assistant message before each one, not tool output. Expected: most distill calls disappear; the rest read a fraction
 of the text.
 
-**WP2 — Hermes's review as the trigger (#74).** When Hermes's own background review saves a memory or edits a skill because
-of something the user said, the Hive plugin marks that session as worth distilling (and passes the review's note as a
-hint). A session Hermes reviewed and found nothing in is skipped. Hermes only reviews every N turns,
-so a session it never reviewed (most short ones) falls back to WP1's rule. Needs a Hermes change: forward
-the review fork's memory writes to the parent's memory providers with `write_origin: background_review` (or add a
-provider hook for review results). Spike first: confirm the path, and whether skill edits can be surfaced too.
-Distill still reads the WP1 view and must quote the person; the hint only decides *whether* to read.
+**WP1b — Lean distill calls (#85).** Found in WP1's live check: after the view trims the episode, a distill still costs ~3¢ because `claude -p` loads Claude Code's default system prompt and tool definitions (~16,800 tokens) on every call. Running it with no tools, no settings or MCP, and a one-line system prompt measured $0.0095 instead of $0.0285 on the same input.
+
+~~**WP2 — Hermes's review as the trigger (#74).**~~ Dropped (2026-11-07): it needed an upstream Hermes change (the review fork's memory writes don't reach memory providers), and Hermes stays unchanged.
 
 **WP3 — Rules, not stories; a don't-save list (distill-v6) (#75).** Port Hermes's shape and do-not-capture rules into the
 distill prompt: a fact is a standalone rule (plus why when the person gave it), with no PR numbers, dates or narration
@@ -67,7 +64,7 @@ attempts. New eval cases for each excluded kind.
 the distiller may return `replaces: <id>`; the review queue shows old vs new; approving supersedes the old fact
 (the `supersedes` chain from M4). Same prompt version as WP3 (do WP3 first).
 
-*Checkpoint:* **WP5 — Re-run the experiment (#77)** after WP1–WP4. Same questions, seed and arms; compare with the
+*Checkpoint:* **WP5 — Re-run the experiment (#77)** after WP1, WP1b, WP3 and WP4. Same questions, seed and arms; compare with the
 baseline. Also report the Hive's real-world spend over the week before (`report.py --since`), since the experiment's
 sessions are all question-only. Bar: net ≥ $0, on-arm accuracy ≥ 85%.
 
@@ -87,5 +84,5 @@ the explainer.
 
 ## Order
 
-WP1 → WP2 (cost) and WP3 → WP4 (quality) can run in parallel; WP5 needs all four. WP6 and WP7 are independent of
-each other and start after WP5; WP8 last. WP2 and WP6 start with a spike.
+WP1 → WP1b (cost) and WP3 → WP4 (quality) can run in parallel; WP5 needs all four. WP6 and WP7 are independent of
+each other and start after WP5; WP8 last. WP6 starts with a spike.

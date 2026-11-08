@@ -253,9 +253,9 @@ bennybrau/agentic-software-factory#78 (ASF sends merged runs and the dialog). Th
 The M5 experiment ([results](EXPERIMENT_RESULTS.md), 2026-11-07): with the Hive, answers were 17% cheaper and more
 often right (85% vs 75%), but distilling every session cost more than that saved (net −$0.91 over 48 questions).
 Decision: change, not stop. [M5B_LEARNING_LOOP.md](M5B_LEARNING_LOOP.md) cuts the distill cost (skip question-only
-sessions, read only quotable text, let Hermes's own review decide which sessions to read), adopts Hermes's
+sessions, read only quotable text, call the model without Claude Code's default overhead), adopts Hermes's
 self-improvement rules (rules not stories, a don't-save list, corrections replace facts, playbooks, use counts and
-retirement), and re-runs the experiment twice. Milestone https://github.com/bennybrau/hive/milestone/8, issues
+retirement), and re-runs the experiment twice. Hermes itself is not changed. Milestone https://github.com/bennybrau/hive/milestone/8, issues
 #73–#80.
 
 ### M6 — Harden for other people (1–2 d)
