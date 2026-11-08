@@ -93,6 +93,7 @@ describe("claim", () => {
     expect(body).toEqual({
       job: { id: expect.any(String), attempts: 1, lease_until: expect.any(String) },
       episode: { id: ep.id, kind: "session", repo_key: "gh/acme/api", content: distillView(TRANSCRIPT), remember_request: false, personal_scope: null },
+      related: [],
       prompt_version: DISTILL_PROMPT_VERSION,
       credential: CREDENTIAL,
     });
@@ -472,6 +473,160 @@ describe("complete", () => {
     expect((await complete(app, worker.token, job.id, Array(21).fill(ok))).statusCode).toBe(400);
     expect((await complete(app, worker.token, job.id, [ok], { ...USAGE, cost_usd: undefined })).statusCode).toBe(400);
     expect((await jobs())[0]).toMatchObject({ status: "claimed" });
+  });
+});
+
+describe("related facts and replaces", () => {
+  const mk = async (text: string, scope = "repo:gh/acme/api", token = curator.token) => {
+    const res = await app.inject({ method: "POST", url: "/v1/facts", headers: auth(token), payload: { text, kind: "decision", scope } });
+    expect(res.statusCode, res.body).toBeLessThan(300);
+    return res.json().fact as { id: string; text: string; scope: string };
+  };
+  const relatedIds = async (jobId: string) =>
+    (await pool.query<{ related_ids: string[] }>("select related_ids from distill_jobs where id = $1", [jobId])).rows[0]!.related_ids;
+
+  it("an embedded episode gets the closest active embedded facts in its scopes, by cosine, and the job keeps their ids", async () => {
+    await setCredential();
+    const both = await mk("Payments are billed after each Cloud Run deploy.");
+    const deploy = await mk("Deploys go to Cloud Run.", "global");
+    const tests = await mk("Vitest runs the tests.");
+    const mine = await mk("I deploy payments by hand.", "personal:alice", alice.token);
+    const other = await mk("Payments deploy on Fridays.", "repo:gh/acme/other"); // other repo
+    const jons = await mk("Jon deploys payments.", "personal:jon"); // someone else's personal scope
+    const gone = await mk("Payments deploy via Cloud Run on main.");
+    await pool.query("update facts set status = 'superseded' where id = $1", [gone.id]);
+    await postEpisode(app, alice.token, "session", TRANSCRIPT, "gh/acme/api");
+    await runEmbedPass(pool, embedder);
+    const late = await mk("Billing deploys nightly."); // active, in scope, but not embedded: left out
+    const res = await claim(app, worker.token);
+    expect(res.statusCode, res.body).toBe(200);
+    const { job, related } = res.json();
+    // personal:alice ties with `both` on cosine; ties go by id
+    const top = [both, mine].sort((x, y) => (x.id < y.id ? -1 : 1));
+    expect(related).toEqual([
+      ...top.map((f) => ({ id: f.id, text: f.text, kind: "decision", scope: f.scope })),
+      { id: deploy.id, text: deploy.text, kind: "decision", scope: "global" },
+      { id: tests.id, text: tests.text, kind: "decision", scope: "repo:gh/acme/api" },
+    ]);
+    expect(related.map((f: { id: string }) => f.id)).not.toContain(other.id);
+    expect(related.map((f: { id: string }) => f.id)).not.toContain(jons.id);
+    expect(related.map((f: { id: string }) => f.id)).not.toContain(late.id);
+    expect(await relatedIds(job.id)).toEqual(related.map((f: { id: string }) => f.id));
+  });
+
+  it("sends at most 8", async () => {
+    await setCredential();
+    for (let i = 0; i < 10; i++) await mk(`Deploy rule number ${i}.`);
+    await postEpisode(app, alice.token, "session", TRANSCRIPT, "gh/acme/api");
+    await runEmbedPass(pool, embedder);
+    const { job, related } = (await claim(app, worker.token)).json();
+    expect(related).toHaveLength(8);
+    expect(await relatedIds(job.id)).toHaveLength(8);
+  });
+
+  it("an episode without an embedding gets the facts sharing a word with it, best keyword rank first", async () => {
+    await setCredential();
+    // the weaker match gets the lower id, so an id order would put it first
+    const at = async (id: string, text: string, scope: string) => {
+      await pool.query(
+        `insert into facts (id, text, kind, scope, origin, status, content_hash) values ($1, $2, 'decision', $3, 'authored', 'active', $4)`,
+        [id, text, scope, `hash-${id}`],
+      );
+      return { id };
+    };
+    const one = await at("00000000-0000-0000-0000-000000000001", "Tabs or spaces: tabs.", "global");
+    const many = await at("00000000-0000-0000-0000-000000000002", "Invoices come from the billing service, run nightly.", "repo:gh/acme/api");
+    const none = await mk("Owners approve pull requests.");
+    await postEpisode(app, alice.token, "session", TRANSCRIPT, "gh/acme/api");
+    const { job, related } = (await claim(app, worker.token)).json();
+    expect(related.map((f: { id: string }) => f.id)).toEqual([many.id, one.id]);
+    expect(related.map((f: { id: string }) => f.id)).not.toContain(none.id);
+    expect(await relatedIds(job.id)).toEqual([many.id, one.id]);
+  });
+
+  it("a remember job gets none", async () => {
+    await setCredential();
+    await mk("Invoices come from the billing service, run nightly.", "global");
+    const flagged = await app.inject({
+      method: "POST",
+      url: "/v1/episodes",
+      headers: auth(alice.token),
+      payload: { kind: "turn", session_id: "s1", content: "user: remember: invoices are generated by the billing service nightly", metadata: { remember_request: true } },
+    });
+    expect(flagged.statusCode, flagged.body).toBe(201);
+    const { job, related } = (await claim(app, worker.token)).json();
+    expect(related).toEqual([]);
+    expect(await relatedIds(job.id)).toEqual([]);
+  });
+
+  it("a legacy asf_run job gets none", async () => {
+    await setCredential();
+    await mk("Invoices come from the billing service, run nightly.", "global");
+    const ep = await pool.query<{ id: string }>(`insert into episodes (kind, content) values ('asf_run', 'the billing service runs nightly') returning id`);
+    await pool.query("insert into distill_jobs (episode_id) values ($1)", [ep.rows[0]!.id]);
+    const { job, related } = (await claim(app, worker.token)).json();
+    expect(related).toEqual([]);
+    expect(await relatedIds(job.id)).toEqual([]);
+  });
+
+  it("complete keeps replaces on a new candidate only when the claim sent it and it is in the fact's scope", async () => {
+    await setCredential();
+    const repoOld = await mk("Invoices are generated weekly by the billing service.");
+    const globalOld = await mk("Invoices are emailed by the billing service.", "global");
+    const unsent = await mk("Owners approve pull requests.");
+    const ep = await postEpisode(app, alice.token, "session", TRANSCRIPT, "gh/acme/api");
+    expect(ep.statusCode).toBe(201);
+    const { job, related } = (await claim(app, worker.token)).json();
+    const sent = related.map((f: { id: string }) => f.id);
+    expect(sent).toEqual(expect.arrayContaining([repoOld.id, globalOld.id]));
+    expect(sent).not.toContain(unsent.id);
+    // no embedder: the fake one would call a correction a vector dupe of the fact it corrects
+    const plain = buildApp(pool, { version: "test", secretKey: KEY, distillClaimWaitMs: WAIT_MS });
+    const res = await complete(plain, worker.token, job.id, [
+      { text: "Invoices are generated nightly by the billing service.", kind: "system", scope: "repo:gh/acme/api", quote: "Invoices are generated by the billing service nightly.", replaces: repoOld.id },
+      // sent, but in another scope
+      { text: "Payments run nightly.", kind: "system", scope: "repo:gh/acme/api", quote: "billing service nightly", replaces: globalOld.id },
+      // in scope, but not sent
+      { text: "Never deploy by hand.", kind: "convention", scope: "repo:gh/acme/api", quote: "never by hand", replaces: unsent.id },
+      // not an id at all
+      { text: "Migrations are never edited after merge.", kind: "convention", scope: "repo:gh/acme/api", quote: "never edited after merge", replaces: "fact 3" },
+      // an anchored dupe gains no replaces
+      { text: "Invoices are generated weekly by the billing service.", kind: "system", scope: "repo:gh/acme/api", quote: "billing service", replaces: repoOld.id },
+    ]);
+    await plain.close();
+    expect(res.statusCode, res.body).toBe(200);
+    const { result } = res.json();
+    expect(result.created).toHaveLength(4);
+    expect(result.anchored).toEqual([repoOld.id]);
+    const meta = await pool.query<{ id: string; metadata: object }>("select id, metadata from facts where id = any($1)", [[...result.created, repoOld.id]]);
+    const byId = new Map(meta.rows.map((r) => [r.id, r.metadata]));
+    expect(result.created.map((id: string) => byId.get(id))).toEqual([{ replaces: repoOld.id }, {}, {}, {}]);
+    expect(byId.get(repoOld.id)).toEqual({});
+  });
+
+  it("a remember job never stores replaces", async () => {
+    await setCredential();
+    const old = await mk("Invoices are generated weekly by the billing service.", "global");
+    const content = "user: remember: invoices are generated by the billing service nightly";
+    await app.inject({ method: "POST", url: "/v1/episodes", headers: auth(alice.token), payload: { kind: "turn", session_id: "s1", content, metadata: { remember_request: true } } });
+    const { job } = (await claim(app, worker.token)).json();
+    await pool.query("update distill_jobs set related_ids = $2 where id = $1", [job.id, [old.id]]);
+    const res = await complete(app, worker.token, job.id, [
+      { text: "Invoices are generated nightly.", kind: "system", scope: "global", quote: "invoices are generated by the billing service nightly", replaces: old.id },
+    ]);
+    expect(res.statusCode, res.body).toBe(200);
+    const row = await pool.query("select metadata from facts where id = $1", [res.json().result.created[0]]);
+    expect(row.rows[0].metadata).toEqual({ asked: true });
+  });
+
+  it("rejects a replaces longer than 100 characters", async () => {
+    await setCredential();
+    await postEpisode(app, alice.token, "session", TRANSCRIPT, "gh/acme/api");
+    const { job } = (await claim(app, worker.token)).json();
+    const res = await complete(app, worker.token, job.id, [
+      { text: "Invoices are nightly.", kind: "system", scope: "global", quote: "nightly", replaces: "x".repeat(101) },
+    ]);
+    expect(res.statusCode).toBe(400);
   });
 });
 

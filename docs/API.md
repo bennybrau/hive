@@ -46,7 +46,7 @@ Shared-scope facts from members, and every distilled fact, start as `candidate` 
 The queue only lists scopes the curator can read (never another user's personal facts).
 
 - `GET /v1/review/queue?scope=&origin=&limit=20` — candidates, asked candidates first, then oldest (`scope` as stored, e.g. `repo:<key>`;
-  `origin`: `authored | distilled | ingested`; `limit` ≤ 100). `{candidates, last_distill_at}`; each candidate is `{...fact, supersedes, anchors, similar}`:
+  `origin`: `authored | distilled | ingested`; `limit` ≤ 100). `{candidates, last_distill_at}`; each candidate is `{...fact, supersedes, anchors, similar, replaces}`:
   - `anchors[]` include `verify_status`; an anchor on an episode carries `episode_snippet`, ~300 chars of the episode
     around the quote (case-insensitive; the episode's start when the quote isn't found).
     It also carries `exchange: {assistant, user}`: the first `user:` turn containing the quote (whitespace-normalized,
@@ -55,10 +55,14 @@ The queue only lists scopes the curator can read (never another user's personal 
     user turn, and on anchors without an episode.
   - `similar[]`: up to 3 `active` facts in the candidate's scope or `global` with cosine similarity ≥ 0.85, with
     `similarity`. Empty until the candidate is embedded.
+  - `replaces`: the fact a distilled candidate says it corrects (its `metadata.replaces`, see Worker) as
+    `{id, text, kind, scope, status}` with its status now, or `null`.
   - `last_distill_at`: when the last `done` distill job finished (ISO timestamp), or `null` if none has.
 - `POST /v1/facts/:id/review` `{action: approve|fix|reject, note?, new_text?}` → `{fact, merged_into}`. 404 no such fact,
   409 when it isn't a `candidate`. Every decision writes a `reviews` row (`new_text` on fix).
-  - `approve` → `active` (and supersedes its target, see above).
+  - `approve` → `active` (and supersedes its target, see above). A candidate with no `supersedes` whose
+    `metadata.replaces` is still `active` in its scope gets it as `supersedes`, and that fact is superseded. The same
+    goes for a `fix` that isn't a merge; a merge ignores `replaces`.
   - `fix` (needs `new_text`) → text replaced and normalized, re-embedded by the worker, `active`. If the new text is
     already another fact in that scope, the candidate is merged instead: its anchors move to that fact, it is
     `retracted` with `status_note: "merged into <id>"`, and `merged_into` is that fact (activated if it was a
@@ -140,7 +144,11 @@ a remember job. A claim leases the job for `HIVE_DISTILL_LEASE_SECONDS` (default
 an expired lease puts it back in the queue, and after 3 attempts (expired or failed) it is `failed` for good.
 
 - `POST /v1/worker/distill/claim` → `200 {job:{id, attempts, lease_until}, episode:{id, kind, repo_key, content,
-  remember_request, personal_scope}, prompt_version, credential}`, highest priority first, then oldest.
+  remember_request, personal_scope}, related:[{id, text, kind, scope}], prompt_version, credential}`, highest priority first, then oldest.
+  `related` is up to 8 `active` facts in the episode's scopes (`global`, `repo:<repo_key>`, `personal:<episode user>`)
+  that a distilled fact may replace: with an episode embedding, the embedded facts closest by cosine; without one, the
+  facts sharing a word with the episode (OR-ed keyword query of the fact's text), best `ts_rank` first. Their ids are
+  kept on the job. Always `[]` on a remember job and an `asf_run` job.
   `remember_request` is true on a remember job; `personal_scope` is then `personal:<episode user>` (else `null`), a
   scope its facts may also take. `content` is the distill view, not the whole episode: every `user: ` turn and
   `tool(clarify): ` line in full, each after the last `assistant: ` text since the previous kept piece (clipped to
@@ -153,7 +161,7 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   `i'd like`, `please`, `remember`, `no,`, `not `; a clarify answer never is. `asf_dialog` and remember jobs are never
   skipped. Long-polls up to 25 s (re-checks every second, woken at once by a new episode), then `204`.
   `503 {error: "agent credential not set"}` (nothing claimed) when no credential is stored or `HIVE_SECRET_KEY` is unset.
-- `POST /v1/worker/distill/:id/complete` `{facts:[{text, kind, scope, quote, locus?}] (≤ 20), usage:{model, input_tokens,
+- `POST /v1/worker/distill/:id/complete` `{facts:[{text, kind, scope, quote, locus?, replaces?}] (≤ 20), usage:{model, input_tokens,
   output_tokens, cache_read_tokens, cost_usd, duration_ms}}` → `{result:{prompt_version, created:[ids], anchored:[ids], dropped:[{text, reason}],
   dropped_non_user_quote}}`. Dropped, checked in this order: `quote_not_in_episode` (the quote, whitespace collapsed,
   isn't in the episode), `non_user_quote` (it is, but not inside a user turn: a turn starts at a line beginning
@@ -165,7 +173,9 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   collapsed) as a candidate, active or retracted (not superseded) fact in its scope with cosine ≥ 0.80 to it (with no embedding on either side: when the
   exchange matches, the same user turn after the same assistant text or clarify question, or none on both sides), gets an
   `{episode_id, quote, repo_key}` anchor instead of a new row (on `session`, `asf_dialog` and remember jobs alike); the rest become `origin: distilled`, `status: candidate` facts authored by the episode's
-  user, with that anchor. A retracted fact matched by its quote gains the anchor and stays retracted, so a rejected
+  user, with that anchor. Such a new candidate keeps `replaces` (≤ 100 chars) as `metadata.replaces` only when it is an id
+  the claim sent in `related` and that fact is in the candidate's scope; otherwise (and on an anchored fact or a remember
+  job) it is dropped without a word. A retracted fact matched by its quote gains the anchor and stays retracted, so a rejected
   fact isn't sent back for review. Writes one `llm_calls` row (`job: distill`); the job is `done` with `result` stored.
   A remember job records what the user asked for. Its window runs from the previous `turn` episode of the same session
   by the same instance (or 15 minutes back, without one) to the flagged turn; that instance's candidate/active facts

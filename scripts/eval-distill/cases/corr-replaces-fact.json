@@ -1,0 +1,21 @@
+{
+  "id": "corr-replaces-fact",
+  "source": {"synthetic": "written for distill-v7: the user corrects a fact the hive already has"},
+  "repo_key": "gh/jon/ledger",
+  "related": [
+    {"id": "7d1c2f3a-0b4e-4c1a-9e6f-1a2b3c4d5e01", "text": "Invoice exports cut the day at midnight UTC.", "kind": "convention", "scope": "repo:gh/jon/ledger"},
+    {"id": "7d1c2f3a-0b4e-4c1a-9e6f-1a2b3c4d5e02", "text": "Checkout idempotency keys live in Postgres (a unique idempotency_key column on orders), not Redis.", "kind": "decision", "scope": "repo:gh/jon/ledger"},
+    {"id": "7d1c2f3a-0b4e-4c1a-9e6f-1a2b3c4d5e03", "text": "The ledger app does not run Redis in production.", "kind": "system", "scope": "repo:gh/jon/ledger"}
+  ],
+  "expected": [
+    {
+      "text": "Invoice exports cut the day at midnight Europe/Berlin time, not UTC, because finance closes the books on Berlin days.",
+      "kind": "convention",
+      "scope": "repo:gh/jon/ledger",
+      "evidence": "invoice exports cut the day in Europe/Berlin time now, because finance closes the books on Berlin days",
+      "replaces": "7d1c2f3a-0b4e-4c1a-9e6f-1a2b3c4d5e01"
+    }
+  ],
+  "acceptable": [],
+  "notes": "SYNTHETIC. The hive already has the fact that invoice exports cut the day at midnight UTC (sent as related); the user says that rule is out of date and gives the new one with its reason. The expected fact states the new rule and replaces the UTC fact. The assistant's offer to delay the job and the fix itself are not facts."
+}

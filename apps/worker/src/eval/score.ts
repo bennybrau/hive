@@ -2,13 +2,15 @@
  * Scoring for the distill eval (scripts/eval-distill). Pure: the judge's answers come in as data, so this is
  * unit-tested without a model.
  */
-import type { DistilledFact } from "../prompt.js";
+import type { DistilledFact, RelatedFact } from "../prompt.js";
 
 export interface Label {
   text: string;
   kind: string;
   scope: string;
   evidence?: string;
+  /** The id of the `related` fact this label corrects. */
+  replaces?: string;
 }
 
 export interface EvalCase {
@@ -20,6 +22,8 @@ export interface EvalCase {
   expected: Label[];
   /** Borderline facts: proposing one is neither credited nor a false positive. */
   acceptable: Label[];
+  /** The active facts a claim would send with this episode (default none). */
+  related?: RelatedFact[];
   transcript: string;
 }
 
@@ -193,6 +197,8 @@ export interface CaseResult {
   falsePositives: number;
   invalidQuotes: number;
   scopeMisses: number;
+  /** Found facts whose `replaces` differs from their label's. */
+  replacesMisses: number;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
@@ -211,6 +217,7 @@ export interface Totals {
   falsePositives: number;
   invalidQuotes: number;
   scopeMisses: number;
+  replacesMisses: number;
   cost_usd: number;
   input_tokens: number;
   output_tokens: number;
@@ -237,6 +244,7 @@ export function totals(results: CaseResult[]): Totals {
     falsePositives,
     invalidQuotes,
     scopeMisses: sum((r) => r.scopeMisses),
+    replacesMisses: sum((r) => r.replacesMisses),
     cost_usd: sum((r) => r.cost_usd),
     input_tokens: sum((r) => r.input_tokens),
     output_tokens: sum((r) => r.output_tokens),

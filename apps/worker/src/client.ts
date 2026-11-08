@@ -1,4 +1,4 @@
-import type { DistilledFact } from "./prompt.js";
+import type { DistilledFact, RelatedFact } from "./prompt.js";
 import type { Usage } from "./runners/types.js";
 
 export interface Claimed {
@@ -13,6 +13,8 @@ export interface Claimed {
     /** `personal:<user>` on a remember job, else null. */
     personal_scope: string | null;
   };
+  /** Active facts close to the episode, which a fact may replace (absent = none). */
+  related?: RelatedFact[];
   prompt_version: string;
   credential: string;
 }

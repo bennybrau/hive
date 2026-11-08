@@ -60,7 +60,9 @@ export async function distill(deps: LoopDeps, claim: Claimed): Promise<{ facts: 
   const { episode } = claim;
   const scopes = allowedScopes(episode.repo_key, episode.personal_scope);
   const remember = episode.remember_request ? { personalScope: episode.personal_scope } : undefined;
-  const prompt = renderPrompt(deps.prompt, episode.repo_key, episode.kind, remember);
+  const related = claim.related ?? [];
+  const relatedIds = related.map((f) => f.id);
+  const prompt = renderPrompt(deps.prompt, episode.repo_key, episode.kind, remember, related);
   const usage: Usage = { model: deps.runner.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cost_usd: 0, duration_ms: 0 };
   const facts: DistilledFact[] = [];
   const seen = new Set<string>();
@@ -72,7 +74,7 @@ export async function distill(deps: LoopDeps, claim: Claimed): Promise<{ facts: 
     usage.cache_read_tokens += res.usage.cache_read_tokens;
     usage.cost_usd += res.usage.cost_usd;
     usage.duration_ms += res.usage.duration_ms;
-    for (const parsed of parseFacts(res.json, scopes)) {
+    for (const parsed of parseFacts(res.json, scopes, relatedIds)) {
       // An unrepairable quote is passed on as is: the hive drops that fact and records why.
       const f = { ...parsed, quote: anchorQuote(parsed.quote, chunk) ?? parsed.quote };
       const key = f.text.toLowerCase().replace(/\s+/g, " ");

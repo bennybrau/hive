@@ -128,6 +128,25 @@ describe("worker loop", () => {
     expect(calls[1]!.body.facts.map((f: { scope: string }) => f.scope)).toEqual(["personal:alice"]);
   });
 
+  it("sends the related facts in the prompt and keeps a replaces that names one", async () => {
+    const related = [{ id: "f-1", text: "We use npm.", kind: "convention", scope: "repo:hive" }];
+    const runner = fakeRunner([{ facts: [{ ...fact("We use pnpm."), replaces: "f-1" }, { ...fact("Lockfiles are committed."), replaces: "f-7" }] }]);
+    const { hive, calls } = fakeHive(claimed(undefined, { related }));
+    const d = deps(hive, runner, { prompt: { version: "distill-v1", body: "{{scopes}} | {{related}}" } });
+    expect(await step(d)).toBe("completed");
+    expect(runner.prompts[0]).toContain("- f-1 [convention, repo:hive] We use npm.");
+    expect(calls[1]!.body.facts).toEqual([{ ...fact("We use pnpm."), replaces: "f-1" }, fact("Lockfiles are committed.")]);
+  });
+
+  it("a claim without related (an older hive) sends none and drops any replaces", async () => {
+    const runner = fakeRunner([{ facts: [{ ...fact("We use pnpm."), replaces: "f-1" }] }]);
+    const { hive, calls } = fakeHive(claimed());
+    const d = deps(hive, runner, { prompt: { version: "distill-v1", body: "{{scopes}} | {{related}}" } });
+    expect(await step(d)).toBe("completed");
+    expect(runner.prompts[0]).not.toContain("Facts the team already has");
+    expect(calls[1]!.body.facts).toEqual([fact("We use pnpm.")]);
+  });
+
   it("a prompt_version mismatch fails the job without running anything", async () => {
     const { hive, calls } = fakeHive(claimed(undefined, { prompt_version: "distill-v2" }));
     const runner = fakeRunner([{ facts: [fact("We use pnpm.")] }]);

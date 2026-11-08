@@ -77,6 +77,13 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
          order by s.similarity desc`,
         [ids, SIMILAR_MIN],
       );
+      // The fact each distilled candidate says it replaces, whatever its status now.
+      const replaces = await pool.query<{ candidate_id: string; id: string; text: string; kind: string; scope: string; status: string }>(
+        `select c.id as candidate_id, f.id, f.text, f.kind, f.scope, f.status
+         from facts c join facts f on f.id = (c.metadata->>'replaces')::uuid
+         where c.id = any($1::uuid[])`,
+        [ids],
+      );
       // When the distiller last finished a job, so an empty queue can say how fresh it is.
       const lastDistill = await pool.query<{ at: Date | null }>(
         "select max(finished_at) as at from distill_jobs where status = 'done'",
@@ -95,6 +102,7 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
           similar: similar.rows
             .filter((s) => s.candidate_id === c.id)
             .map(({ candidate_id: _, ...s }) => ({ ...s, similarity: Number(s.similarity) })),
+          replaces: replaces.rows.filter((r) => r.candidate_id === c.id).map(({ candidate_id: _, ...r }) => r)[0] ?? null,
         })),
       };
     },

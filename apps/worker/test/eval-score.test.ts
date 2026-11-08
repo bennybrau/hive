@@ -109,7 +109,7 @@ describe("judgePrompt", () => {
 
 describe("totals", () => {
   const res = (over: Partial<CaseResult>): CaseResult => ({
-    id: "x", proposed: [], expected: 0, found: 0, falsePositives: 0, invalidQuotes: 0, scopeMisses: 0,
+    id: "x", proposed: [], expected: 0, found: 0, falsePositives: 0, invalidQuotes: 0, scopeMisses: 0, replacesMisses: 0,
     input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cost_usd: 0, duration_ms: 0, ...over,
   });
 
@@ -123,6 +123,12 @@ describe("totals", () => {
   it("fails each target just past the bar", () => {
     const t = totals([res({ expected: 4, found: 2, falsePositives: 2, invalidQuotes: 1 }), ...Array.from({ length: 4 }, () => res({}))]);
     expect(t.pass).toEqual({ recall: false, falsePositives: false, quotes: false });
+  });
+
+  it("sums replaces misses, which are not part of the bar", () => {
+    const t = totals([res({ expected: 1, found: 1, replacesMisses: 1 }), res({ replacesMisses: 2 })]);
+    expect(t.replacesMisses).toBe(3);
+    expect(t.pass).toEqual({ recall: true, falsePositives: true, quotes: true });
   });
 
   it("an errored case fails recall: a run that didn't happen must not pass", () => {

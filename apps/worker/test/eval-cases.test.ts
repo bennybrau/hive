@@ -7,20 +7,26 @@ import { quoteValid, type Label } from "../src/eval/score.js";
 const dir = fileURLToPath(new URL("../../../scripts/eval-distill/cases/", import.meta.url));
 const cases = readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
 
-// distill-v6 must quote a user turn for every fact, so an expected label is only findable when its evidence is one.
+// Since distill-v6 every fact must quote a user turn, so an expected label is only findable when its evidence is one.
 describe("eval-distill cases", () => {
   it("has cases", () => expect(cases.length).toBeGreaterThan(0));
   for (const f of cases) {
-    const meta = JSON.parse(readFileSync(join(dir, f), "utf8")) as { expected: Label[] };
+    const meta = JSON.parse(readFileSync(join(dir, f), "utf8")) as { expected: Label[]; related?: { id: string }[] };
     const transcript = readFileSync(join(dir, f.replace(/\.json$/, ".txt")), "utf8");
     meta.expected.forEach((l, i) => {
       it(`${f} E${i + 1} has evidence quoting a user turn`, () => {
         expect(quoteValid(l.evidence ?? "", transcript)).toBe(true);
       });
-      // distill-v6 states a rule, not the incident: numbers and dates stay in the quote.
+      // Since distill-v6 a fact states a rule, not the incident: numbers and dates stay in the quote.
       it(`${f} E${i + 1} has no issue number or date in its text`, () => {
         expect(l.text).not.toMatch(/#\d+|\d{4}-\d{2}-\d{2}/);
       });
+      // a claim only accepts a replaces it sent, so a label can only replace a fact in the case's related
+      if (l.replaces !== undefined) {
+        it(`${f} E${i + 1} replaces a fact in the case's related`, () => {
+          expect((meta.related ?? []).map((r) => r.id)).toContain(l.replaces);
+        });
+      }
     });
   }
 });

@@ -158,7 +158,7 @@ describe("ClaudeAuth", () => {
 
 describe("prompt", () => {
   it("the prompt file carries its version", () => {
-    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v6");
+    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v7");
     expect(loadPrompt(PROMPT_PATH).body).toContain('{"facts":[]}');
   });
 
@@ -233,5 +233,30 @@ describe("prompt", () => {
     );
     expect(facts).toEqual([ok, { ...ok, locus: ["a.ts"] }]);
     expect(() => parseFacts({ nope: 1 }, ["global"])).toThrow(/facts/);
+  });
+
+  it("parseFacts keeps a replaces only when it names a related fact, and keeps the fact either way", () => {
+    const ok = { text: "We use pnpm, not npm.", kind: "convention", scope: "repo:hive", quote: "use pnpm" };
+    const related = ["f-1", "f-2"];
+    const facts = parseFacts(
+      { facts: [{ ...ok, replaces: "f-2" }, { ...ok, replaces: "f-9" }, { ...ok, replaces: 2 }, ok] },
+      ["repo:hive"],
+      related,
+    );
+    expect(facts).toEqual([{ ...ok, replaces: "f-2" }, ok, ok, ok]);
+    expect(parseFacts({ facts: [{ ...ok, replaces: "f-2" }] }, ["repo:hive"])).toEqual([ok]);
+  });
+
+  it("renderPrompt lists the related facts and how to replace one, and nothing without them", () => {
+    const prompt = loadPrompt(PROMPT_PATH);
+    const none = renderPrompt(prompt, "gh/o/r", "session");
+    const some = renderPrompt(prompt, "gh/o/r", "session", undefined, [
+      { id: "f-1", text: "Invoices go out weekly.", kind: "decision", scope: "repo:gh/o/r" },
+      { id: "f-2", text: "Tabs, not spaces.", kind: "preference", scope: "global" },
+    ]);
+    for (const out of [none, some]) expect(out).not.toMatch(/\{\{\w+\}\}/);
+    expect(none).not.toContain("Facts the team already has");
+    expect(some).toContain("Facts the team already has, closest to this transcript first:\n- f-1 [decision, repo:gh/o/r] Invoices go out weekly.\n- f-2 [preference, global] Tabs, not spaces.\n");
+    expect(some).toContain('"replaces":"<that fact\'s id>"');
   });
 });

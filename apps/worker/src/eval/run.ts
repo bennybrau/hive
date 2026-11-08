@@ -55,7 +55,7 @@ async function judge(judgeRunner: Runner, c: EvalCase, texts: string[], credenti
 
 async function runCase(deps: LoopDeps, judgeRunner: Runner, c: EvalCase, credential: string): Promise<CaseResult> {
   const base: CaseResult = {
-    id: c.id, proposed: [], expected: c.expected.length, found: 0, falsePositives: 0, invalidQuotes: 0, scopeMisses: 0,
+    id: c.id, proposed: [], expected: c.expected.length, found: 0, falsePositives: 0, invalidQuotes: 0, scopeMisses: 0, replacesMisses: 0,
     input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cost_usd: 0, duration_ms: 0,
   };
   const kind = c.kind ?? "session";
@@ -65,6 +65,7 @@ async function runCase(deps: LoopDeps, judgeRunner: Runner, c: EvalCase, credent
     const { facts, usage } = await distill(deps, {
       job: { id: `eval-${c.id}`, attempts: 1, lease_until: "" },
       episode: { id: c.id, kind, repo_key: c.repo_key, content: distillView(c.transcript), remember_request: false, personal_scope: null },
+      related: c.related ?? [],
       prompt_version: deps.prompt.version,
       credential,
     });
@@ -78,6 +79,7 @@ async function runCase(deps: LoopDeps, judgeRunner: Runner, c: EvalCase, credent
       falsePositives: verdicts.filter((v) => v.kind === "false_positive").length,
       invalidQuotes: proposed.filter((p) => !p.quoteOk).length,
       scopeMisses: verdicts.filter((v) => v.kind === "match" && !v.scopeOk).length,
+      replacesMisses: proposed.filter((p) => p.verdict.kind === "match" && (p.fact.replaces ?? null) !== (c.expected[p.verdict.label]!.replaces ?? null)).length,
       input_tokens: usage.input_tokens, output_tokens: usage.output_tokens, cache_read_tokens: usage.cache_read_tokens,
       cost_usd: usage.cost_usd, judge_cost_usd: j.cost_usd, duration_ms: usage.duration_ms,
     };
@@ -105,15 +107,15 @@ const ok = (b: boolean) => (b ? "PASS" : "FAIL");
 function report(results: CaseResult[], cases: EvalCase[], label: string): void {
   const byId = new Map(cases.map((c) => [c.id, c]));
   console.log(`\n=== ${label}`);
-  console.log("case                     found  FP  bad-quote  scope-miss  tokens in/out     cost    secs");
+  console.log("case                     found  FP  bad-quote  scope-miss  replaces-miss  tokens in/out     cost    secs");
   for (const r of results) {
-    const line = `${r.id.padEnd(24)} ${`${r.found}/${r.expected}`.padStart(5)}  ${String(r.falsePositives).padStart(2)}  ${String(r.invalidQuotes).padStart(9)}  ${String(r.scopeMisses).padStart(10)}  ${`${r.input_tokens + r.cache_read_tokens}/${r.output_tokens}`.padStart(13)}  ${usd(r.cost_usd).padStart(7)}  ${(r.duration_ms / 1000).toFixed(1).padStart(6)}`;
+    const line = `${r.id.padEnd(24)} ${`${r.found}/${r.expected}`.padStart(5)}  ${String(r.falsePositives).padStart(2)}  ${String(r.invalidQuotes).padStart(9)}  ${String(r.scopeMisses).padStart(10)}  ${String(r.replacesMisses).padStart(13)}  ${`${r.input_tokens + r.cache_read_tokens}/${r.output_tokens}`.padStart(13)}  ${usd(r.cost_usd).padStart(7)}  ${(r.duration_ms / 1000).toFixed(1).padStart(6)}`;
     console.log(line + (r.skipped ? "  SKIPPED (questions only)" : "") + (r.error ? `  ERROR ${r.error.slice(0, 160)}` : ""));
     const c = byId.get(r.id)!;
     for (const p of r.proposed) {
       const v = p.verdict;
       const tag =
-        v.kind === "match" ? `  + E${v.label + 1}${v.scopeOk ? "" : ` scope ${p.fact.scope}≠${c.expected[v.label]!.scope}`}`
+        v.kind === "match" ? `  + E${v.label + 1}${v.scopeOk ? "" : ` scope ${p.fact.scope}≠${c.expected[v.label]!.scope}`}${(p.fact.replaces ?? null) === (c.expected[v.label]!.replaces ?? null) ? "" : ` replaces ${p.fact.replaces ?? "-"}≠${c.expected[v.label]!.replaces ?? "-"}`}`
         : v.kind === "acceptable" ? `  ~ ${v.label < 0 ? "dup" : `A${v.label + 1}`}`
         : "  - FP";
       console.log(`${tag}${p.quoteOk ? "" : " BAD-QUOTE"} [${p.fact.kind}/${p.fact.scope}] ${p.fact.text}`);
@@ -127,6 +129,7 @@ function report(results: CaseResult[], cases: EvalCase[], label: string): void {
   console.log(`  false positives       ${t.falsePositives} in ${t.cases} sessions = ${t.fpPer5.toFixed(2)} per 5   target <= 1   ${ok(t.pass.falsePositives)}`);
   console.log(`  invalid quotes        ${t.invalidQuotes}   target 0   ${ok(t.pass.quotes)}`);
   console.log(`  scope misses          ${t.scopeMisses} of ${t.found} found facts`);
+  console.log(`  replaces misses       ${t.replacesMisses} of ${t.found} found facts`);
   console.log(`  errors                ${t.errors}`);
   const distilled = results.filter((r) => !r.skipped);
   const mean = (f: (r: CaseResult) => number) => Math.round(distilled.reduce((n, r) => n + f(r), 0) / (distilled.length || 1));

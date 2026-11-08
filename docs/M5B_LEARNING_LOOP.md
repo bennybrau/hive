@@ -62,7 +62,7 @@ attempts. New eval cases for each excluded kind.
 **WP4 — Corrections replace facts (#76).** When a person's words contradict or update an existing fact, the candidate says
 "replaces fact X" instead of adding a twin. Hive sends the distiller the closest active facts in the episode's scope;
 the distiller may return `replaces: <id>`; the review queue shows old vs new; approving supersedes the old fact
-(the `supersedes` chain from M4). Same prompt version as WP3 (do WP3 first).
+(the `supersedes` chain from M4). Prompt version `distill-v7` (after WP3's v6).
 
 *Checkpoint:* **WP5 — Re-run the experiment (#77)** after WP1, WP1b, WP3 and WP4. Same questions, seed and arms; compare with the
 baseline. Also report the Hive's real-world spend over the week before (`report.py --since`), since the experiment's

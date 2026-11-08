@@ -6,11 +6,13 @@ import { ConflictError, contentHash, initialStatus, normalizeText, type FactKind
 /** A job that has been claimed this many times and fails (or its lease expires) again is given up on. */
 export const MAX_ATTEMPTS = 3;
 /** Sent with every claim so the worker and the stored result agree on which prompt produced the facts. */
-export const DISTILL_PROMPT_VERSION = "distill-v6";
+export const DISTILL_PROMPT_VERSION = "distill-v7";
 /** Cosine above which a distilled fact is "the same" as an existing one in its scope (anchor, don't insert). */
 const VECTOR_DUPE_MIN = 0.92;
 /** Cosine from which a fact anchored on the same quote in its scope is "the same" (a paraphrase of one decision). */
 const QUOTE_DUPE_MIN = 0.8;
+/** A claim sends the distiller up to this many active facts close to the episode, any of which a fact may replace. */
+export const RELATED_MAX = 8;
 
 export interface DistillJob {
   id: string;
@@ -35,6 +37,16 @@ export interface DistilledFact {
   scope: string;
   quote: string;
   locus?: string[];
+  /** The id of a `related` fact this one corrects or updates (kept on a new distilled candidate only). */
+  replaces?: string;
+}
+
+/** An active fact sent with a claim: the distiller may say a new fact `replaces` it. */
+export interface RelatedFact {
+  id: string;
+  text: string;
+  kind: FactKind;
+  scope: string;
 }
 
 export interface DistillUsage {
@@ -227,19 +239,32 @@ export function exchangeFor(content: string, quote: string): { assistant: string
   return null;
 }
 
+/** The scopes an episode's facts may take: `global`, `repo:<key>` with a repo, `personal:<user>` with a user. */
+export function episodeScopes(repoKey: string | null, userId: string | null): string[] {
+  const scopes = ["global"];
+  if (repoKey) scopes.push(`repo:${repoKey}`);
+  if (userId) scopes.push(`personal:${userId}`);
+  return scopes;
+}
+
+/** The OR-ed keyword query of a fact's text (same shape as search.ts TSQUERY), on facts `f`. */
+const FACT_TSQUERY = "replace(plainto_tsquery('english', f.text)::text, '&', '|')::tsquery";
+
 /** SQL (on episodes `e`): this is a remember job, a turn the user flagged. */
 const REMEMBER_SQL = `(e.kind = 'turn' and coalesce(e.metadata->>'remember_request' = 'true', false))`;
 
 /**
  * In one transaction: claimed jobs whose lease ran out go back to `queued` (or `failed` after
  * MAX_ATTEMPTS), then the queued job with the highest priority (oldest first) is leased to `workerId`.
- * null = nothing to do.
+ * Except on a remember or asf_run job, the claim also sends up to RELATED_MAX active facts in the episode's scopes,
+ * closest first (by cosine when the episode is embedded, else facts sharing a word with it, by keyword rank), and
+ * keeps their ids on the job. null = nothing to do.
  */
 export async function claimJob(
   pool: pg.Pool,
   workerId: string,
   leaseSeconds: number,
-): Promise<{ job: DistillJob; episode: DistillEpisode } | null> {
+): Promise<{ job: DistillJob; episode: DistillEpisode; related: RelatedFact[] } | null> {
   const client = await pool.connect();
   try {
     await client.query("begin");
@@ -252,7 +277,7 @@ export async function claimJob(
       [MAX_ATTEMPTS],
     );
     let claimed: (DistillJob & { episode_id: string }) | undefined;
-    let episode: DistillEpisode | undefined;
+    let episode: (DistillEpisode & { user_id: string | null }) | undefined;
     for (;;) {
       const { rows } = await client.query<DistillJob & { episode_id: string }>(
         `update distill_jobs
@@ -265,8 +290,8 @@ export async function claimJob(
       claimed = rows[0];
       if (!claimed) break;
       episode = (
-        await client.query<DistillEpisode>(
-          `select e.id, e.kind, e.repo_key, e.content, ${REMEMBER_SQL} as remember_request,
+        await client.query<DistillEpisode & { user_id: string | null }>(
+          `select e.id, e.kind, e.repo_key, e.content, e.user_id, ${REMEMBER_SQL} as remember_request,
                   case when ${REMEMBER_SQL} and e.user_id is not null then 'personal:' || e.user_id end as personal_scope
            from episodes e where e.id = $1`,
           [claimed.episode_id],
@@ -282,13 +307,32 @@ export async function claimJob(
         { created: [], anchored: [], skipped: "questions only" },
       ]);
     }
+    let related: RelatedFact[] = [];
+    if (claimed && episode && !episode.remember_request && episode.kind !== "asf_run") {
+      related = (
+        await client.query<RelatedFact>(
+          `select f.id, f.text, f.kind, f.scope from episodes e join facts f on f.status = 'active' and f.scope = any($2::text[])
+           where e.id = $1 and case when e.embedding is not null then f.embedding is not null
+                                    else ts_rank(e.content_tsv, ${FACT_TSQUERY}) > 0 end
+           order by case when e.embedding is not null then f.embedding <=> e.embedding end,
+                    case when e.embedding is null then ts_rank(e.content_tsv, ${FACT_TSQUERY}) end desc, f.id
+           limit $3`,
+          [episode.id, episodeScopes(episode.repo_key, episode.user_id), RELATED_MAX],
+        )
+      ).rows;
+    }
+    if (claimed) {
+      await client.query("update distill_jobs set related_ids = $2::uuid[] where id = $1", [claimed.id, related.map((f) => f.id)]);
+    }
     await client.query("commit");
-    // A remember job keeps its whole turn (its quote may come from anywhere in it); an asf_run has no user turns.
-    if (episode && !episode.remember_request && episode.kind !== "asf_run") episode.content = distillView(episode.content);
     if (!claimed || !episode) return null;
+    const { user_id: _, ...ep } = episode;
+    // A remember job keeps its whole turn (its quote may come from anywhere in it); an asf_run has no user turns.
+    if (!ep.remember_request && ep.kind !== "asf_run") ep.content = distillView(ep.content);
     return {
       job: { id: claimed.id, attempts: claimed.attempts, lease_until: new Date(claimed.lease_until).toISOString() },
-      episode,
+      episode: ep,
+      related,
     };
   } catch (err) {
     await client.query("rollback").catch(() => {});
@@ -316,7 +360,8 @@ function assertOwned(job: OwnedJob, worker: Instance): void {
  * dropped. A fact already known (same text, or cosine > 0.92 in its scope, or anchored on the same quote in its
  * scope with cosine >= 0.80, or, with no vector on either side, the same exchange) gains an anchor to this episode
  * instead of a new row; the rest become `distilled` candidates. The quote rule also matches a rejected (`retracted`)
- * fact, which gains the anchor and stays retracted, so it isn't sent back for review.
+ * fact, which gains the anchor and stays retracted, so it isn't sent back for review. A new candidate keeps a
+ * `replaces` as `metadata.replaces` when it names a fact the claim sent (`related_ids`) in the candidate's scope.
  *
  * A remember job (a flagged turn) records what the user asked for. Its facts are `authored`, by the
  * episode's instance, with the status a remember from that instance would get, and marked `asked`.
@@ -360,9 +405,7 @@ export async function completeJob(
     dropped: [],
     dropped_non_user_quote: 0,
   };
-  const allowed = new Set(["global"]);
-  if (ep.repo_key) allowed.add(`repo:${ep.repo_key}`);
-  if (ep.user_id) allowed.add(`personal:${ep.user_id}`);
+  const allowed = new Set(episodeScopes(ep.repo_key, ep.user_id));
   const episodeText = normalizeText(ep.content);
   // A session fact must come from what the person said; a remember job keeps any quote from its turn, and an
   // asf_run record has no user turns.
@@ -421,8 +464,8 @@ export async function completeJob(
   const client = await pool.connect();
   try {
     await client.query("begin");
-    const locked = await client.query<OwnedJob & { episode_id: string; author_instance_id: string | null }>(
-      `select j.status, j.claimed_by, j.attempts, j.episode_id, e.instance_id as author_instance_id
+    const locked = await client.query<OwnedJob & { episode_id: string; author_instance_id: string | null; related_ids: string[] }>(
+      `select j.status, j.claimed_by, j.attempts, j.episode_id, e.instance_id as author_instance_id, j.related_ids
        from distill_jobs j join episodes e on e.id = j.episode_id where j.id = $1 for update of j`,
       [jobId],
     );
@@ -494,11 +537,16 @@ export async function completeJob(
           );
         }
       } else {
+        // `replaces` must be a fact the claim sent, in this fact's scope; anything else is dropped without a word.
+        const replaces =
+          f.replaces && job.related_ids.includes(f.replaces)
+            ? (await client.query<{ id: string }>("select id from facts where id = $1 and scope = $2", [f.replaces, f.scope])).rows[0]?.id
+            : undefined;
         const ins = await client.query<{ id: string }>(
-          `insert into facts (text, kind, scope, locus, origin, status, author_user_id, author_instance_id, content_hash, embedding)
-           values ($1, $2, $3, $4, 'distilled', 'candidate', $5, $6, $7, $8::vector)
+          `insert into facts (text, kind, scope, locus, origin, status, author_user_id, author_instance_id, content_hash, embedding, metadata)
+           values ($1, $2, $3, $4, 'distilled', 'candidate', $5, $6, $7, $8::vector, $9)
            returning id`,
-          [f.text, f.kind, f.scope, f.locus ?? [], ep.user_id, job.author_instance_id, hash, vec],
+          [f.text, f.kind, f.scope, f.locus ?? [], ep.user_id, job.author_instance_id, hash, vec, replaces ? { replaces } : {}],
         );
         factId = ins.rows[0]!.id;
         result.created.push(factId);

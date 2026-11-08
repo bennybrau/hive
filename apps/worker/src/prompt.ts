@@ -9,6 +9,16 @@ export interface DistilledFact {
   scope: string;
   quote: string;
   locus?: string[];
+  /** The id of a related fact this one corrects or updates. */
+  replaces?: string;
+}
+
+/** An active fact the hive sent with a claim (the closest to the episode in its scopes). */
+export interface RelatedFact {
+  id: string;
+  text: string;
+  kind: string;
+  scope: string;
 }
 
 export interface Prompt {
@@ -59,8 +69,27 @@ const SOURCES: Record<string, { source: string; quoteRule: string }> = {
 const REMEMBER =
   "This turn was flagged: the user asked for something in it to be remembered. Record what they asked to remember, one fact per claim, even if it fails a test above: their asking settles it. Take nothing else from the turn, and reply {\"facts\":[]} only if it holds nothing they asked for.";
 
-/** `remember` = this is a remember job; its personal scope, if any, is offered as a scope. */
-export function renderPrompt(prompt: Prompt, repoKey: string | null, kind: string, remember?: { personalScope: string | null }): string {
+/** Filled into {{related}} when the claim sent related facts; empty otherwise. */
+function relatedBlock(related: RelatedFact[]): string {
+  if (!related.length) return "";
+  const list = related.map((f) => `- ${f.id} [${f.kind}, ${f.scope}] ${f.text}`).join("\n");
+  return `Facts the team already has, closest to this transcript first:
+${list}
+When the person's words contradict or update one of these, the fact you write states the new rule and adds
+"replaces":"<that fact's id>", in the same scope as that fact. Only an id from this list; leave "replaces" out otherwise.`;
+}
+
+/**
+ * `remember` = this is a remember job; its personal scope, if any, is offered as a scope. `related` = the facts the
+ * claim sent, which a fact may replace.
+ */
+export function renderPrompt(
+  prompt: Prompt,
+  repoKey: string | null,
+  kind: string,
+  remember?: { personalScope: string | null },
+  related: RelatedFact[] = [],
+): string {
   const { source, quoteRule } = SOURCES[kind] ?? SOURCES.session!;
   let scopes = repoKey
     ? `"repo:${repoKey}" by default: anything about this repo's code, infrastructure, tooling or process. "global" only for facts that hold in any repo: a person's working preferences, or how a third-party tool behaves everywhere.`
@@ -70,7 +99,8 @@ export function renderPrompt(prompt: Prompt, repoKey: string | null, kind: strin
     .replaceAll("{{scopes}}", scopes)
     .replaceAll("{{source}}", source)
     .replaceAll("{{quote_rule}}", quoteRule)
-    .replaceAll("{{remember}}", remember ? REMEMBER : "");
+    .replaceAll("{{remember}}", remember ? REMEMBER : "")
+    .replaceAll("{{related}}", relatedBlock(related));
 }
 
 /** The JSON object in a model reply, tolerating code fences or prose around it. */
@@ -111,14 +141,17 @@ function balancedEnd(text: string, open: number): number {
   return -1;
 }
 
-/** The valid facts in a reply; anything malformed or out of scope is dropped. */
-export function parseFacts(json: unknown, scopes: string[]): DistilledFact[] {
+/**
+ * The valid facts in a reply; anything malformed or out of scope is dropped. A `replaces` not in `relatedIds` is
+ * dropped from its fact (the fact is kept).
+ */
+export function parseFacts(json: unknown, scopes: string[], relatedIds: string[] = []): DistilledFact[] {
   const facts = (json as { facts?: unknown } | null)?.facts;
   if (!Array.isArray(facts)) throw new Error('reply has no "facts" array');
   const out: DistilledFact[] = [];
   for (const f of facts as Record<string, unknown>[]) {
     if (!f || typeof f !== "object") continue;
-    const { text, kind, scope, quote, locus } = f;
+    const { text, kind, scope, quote, locus, replaces } = f;
     if (typeof text !== "string" || text.trim().length < 3 || text.length > 2000) continue;
     if (!(FACT_KINDS as readonly unknown[]).includes(kind)) continue;
     if (typeof scope !== "string" || !scopes.includes(scope)) continue;
@@ -128,6 +161,7 @@ export function parseFacts(json: unknown, scopes: string[]): DistilledFact[] {
       const paths = locus.filter((p): p is string => typeof p === "string" && p.length > 0 && p.length <= 500).slice(0, 50);
       if (paths.length) fact.locus = paths;
     }
+    if (typeof replaces === "string" && relatedIds.includes(replaces)) fact.replaces = replaces;
     out.push(fact);
   }
   return out;

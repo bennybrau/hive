@@ -41,8 +41,11 @@ export interface Fact {
   status_note: string | null;
   author_user_id: string | null;
   recorded_at: string;
-  /** Per-fact flags; `asked: true` = a person asked for this fact to be remembered. */
-  metadata: { asked?: boolean };
+  /**
+   * Per-fact flags; `asked: true` = a person asked for this fact to be remembered. `replaces` = the active fact a
+   * distilled candidate corrects; approving it supersedes that fact.
+   */
+  metadata: { asked?: boolean; replaces?: string };
 }
 
 export const FACT_COLUMNS = "id, text, kind, scope, locus, origin, status, status_note, author_user_id, recorded_at, metadata";
@@ -148,6 +151,19 @@ export async function activateSupersede(client: pg.PoolClient, fact: { supersede
   ]);
 }
 
+/**
+ * A candidate's `metadata.replaces` becomes its `supersedes` when it has none yet and that fact is still active in its
+ * scope; that fact then stops being current. The candidate must be active by now.
+ */
+async function adoptReplaces(client: pg.PoolClient, cand: Locked): Promise<void> {
+  const target = cand.metadata.replaces;
+  if (cand.supersedes || !target) return;
+  const old = await client.query("select 1 from facts where id = $1 and status = 'active' and scope = $2 for update", [target, cand.scope]);
+  if (!old.rowCount) return;
+  await client.query("update facts set supersedes = $2 where id = $1", [cand.id, target]);
+  await activateSupersede(client, { supersedes: target });
+}
+
 /** Retract = mark false, keep as history. Author or curator only. */
 export async function retractFact(pool: pg.Pool, id: string, by: Instance, reason: string): Promise<Fact | null> {
   const { rows } = await pool.query<Fact & { author_user_id: string | null }>(
@@ -180,8 +196,8 @@ const LOCKED_COLUMNS = `${FACT_COLUMNS}, supersedes, content_hash`;
 
 /**
  * A curator decides on a candidate. approve -> active; fix -> new text (re-embedded by the worker) and
- * active, or merged into the fact that already has that text; reject -> retracted. Every decision is a
- * reviews row. null = no such fact; ConflictError = not a candidate, or a fix whose text is a dead fact.
+ * active, or merged into the fact that already has that text; reject -> retracted. An approve or a fix that isn't
+ * a merge also supersedes the fact in `metadata.replaces` (see adoptReplaces). Every decision is a reviews row. null = no such fact; ConflictError = not a candidate, or a fix whose text is a dead fact.
  */
 export async function reviewFact(
   pool: pg.Pool,
@@ -212,6 +228,7 @@ export async function reviewFact(
     if (input.action === "approve") {
       fact = await updateFact(id, "status = 'active'");
       await activateSupersede(client, cand);
+      await adoptReplaces(client, cand);
     } else if (input.action === "reject") {
       fact = await updateFact(id, "status = 'retracted', status_note = $2, valid_to = now()", [
         input.note ? `rejected: ${input.note}` : "rejected",
@@ -226,6 +243,7 @@ export async function reviewFact(
       if (!hit) {
         fact = await updateFact(id, "text = $2, content_hash = $3, embedding = null, status = 'active'", [newText, hash]);
         await activateSupersede(client, cand);
+        await adoptReplaces(client, cand);
       } else {
         if (hit.status !== "active" && hit.status !== "candidate") {
           throw new ConflictError(`that text is already fact ${hit.id}, which is ${hit.status}`);

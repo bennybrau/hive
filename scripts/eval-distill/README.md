@@ -31,6 +31,8 @@ Each window is at most 45k characters, so it fits one chunk. `cases/<id>.json` h
 - **`acceptable`:** borderline facts. Proposing one is neither credited nor a false positive.
 - **`evidence`:** a verbatim passage for each label.
 - **`repo_key`:** the repo the session ran in.
+- **`related`:** optional, the active facts a claim would send with the episode (`{id, text, kind, scope}`); a label's
+  **`replaces`** names the one it corrects, and a unit test checks it is listed.
 - **`source`:** where the transcript came from: `{"session", "lo", "hi"}` for a window of a real session,
   `{"cut_from": "<case>", "lines": [lo, hi]}` for lines cut (inclusive) from another case's transcript, or
   `{"synthetic": "..."}` for a written one, whose `notes` then start with SYNTHETIC.
@@ -46,6 +48,10 @@ Six cases check distill-v6's shape rule and don't-save list. Five `excl-*` cases
 says each thing: `excl-setup-failure` (cut from `asf-uninstall`), and the synthetic `excl-transient`, `excl-one-off`,
 `excl-tool-broken` and `excl-failed-attempts`. In the synthetic `story-rule` the user tells an incident with a PR
 number and a date and ends with a rule; the one expected fact is the bare rule and its reason.
+
+One case checks distill-v7's `replaces`: in the synthetic `corr-replaces-fact` the user corrects a fact the hive already
+has (in its `related`), and the expected fact replaces it. The `replaces-miss` column counts found facts whose
+`replaces` differs from their label's; it is reported, not part of the targets.
 
 Before committing a new case, run `python3 extract.py scan cases/*.txt`, which must exit 0. Replace any hit with
 `[REDACTED]` and any third-party email address with `[EMAIL]`.

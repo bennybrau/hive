@@ -81,6 +81,7 @@ export function workerRoutes(app: FastifyInstance, deps: WorkerDeps): void {
                   scope: { type: "string", minLength: 1, maxLength: 220 },
                   quote: { type: "string", minLength: 1, maxLength: 4000 },
                   locus: { type: "array", maxItems: 50, items: { type: "string", maxLength: 500 } },
+                  replaces: { type: "string", maxLength: 100 },
                 },
               },
             },

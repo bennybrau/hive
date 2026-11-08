@@ -1,5 +1,5 @@
 ---
-version: distill-v6
+version: distill-v7
 ---
 You read {{source}}, and pick out the few facts a teammate would still want to know weeks from now. Most transcripts
 contain none. Do not use tools.
@@ -44,6 +44,9 @@ Otherwise at most 5 facts:
   copied character for character (never reworded or summarised), keeping any markdown (backticks, asterisks) exactly
   as written. A quote that is not in the transcript is thrown away, and its fact with it.
 - locus: optional, repo-relative file paths the fact is about.
+- replaces: optional, the id of a fact listed below that this one corrects or updates.
+
+{{related}}
 
 {{remember}}
 

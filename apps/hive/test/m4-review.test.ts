@@ -207,6 +207,86 @@ describe("supersede", () => {
   });
 });
 
+describe("replaces", () => {
+  /** A distilled candidate that says it replaces `old` (as distill stores it). */
+  async function replacing(text: string, old: string, scope = "global") {
+    const { fact } = await createFact(pool, { text, kind: "decision", scope, origin: "distilled" }, alice.instance);
+    await pool.query("update facts set metadata = jsonb_build_object('replaces', $2::text) where id = $1", [fact.id, old]);
+    return fact;
+  }
+
+  it("approve supersedes the fact it replaces", async () => {
+    const old = await remember(curator.token, { text: "Invoices go out weekly" });
+    const c = await replacing("Invoices go out nightly", old.id);
+    expect((await review(curator.token, c.id, { action: "approve" })).statusCode).toBe(200);
+    expect(await factRow(c.id)).toMatchObject({ status: "active", supersedes: old.id });
+    expect(await factRow(old.id)).toMatchObject({ status: "superseded", valid_to: expect.any(Date) });
+  });
+
+  it("a fix (not a merge) supersedes it too", async () => {
+    const old = await remember(curator.token, { text: "Invoices go out weekly" });
+    const c = await replacing("Invoices go out nightly", old.id);
+    expect((await review(curator.token, c.id, { action: "fix", new_text: "Invoices go out every night" })).statusCode).toBe(200);
+    expect(await factRow(c.id)).toMatchObject({ status: "active", supersedes: old.id, text: "Invoices go out every night" });
+    expect((await factRow(old.id)).status).toBe("superseded");
+  });
+
+  it("a fix that merges into another fact ignores it", async () => {
+    const old = await remember(curator.token, { text: "Invoices go out weekly" });
+    const there = await remember(curator.token, { text: "Invoices go out every night" });
+    const c = await replacing("Invoices go out nightly", old.id);
+    const res = await review(curator.token, c.id, { action: "fix", new_text: "Invoices go out every night" });
+    expect(res.json().merged_into.id).toBe(there.id);
+    expect((await factRow(old.id)).status).toBe("active");
+    expect((await factRow(there.id)).supersedes).toBeNull();
+    expect((await factRow(c.id)).supersedes).toBeNull();
+  });
+
+  it("reject leaves it active", async () => {
+    const old = await remember(curator.token, { text: "Invoices go out weekly" });
+    const c = await replacing("Invoices go out nightly", old.id);
+    await review(curator.token, c.id, { action: "reject" });
+    expect((await factRow(old.id)).status).toBe("active");
+    expect((await factRow(c.id)).supersedes).toBeNull();
+  });
+
+  it("ignored when that fact is no longer active, is in another scope, or the candidate already supersedes one", async () => {
+    const gone = await remember(curator.token, { text: "Invoices go out weekly" });
+    await post(curator.token, `/v1/facts/${gone.id}/retract`, { reason: "wrong" });
+    const c1 = await replacing("Invoices go out nightly", gone.id);
+    await review(curator.token, c1.id, { action: "approve" });
+    expect(await factRow(c1.id)).toMatchObject({ status: "active", supersedes: null });
+    expect((await factRow(gone.id)).status).toBe("retracted");
+
+    const elsewhere = await remember(curator.token, { text: "Repo invoices go out weekly", scope: "repo", repo_key: "gh/o/a" });
+    const c2 = await replacing("Invoices go out hourly", elsewhere.id);
+    await review(curator.token, c2.id, { action: "approve" });
+    expect((await factRow(c2.id)).supersedes).toBeNull();
+    expect((await factRow(elsewhere.id)).status).toBe("active");
+
+    const named = await remember(curator.token, { text: "Deploys are manual" });
+    const other = await remember(curator.token, { text: "Deploys need a ticket" });
+    const c3 = await remember(alice.token, { text: "Deploys are automatic", supersedes: named.id });
+    await pool.query("update facts set metadata = jsonb_build_object('replaces', $2::text) where id = $1", [c3.id, other.id]);
+    await review(curator.token, c3.id, { action: "approve" });
+    expect((await factRow(c3.id)).supersedes).toBe(named.id);
+    expect((await factRow(named.id)).status).toBe("superseded");
+    expect((await factRow(other.id)).status).toBe("active");
+  });
+
+  it("the queue shows the fact a candidate replaces, whatever its status, or null", async () => {
+    const old = await remember(curator.token, { text: "Invoices go out weekly" });
+    const c = await replacing("Invoices go out nightly", old.id);
+    const plain = await remember(alice.token, { text: "Billing runs on Mondays" });
+    let q = await queue();
+    expect(q.find((x) => x.id === c.id).replaces).toEqual({ id: old.id, text: "Invoices go out weekly", kind: "decision", scope: "global", status: "active" });
+    expect(q.find((x) => x.id === plain.id).replaces).toBeNull();
+    await post(curator.token, `/v1/facts/${old.id}/retract`, { reason: "wrong" });
+    q = await queue();
+    expect(q.find((x) => x.id === c.id).replaces).toMatchObject({ id: old.id, status: "retracted" });
+  });
+});
+
 describe("queue", () => {
   it("lists candidates oldest first with filters, anchors, episode snippets and similar facts", async () => {
     const ep = await post(alice.token, "/v1/episodes", {
