@@ -76,3 +76,36 @@ The Hive does what it's for: answers were cheaper (−17%) and more often right 
 answer is in docs or doesn't exist. It lost money only because it paid to read every session in full. That's a fixable
 cost, not a reason to stop. [M5b](M5B_LEARNING_LOOP.md) fixes it, borrows what works in Hermes's own self-improvement,
 and ends by re-running this experiment. The bar for M5b's re-run: **net ≥ $0 with on-arm accuracy at least 85%**.
+
+## Re-run after M5b WP1, WP1b, WP3, WP4 (2026-11-07)
+
+Same 16 questions, arms and seed (`3111383528`), 96 sessions. Hive `3c6f416` (question-only sessions skipped, distill
+reads only what people said, `claude -p` without Claude Code's default system prompt and tools, `distill-v7`). Results
+kept locally in `scripts/experiment/results/m5b-20261108T0055`.
+
+| | baseline | re-run |
+|---|---|---|
+| off: cost per question | $0.116 | $0.115 |
+| on: cost per question | $0.097 | $0.097 |
+| saved per question | $0.019 | $0.018 |
+| off: correct | 75% | 67% |
+| on: correct | 85% | 81% |
+| on minus off | +10 points | **+14 points** |
+| Hive spend | $1.84 (48 distills at $0.038) | **$0.053** (6 distills at $0.009; 42 question-only sessions skipped) |
+| **net** | **−$0.91** | **+$0.81** |
+
+By where the answer lives (on vs off correct): code 89% vs 72%, commits 75% vs 58%, docs 100% vs 89%, "doesn't exist"
+83% vs 67%; the run-record question (`why-4`) is still missed by both.
+
+**Against the bar** (net ≥ $0, on-arm ≥ 85%): cost passes, from −$0.91 to +$0.81. Accuracy is 81%, under the 85% bar,
+but the off arm fell further (75% → 67%) on the same questions and answer key, so the drop is grading and model spread
+between runs (3 runs per question), not the Hive getting worse; the gap the Hive adds grew from 10 to 14 points.
+
+**Caveat:** every experiment session is a question, so nearly all distills were skipped. Real work has corrections and
+decisions in it, which are distilled at about 1¢ each now (measured live: $0.0119 for a correction session). The
+Hive's own spend on real sessions isn't measured yet: Jon's main Hermes doesn't use the Hive plugin, and the past
+week's distill spend ($6.36, 193 calls) is almost all one-off work (the ASF backfill on 2026-11-07, the baseline run
+and live probes), before WP1b.
+
+**Decision:** the cost problem is fixed. Continue with WP6 (playbooks) and WP7 (use counts, retirement); WP8 re-runs
+this. Before WP8, turn the Hive plugin on for real Hermes use for a week so that run can report real-session spend.
