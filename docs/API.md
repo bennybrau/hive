@@ -33,9 +33,28 @@ may only use `/v1/worker/*` and `/v1/status`; every other `/v1` call is a 403
   `supersedes`/`superseded_by` are the supersede chain, nearest first, as `{id, text, status, recorded_at}`:
   what this fact replaced (older) and what replaced it (newer).
 - The list and the detail's `fact` also carry `use_count` (times a brief or recall returned it), `cite_count` (turns
-  whose answer cited it; see Episodes) and `last_used_at` (the latest of either; null if never). Other responses that
-  return a fact don't.
+  whose answer cited it; see Episodes) and `last_used_at` (the latest of either; null if never), plus `pinned` and
+  `stale` (below). Other responses that return a fact don't.
 - `POST /v1/facts/:id/retract` `{reason}` — author or curator only (403 otherwise). Kept as history.
+
+### Stale facts (curator only; members get 403)
+
+A fact is **stale** when it is `active`, not `pinned`, and its idle time — since the later of its last use
+(`last_used_at`) and its last keep (`kept_at`), each falling back to `recorded_at` — is more than `HIVE_STALE_DAYS`
+(default 60; a positive integer).
+
+- `GET /v1/facts/stale?repo_key=&limit=50&offset=0` — `{facts, has_more, stale_days}`, longest idle first (readable
+  scopes as below; `limit` ≤ 200). Each fact also carries `use_count`, `cite_count`, `last_used_at`, `pinned` and
+  `idle_days` (whole days).
+- `POST /v1/facts/:id/curate` `{action: keep|fix|retire|pin|unpin, note?, new_text?}` → `{fact, new_fact}`; `fact`
+  also carries `pinned` and `kept_at`. 404 no such fact, 409 when it isn't `active`. Every decision writes a `reviews`
+  row on the fact (`new_text` on fix).
+  - `keep` → still true: `kept_at = now()` (its idle time restarts) and `metadata.correction` is removed.
+  - `pin` / `unpin` → `pinned = true / false`. A pinned fact is never stale.
+  - `fix` (needs `new_text`, 400 otherwise) → a new `active` fact with that text and the old fact's kind, scope and
+    locus (not its anchors) that supersedes it; `new_fact` is that fact. 409 if the text is already a fact (the old
+    fact is left alone).
+  - `retire` → `retracted` with `status_note: "retired: <note>"` (or `"retired: stale"`).
 
 Every fact carries `metadata` (`{}` by default). `metadata.asked: true` = a person asked for it to be remembered
 (a flagged turn; see Worker).

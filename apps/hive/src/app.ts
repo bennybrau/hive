@@ -37,6 +37,8 @@ export interface AppOptions {
   distillLeaseSeconds?: number;
   /** Wakes waiting claims when an episode arrives; one is made when omitted. */
   distillNotifier?: DistillNotifier;
+  /** Days without a use or a keep before an active, unpinned fact is stale (default 60). */
+  staleDays?: number;
   /** Built dashboard to serve at /; omitted or missing = API only. */
   dashboardDir?: string;
 }
@@ -59,7 +61,7 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
     v1.addHook("onRequest", bearerAuth(pool));
     v1.addHook("onRequest", confineWorker);
     statusRoutes(v1, pool, { version: opts.version, embedModel: embedder?.model ?? null, worker });
-    factRoutes(v1, pool, onWrite);
+    factRoutes(v1, pool, onWrite, opts.staleDays ?? 60);
     episodeRoutes(v1, pool, () => {
       onWrite();
       notifier.kick();

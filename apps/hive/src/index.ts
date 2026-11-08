@@ -45,6 +45,7 @@ const app = buildApp(pool, {
   secretKey: config.secretKey,
   distillLeaseSeconds: config.distillLeaseSeconds,
   dashboardDir: config.dashboardDir,
+  staleDays: config.staleDays,
   repos: { roots: { root: config.reposRoot, hostRoot: config.reposHostRoot }, sync: repoSync },
 });
 await app.listen({ host: config.host, port: config.port });

@@ -1,6 +1,20 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
-import { createFact, FACT_COLUMNS, FACT_KINDS, factChain, NotAllowedError, retractFact, SupersedeError, type Fact } from "../facts.js";
+import {
+  ConflictError,
+  createFact,
+  curateFact,
+  FACT_COLUMNS,
+  FACT_KINDS,
+  factChain,
+  IDLE_SQL,
+  NotAllowedError,
+  retractFact,
+  staleSql,
+  SupersedeError,
+  type CurateInput,
+  type Fact,
+} from "../facts.js";
 import { readableScopes, resolveScope, ScopeError } from "../scope.js";
 
 const anchorSchema = {
@@ -17,8 +31,8 @@ const anchorSchema = {
   },
 } as const;
 
-/** List and detail also show how much a fact is used; other responses keep FACT_COLUMNS. */
-const FACT_USE_COLUMNS = `${FACT_COLUMNS}, use_count, cite_count, last_used_at`;
+/** List, detail and the stale list also show how much a fact is used and whether it's pinned; other responses keep FACT_COLUMNS. */
+const FACT_USE_COLUMNS = `${FACT_COLUMNS}, use_count, cite_count, last_used_at, pinned`;
 
 interface CreateBody {
   text: string;
@@ -30,7 +44,9 @@ interface CreateBody {
   supersedes?: string;
 }
 
-export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => void): void {
+export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => void, staleDays: number): void {
+  const listColumns = `${FACT_USE_COLUMNS}, ${staleSql(staleDays)} as stale`;
+
   /** remember: authored by the calling instance. distilled/ingested facts come from jobs, not this endpoint. */
   app.post<{ Body: CreateBody }>(
     "/v1/facts",
@@ -113,12 +129,44 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
       const limit = qs.limit ?? 50;
       params.push(limit + 1, qs.offset ?? 0); // one extra row tells us whether there's another page
       const { rows } = await pool.query<Fact>(
-        `select ${FACT_USE_COLUMNS} from facts where ${where.join(" and ")}
+        `select ${listColumns} from facts where ${where.join(" and ")}
          order by recorded_at desc, id desc limit $${params.length - 1} offset $${params.length}`,
         params,
       );
       const has_more = rows.length > limit;
       return { facts: has_more ? rows.slice(0, limit) : rows, has_more };
+    },
+  );
+
+  /** Curator only: active, unpinned facts idle (no use, no keep) for more than staleDays, longest idle first. */
+  app.get<{ Querystring: { repo_key?: string; limit?: number; offset?: number } }>(
+    "/v1/facts/stale",
+    {
+      schema: {
+        querystring: {
+          type: "object",
+          properties: {
+            repo_key: { type: "string" },
+            limit: { type: "integer", minimum: 1, maximum: 200, default: 50 },
+            offset: { type: "integer", minimum: 0, default: 0 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const who = req.instance!;
+      if (who.role !== "curator") return reply.code(403).send({ error: "only a curator can list stale facts" });
+      const [scopeSql, params] = readableScopes(who, req.query.repo_key, 1);
+      const limit = req.query.limit ?? 50;
+      params.push(limit + 1, req.query.offset ?? 0);
+      const { rows } = await pool.query<Fact>(
+        `select ${FACT_USE_COLUMNS}, floor(extract(epoch from now() - ${IDLE_SQL}) / 86400)::int as idle_days
+         from facts where ${scopeSql} and ${staleSql(staleDays)}
+         order by ${IDLE_SQL}, id limit $${params.length - 1} offset $${params.length}`,
+        params,
+      );
+      const has_more = rows.length > limit;
+      return { facts: has_more ? rows.slice(0, limit) : rows, has_more, stale_days: staleDays };
     },
   );
 
@@ -129,7 +177,7 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
       const who = req.instance!;
       const [scopeSql, params] = readableScopes(who, undefined, 2);
       const { rows } = await pool.query<Fact>(
-        `select ${FACT_USE_COLUMNS} from facts where id = $1 and ${scopeSql}`,
+        `select ${listColumns} from facts where id = $1 and ${scopeSql}`,
         [req.params.id, ...params],
       );
       if (!rows[0]) return reply.code(404).send({ error: "no such fact" });
@@ -167,6 +215,38 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
         return { fact };
       } catch (err) {
         if (err instanceof NotAllowedError) return reply.code(403).send({ error: err.message });
+        throw err;
+      }
+    },
+  );
+
+  app.post<{ Params: { id: string }; Body: CurateInput }>(
+    "/v1/facts/:id/curate",
+    {
+      schema: {
+        params: { type: "object", properties: { id: { type: "string", format: "uuid" } } },
+        body: {
+          type: "object",
+          required: ["action"],
+          additionalProperties: false,
+          properties: {
+            action: { type: "string", enum: ["keep", "fix", "retire", "pin", "unpin"] },
+            note: { type: "string", maxLength: 1000 },
+            new_text: { type: "string", minLength: 3, maxLength: 2000 },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (req.instance!.role !== "curator") return reply.code(403).send({ error: "only a curator can curate facts" });
+      if (req.body.action === "fix" && !req.body.new_text) return reply.code(400).send({ error: "fix needs new_text" });
+      try {
+        const out = await curateFact(pool, req.params.id, req.instance!, req.body);
+        if (!out) return reply.code(404).send({ error: "no such fact" });
+        if (req.body.action === "fix") onWrite();
+        return out;
+      } catch (err) {
+        if (err instanceof ConflictError) return reply.code(409).send({ error: err.message });
         throw err;
       }
     },

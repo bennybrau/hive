@@ -297,6 +297,107 @@ export async function reviewFact(
   }
 }
 
+/** When a fact was last used or kept, whichever is later; recorded_at stands in for either that never happened. */
+export const IDLE_SQL = "greatest(coalesce(last_used_at, recorded_at), coalesce(kept_at, recorded_at))";
+
+/** Stale = active, not pinned, and idle for more than `days` (a positive integer, validated by config; inlined). */
+export function staleSql(days: number): string {
+  if (!Number.isInteger(days) || days <= 0) throw new Error(`stale days must be a positive integer: ${days}`);
+  return `(status = 'active' and not pinned and ${IDLE_SQL} < now() - interval '${days} days')`;
+}
+
+/** A curate answer also shows the curation state. */
+const CURATED_COLUMNS = `${FACT_COLUMNS}, pinned, kept_at`;
+
+export type CurateAction = "keep" | "fix" | "retire" | "pin" | "unpin";
+
+export interface CurateInput {
+  action: CurateAction;
+  note?: string;
+  new_text?: string;
+}
+
+/**
+ * A curator decides on an active fact. keep -> still true: kept_at = now() (its idle time restarts) and
+ * metadata.correction cleared; pin/unpin -> pinned facts are never stale; fix -> a new active fact with the new text
+ * (same kind, scope and locus; no anchors) supersedes it; retire -> retracted with `retired: <note>` (or `retired: stale`).
+ * Every decision is a reviews row on this fact. null = no such fact; ConflictError = not active, or a fix whose text
+ * is already a fact (this one is left alone).
+ */
+export async function curateFact(
+  pool: pg.Pool,
+  id: string,
+  curator: Instance,
+  input: CurateInput,
+): Promise<{ fact: Fact & { pinned: boolean; kept_at: string | null }; new_fact: Fact | null } | null> {
+  const [scopeSql, scopeParams] = readableScopes(curator, undefined, 2);
+  const review = (db: pg.Pool | pg.PoolClient, newText: string | null = null) =>
+    db.query(`insert into reviews (fact_id, reviewer_user_id, action, note, new_text) values ($1, $2, $3, $4, $5)`, [
+      id,
+      curator.user_id,
+      input.action,
+      input.note ?? null,
+      newText,
+    ]);
+
+  if (input.action === "fix" || input.action === "retire") {
+    const reread = async () => (await pool.query(`select ${CURATED_COLUMNS} from facts where id = $1`, [id])).rows[0]!;
+    const sel = await pool.query<Fact>(
+      `select ${FACT_COLUMNS} from facts where id = $1 and ${scopeSql}`,
+      [id, ...scopeParams],
+    );
+    const old = sel.rows[0];
+    if (!old) return null;
+    if (old.status !== "active") throw new ConflictError(`fact is ${old.status}, not active`);
+    if (input.action === "retire") {
+      await retractFact(pool, id, curator, `retired: ${input.note || "stale"}`);
+      await review(pool);
+      return { fact: await reread(), new_fact: null };
+    }
+    let created: { fact: Fact; deduped: boolean };
+    try {
+      created = await createFact(
+        pool,
+        { text: input.new_text ?? "", kind: old.kind, scope: old.scope, origin: "authored", locus: old.locus, supersedes: id },
+        curator,
+      );
+    } catch (err) {
+      if (err instanceof SupersedeError) throw new ConflictError(err.message);
+      throw err;
+    }
+    if (created.deduped) throw new ConflictError(`that text is already fact ${created.fact.id}, which is ${created.fact.status}`);
+    await review(pool, created.fact.text);
+    return { fact: await reread(), new_fact: created.fact };
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const sel = await client.query<{ status: Status }>(`select status from facts where id = $1 and ${scopeSql} for update`, [
+      id,
+      ...scopeParams,
+    ]);
+    if (!sel.rows[0]) {
+      await client.query("rollback");
+      return null;
+    }
+    if (sel.rows[0].status !== "active") throw new ConflictError(`fact is ${sel.rows[0].status}, not active`);
+    const set =
+      input.action === "keep"
+        ? "kept_at = now(), metadata = metadata - 'correction'"
+        : `pinned = ${input.action === "pin" ? "true" : "false"}`;
+    const upd = await client.query(`update facts set ${set} where id = $1 returning ${CURATED_COLUMNS}`, [id]);
+    await review(client);
+    await client.query("commit");
+    return { fact: upd.rows[0]!, new_fact: null };
+  } catch (err) {
+    await client.query("rollback").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export interface ChainLink {
   id: string;
   text: string;
