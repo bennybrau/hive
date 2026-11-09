@@ -34,7 +34,8 @@ Each window is at most 45k characters, so it fits one chunk. `cases/<id>.json` h
 - **`related`:** optional, the active facts a claim would send with the episode (`{id, text, kind, scope}`); a label's
   **`replaces`** names the one it corrects, and a unit test checks it is listed.
 - **`source`:** where the transcript came from: `{"session", "lo", "hi"}` for a window of a real session,
-  `{"cut_from": "<case>", "lines": [lo, hi]}` for lines cut (inclusive) from another case's transcript, or
+  `{"cut_from": "<case>", "lines": [lo, hi]}` for lines cut (inclusive) from another case's transcript,
+  `{"episode": "<ref>"}` for an `asf_dialog` episode copied from the Hive as stored, or
   `{"synthetic": "..."}` for a written one, whose `notes` then start with SYNTHETIC.
 
 Eleven of the 15 session cases should produce nothing: chit-chat, status checks, routine work, a code review, and
@@ -48,6 +49,12 @@ Six cases check distill-v6's shape rule and don't-save list. Five `excl-*` cases
 says each thing: `excl-setup-failure` (cut from `asf-uninstall`), and the synthetic `excl-transient`, `excl-one-off`,
 `excl-tool-broken` and `excl-failed-attempts`. In the synthetic `story-rule` the user tells an incident with a PR
 number and a date and ends with a rule; the one expected fact is the bare rule and its reason.
+
+Seven `dialog-*` cases (distill-v8) are real `asf_dialog` episodes, copied verbatim from the Hive (`source:
+{"episode": "<ref>"}`). Four expect nothing: the person approves the factory's plan or defaults, or tells it what to do
+in this pull request (`dialog-defaults-ok`, `dialog-plan-matches`, `dialog-split-version`, `dialog-who-runs-eval`);
+the curator rejected every candidate they produced under distill-v7. Three keep product decisions a teammate would act
+on (`dialog-avatars`, `dialog-activity-name`, and `dialog-commit-types`, whose two "yes" answers are acceptable).
 
 One case checks distill-v7's `replaces`: in the synthetic `corr-replaces-fact` the user corrects a fact the hive already
 has (in its `related`), and the expected fact replaces it. The `replaces-miss` column counts found facts whose

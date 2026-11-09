@@ -1,0 +1,12 @@
+assistant: 1. **Where do the real transcripts come from?** Each new case has to be a window of a real Hermes session, cut from `~/.hermes/state.db` with `scripts/eval-distill/extract.py`, and the factory can't reach that database. I see two options:
+   - **(a)** You send a session id and message range for each excluded kind (setup failure, "X is broken", a transient error that got resolved, a one-off task detail, an attempt that didn't work) plus one for the rule told as a story, or you send the rendered `.txt` files.
+   - **(b)** I cut new cases out of the 21 transcripts already in `cases/`. Some of them have the right material: `asf-uninstall` has a missing-file error and a "password authentication failed" error, and `asf-tailscale` has a failed CI job. For the kinds they don't cover, I'd write made-up cases in the style of the existing `bot-*` ones and mark them as synthetic. This would mean dropping "real-transcript" for those kinds.
+2. **Who runs the eval?** The factory has no Docker and no `CLAUDE_CODE_OAUTH_TOKEN`, so it can't run `scripts/eval-distill.sh`. The ticket needs v5 and v6 three times each, about $8.40 in total. Options:
+   - **(a)** The PR ships the v6 prompt, the new cases, the README rule and the version bump with green unit tests. You run the eval and paste the v5 vs v6 summaries into the PR before merging.
+   - **(b)** You give the factory a host with Docker and a token, and it runs the eval itself.
+
+The work is still needed. The prompt is at `distill-v5` (`apps/w
+user: 1. (b). Cut the cases from the transcripts already in `cases/` wherever they fit (asf-uninstall, asf-tailscale, etc.). For the kinds they don't cover, write synthetic cases in the `bot-*` style, mark them `synthetic` in the case file, and note in the PR which kinds are synthetic. That's fine for this PR.
+2. (a). Ship the v6 prompt, the new cases, the README rule and the version bump with green unit tests. I'll run `scripts/eval-distill.sh` for v5 and v6 on the host (the token stays in Hive's store) and paste both summaries into the PR before merging. Say in the PR body exactly which command and flags to run.
+
+Go ahead and write the plan.

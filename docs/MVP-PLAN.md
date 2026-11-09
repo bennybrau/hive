@@ -229,6 +229,13 @@ here on:
   An assistant's reasoning, plan or summary can't produce a fact on its own. Each candidate shows the exchange it came
   from (the bot's proposal and the person's reply). Sources: Hermes sessions, ASF gate notes and ASF run chat
   (`asf_dialog` episodes).
+  - **As built (distill-v8):** in a gate note or run chat, approving the factory's plan or its proposed defaults
+    ("looks good", "the other defaults are fine") yields nothing, even when the person lists the defaults back;
+    picking one of the options the factory asked about still counts. And a fact must make sense to a teammate who
+    never saw the run (how the product behaves, what users see, how the team works), never the internals of the change
+    being planned (field or flag names, prompt versions, how the ticket is split, what goes in this PR). Why: on
+    Nov 8 all 11 queued candidates came from approvals of Hive's own plan internals, and the curator could not review
+    them.
 - **"Remember this" is a request, not a hint.** When a person says remember this / add this to memory / make sure to
   remember / don't forget / note that / from now on (and variants), the plugin flags the turn and Hive distills it at
   once with the previous turn as context. The result is active immediately in personal scope or when the person is a

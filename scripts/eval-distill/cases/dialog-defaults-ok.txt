@@ -1,0 +1,13 @@
+assistant: # WP2 (#74): Hermes's review decides which sessions Hive distills
+
+Still needed: there is no `on_memory_write`, `reviewed` or `review_signal` anywhere in the repo. I checked the pinned Hermes (`66605471e9f`): the review fork is built with `skip_memory=True` (`agent/background_review.py:926`), so its `_memory_manager` is None and `inline_tool_executors._memory` (line 153) never mirrors its writes. Nothing tells a provider that a review *finished*, so with stock Hermes, "reviewed, found nothing" can't be seen at all.
+
+**Spike** (write-up in the design doc's WP2 section and in the PR body; patch tried on a throwaway copy of the pinned Hermes, never committed):
+- Forward the fork's writes: `build_cache_parity_fork` sets `review_agent._parent_memory_manager = agent._memory_manager`, and `_memory` notifies `agent._memory_manager or agent._parent_memory_manager`. The write keeps `write_origin: background_review` and the parent's `session_id`.
+- Add a review-done hook: after `summarize_background_review_actions`, call an optional `MemoryProvider.on_background_review(session_id, actions)`. The actions include skill edits.
+- Recommendation: an upstream PR with both changes. The person files it, since we have no credentials.
+
+**Plugin** (`plugins/hive/__init__.py`)
+- Track review state per session: `{reviewed, signal, hints}`. On session switch, copy it from the parent session; on reset, clear it.
+- `on_memory_write`: a write from `background_review` or `assistant_tool` sets `signal` an
+user: Both defaults are right: a session the review flagged is read even if it is all questions, and keep distill-v6 with byte-identical prompts when there is no hint.

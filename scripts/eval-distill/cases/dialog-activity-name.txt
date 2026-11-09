@@ -1,0 +1,9 @@
+assistant: I've written the plan: rename the History menu item and page to **"Work"** and add a short line under the page title saying it shows what the factory is doing now, what's up next, and what it has finished. It's one small change in the web app, in a single pull request (no split).
+
+- **Still needed:** the page already shows three live lists ("Waiting on you", "Working on now", "Up next") above the table of past jobs, but it's titled "History".
+- **What stays the same:** the page's web address stays `/runs`, so bookmarks and links in notifications keep working. The block of live lists gets the heading "Now and next" instead of "Active".
+
+Two things to confirm:
+1. **The name.** Is "Work" right, or would you prefer "Activity", "Queue & history" or "Jobs"?
+2. **The icon.** I'm keeping the current clock-with-arrow icon, which still suggests "past". The app only bundles a small set of icons, so a better one means rebuilding that set. I'd do that as a separate task. Is that OK?
+user: 1. Call it "Activity".  2.  We should have a more appropriate icon, you are going to need to find something that makes sense in Google's Material Icons and build it into the application.  That can be a follow up task.

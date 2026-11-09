@@ -1,0 +1,11 @@
+{
+  "id": "dialog-defaults-ok",
+  "kind": "asf_dialog",
+  "source": {
+    "episode": "run_dd9493deb9fa12ed:gate:gate_ba2c7af64552f420"
+  },
+  "repo_key": "gh/bennybrau/hive",
+  "expected": [],
+  "acceptable": [],
+  "notes": "Real gate note on a Hive plan. The person only agrees with the two defaults the factory proposed (how flagged sessions are read, prompt bytes unchanged without a hint), restating them. Approval of the factory's own defaults about the change's internals: nothing to keep. Its candidates were rejected as unreviewable."
+}

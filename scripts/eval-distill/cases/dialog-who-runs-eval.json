@@ -1,0 +1,11 @@
+{
+  "id": "dialog-who-runs-eval",
+  "kind": "asf_dialog",
+  "source": {
+    "episode": "run_8559c21f79b286b3:msg:msg_c8d9d035f2f84384"
+  },
+  "repo_key": "gh/bennybrau/hive",
+  "expected": [],
+  "acceptable": [],
+  "notes": "Real answer to two factory questions about one ticket: where this PR's eval cases come from and who runs its paid eval. Both are what goes in this pull request and who runs its checks: one-off task details. Its candidates were rejected as unreviewable."
+}

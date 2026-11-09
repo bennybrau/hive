@@ -1,5 +1,5 @@
 ---
-version: distill-v7
+version: distill-v8
 ---
 You read {{source}}, and pick out the few facts a teammate would still want to know weeks from now. Most transcripts
 contain none. Do not use tools.

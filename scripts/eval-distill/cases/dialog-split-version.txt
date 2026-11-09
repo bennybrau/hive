@@ -1,0 +1,20 @@
+assistant: # M5b WP4 — Corrections replace facts instead of adding twins (#76)
+
+**Still needed:** `origin/main` (04e3398, WP3 merged) has no `related`/`replaces` anywhere. The claim sends only the episode (`apps/hive/src/distill.ts` `claimJob`), and the prompt has no list of known facts. The pieces it builds on already exist: episode embeddings (`episodes.embedding`, `content_tsv`), the `supersedes` column, `activateSupersede`, which `reviewFact` already calls on approve and fix, and `factChain` in `GET /v1/facts/:id`.
+
+**Split into 2 parts.** The whole change covers database, API, worker and dashboard (4 areas, ~20 files), so the dashboard view lands separately:
+1. Hive, worker and eval: claim → prompt → complete → approve supersedes. Ships on its own: the queue gets a new `replaces` field, and the current dashboard ignores it.
+2. Dashboard "Replaces" view. Needs part 1's queue field.
+
+**Defaults picked (correct me):**
+- Prompt version stays `distill-v6`, as the design says ("same prompt version as WP3"). It is not bumped to v7.
+- Remember jobs get no `related` and ignore `replaces`: their facts are authored and skip review.
+- `replaces` must point to a fact in the candidate's own scope. The supersede chain requires the same scope, so any other id is dropped.
+- The eval reports a `replaces-miss` column but doesn't add it to the pass bar from #11.
+- If the old fact is no longer active when the candidate is approved, approve still works and no chain is made.
+
+```asf-split
+[
+  {
+    "titl
+user: The split is good. One change: bump the prompt to `distill-v7` in part 1 (worker, hive check and units test together). WP4 changes the prompt text, and we need stored results and eval runs to tell WP3-only output from WP4 output. The other defaults are fine (no related facts on remember jobs, same-scope only, replaces-miss reported but not in the pass bar, approve still works if the old fact is no longer active). Update the plan and I'll approve it.

@@ -1,0 +1,25 @@
+{
+  "id": "dialog-activity-name",
+  "kind": "asf_dialog",
+  "source": {
+    "episode": "run_d7faa608849f08b5:msg:msg_d145fc8fcb5454b0"
+  },
+  "repo_key": "gh/bennybrau/agentic-software-factory",
+  "expected": [
+    {
+      "text": "The factory's run list page (formerly History) is called Activity, not Work.",
+      "kind": "convention",
+      "scope": "repo:gh/bennybrau/agentic-software-factory",
+      "evidence": "Call it \"Activity\"."
+    }
+  ],
+  "acceptable": [
+    {
+      "text": "The Activity page needs a better icon chosen from Google's Material Icons and built into the app's icon set.",
+      "kind": "decision",
+      "scope": "repo:gh/bennybrau/agentic-software-factory",
+      "evidence": "We should have a more appropriate icon, you are going to need to find something that makes sense in Google's Material Icons and build it into the application."
+    }
+  ],
+  "notes": "Real answer to a factory question. The person picks a different name than the factory proposed: a naming decision any teammate would act on. The icon follow-up is a one-off task, acceptable at most."
+}

@@ -60,7 +60,10 @@ const SOURCES: Record<string, { source: string; quoteRule: string }> = {
   },
   asf_dialog: {
     source:
-      "a person's note to a software factory, after the factory's text (assistant): the person's reply to a plan at an approval gate, or their answer to a question the factory asked. Keep what the person corrected, clarified, redirected or decided; the factory's plan or question is context only",
+      "a person's note to a software factory, after the factory's text (assistant): the person's reply to a plan at an approval gate, or their answer to a question the factory asked. Keep what the person corrected, clarified, redirected or decided; the factory's plan or question is context only. " +
+      "Approving the plan or its proposed defaults is not deciding (\"looks good\", \"agreed\", \"matches the split\", \"the other defaults are fine\"): keep nothing from it, even when the person lists the defaults back. An answer that picks one of the options the factory asked about, or a choice the person states in their own words with a reason, still counts. " +
+      "A teammate who never saw this run reviews every fact, so keep only what they would understand and act on: how the product behaves, what its users see, how the team works. " +
+      "Never the internals of the change being planned: names of fields, columns, flags or metadata and what they do, prompt or schema versions, how the ticket is split into parts, what goes in this pull request, or who runs this change's checks",
     quoteRule: "from a line that starts with `user:` only. Never quote the assistant's text",
   },
 };

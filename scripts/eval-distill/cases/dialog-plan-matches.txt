@@ -1,0 +1,16 @@
+assistant: # M5b WP4a — distill-v7: related facts, `replaces`, approve supersedes
+
+Still needed: main is at `distill-v6` and nothing sends related facts or stores `replaces`. Already a sub-task (part 1/2), so no further split.
+
+**Version → distill-v7:** `prompts/distill.md`, `DISTILL_PROMPT_VERSION`, `units.test.ts:139`, `docs/M5B_LEARNING_LOOP.md` §WP4. The two `eval-cases.test.ts` comments become "since distill-v6".
+
+**Hive**
+- `migrations/0012_distill_related.sql`: `related_ids uuid[] not null default '{}'`.
+- `distill.ts`: an `episodeScopes(repo_key, user_id)` helper, used by claim and complete. Claim, for non-remember and non-asf_run jobs: up to 8 active facts in those scopes.
+  - Episode has an embedding: cosine order, embedded facts only.
+  - No embedding: `ts_rank(e.content_tsv, replace(plainto_tsquery('english', f.text)::text,'&','|')::tsquery) > 0`, same OR shape as `search.ts:22` TSQUERY.
+  - Saves the ids in `related_ids` and returns `related` at the top level. Complete sets `metadata.replaces` only on a newly created distilled candidate, only when the id is in `related_ids` and the fact is in the same scope. Otherwise it drops the field quietly.
+- `routes/worker.ts`: optional `replaces` (string, maxLength 100).
+- `facts.ts`: `metadata.replaces?`. In `reviewFact`, approve and fix (non-merge path only): if `supersedes` is null and `replaces` is still active in the same scope, set `supersedes` and call `activateSupersede`.
+- `routes/review.ts`: one batched query adds `replaces
+user: Matches the split. Agreed: replaces is ignored on a fix that merges into another fact.

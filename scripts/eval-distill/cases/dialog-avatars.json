@@ -1,0 +1,25 @@
+{
+  "id": "dialog-avatars",
+  "kind": "asf_dialog",
+  "source": {
+    "episode": "run_9f1887a969fb9db1:gate:gate_37f67a950b4be2f3"
+  },
+  "repo_key": "gh/bennybrau/agentic-software-factory",
+  "expected": [
+    {
+      "text": "Agent avatars are org-wide, one set for the whole factory rather than per user, because the factory is not a multi-user app.",
+      "kind": "decision",
+      "scope": "repo:gh/bennybrau/agentic-software-factory",
+      "evidence": "Org-wide for now.  This isn't a multi-user app."
+    }
+  ],
+  "acceptable": [
+    {
+      "text": "Uploading an avatar zip replaces only the roles it contains; other roles keep their avatars.",
+      "kind": "decision",
+      "scope": "repo:gh/bennybrau/agentic-software-factory",
+      "evidence": "A new zip can just replace the roles it contains."
+    }
+  ],
+  "notes": "Real gate note. The person settles the avatar scope in their own words with a reason (a product decision a teammate would act on); the zip-replace rule restates the plan, so it is acceptable at most. The curator approved both facts from this note."
+}

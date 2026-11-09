@@ -1,0 +1,12 @@
+assistant: # Plan — ADHOC-835EA111: agent avatars (upload + render)
+
+**Scope:** one set of avatars for the whole factory (org-wide), one image per role.
+
+## Changes
+- **`db/migrations/015_agent_avatar.sql`**: new table `agent_avatar(role text PK CHECK in 4 roles, mime text, bytes bytea, updated_by, updated_at)`. Only additions.
+- **`packages/shared/src/avatars.ts`** (export from index): `AVATAR_ROLES`, allowed types (png/jpg/jpeg/gif/webp, **no SVG**, since SVG can carry scripts), magic-byte sniff, `parseAvatarZip(buf)`. The zip reader is small and uses only `node:zlib` (stored + deflate entries, so no new dependency). It matches `<role>.<ext>` case-insensitively, ignores folders, `__MACOSX` and other files, rejects with a reason on bad type/size.
+- **`settings.ts`**: `AVATAR_MAX_MB` (env, default 5 per image); then `pnpm gen:config`.
+- **Registry RPC** (`registry-rpc.ts`, `rpc.ts`): `setAvatars`, `listAvatars` (role + version), `getAvatar`, `deleteAvatar`.
+- **API** `routes/avatars.ts`: `POST /api/avatars` takes a zip as base64 JSON (same approach as adhoc). It validates the zip, then only the roles inside it are replaced. Also `GET /api/avatars`, `GET /api/avatars/:role` (sends the real image type plus `nosniff`, cacheable by version), and `DELETE /api/avatars/:role`.
+- **Web**: an "Agent avatars" section on `/settings` with 4 preview tiles, a zip picker, the naming rule, and per-role remove. A `useAvatars()` hook and an `<AgentAvatar role>` component. The avatar shows in the RunView 
+user: Org-wide for now.  This isn't a multi-user app.  A new zip can just replace the roles it contains.

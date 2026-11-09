@@ -1,0 +1,11 @@
+{
+  "id": "dialog-plan-matches",
+  "kind": "asf_dialog",
+  "source": {
+    "episode": "run_9f07cfbe6c519170:gate:gate_9ea5805e83f4fbaa"
+  },
+  "repo_key": "gh/bennybrau/hive",
+  "expected": [],
+  "acceptable": [],
+  "notes": "Real gate note: the plan matches the split, and the person agrees with an internal detail (a metadata field ignored on one review path). Approval plus change internals: nothing to keep. Its candidate was rejected as unreviewable."
+}

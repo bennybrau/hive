@@ -1,0 +1,21 @@
+assistant: # Plan: ADHOC-5917065C — Conventional Commits drive semver image releases
+
+## Why updates aren't detected (confirmed)
+- `apps/api/src/updates.ts` only counts strict `vX.Y.Z` image tags. A main build is tagged only `latest` + `sha-…`.
+- The only tag is `v0.1.0`, so every main build reports 0.1.0 and no update is ever offered.
+- Factory commits on main are `ADHOC-…: agent delivery (#N)` (`apps/worker/src/git.ts:291`). They carry no type, so they can't drive a version bump.
+
+## 1. Factory commits and pull requests get a Conventional Commits type
+- **`prompts/roles/planner.md`, `reviewer.md`**: each ends its artifact with one line, `Change-Type: fix | feat | feat! | chore | docs | refactor | test | ci`. `feat!` means a breaking change.
+- **`apps/worker/src/commit-type.ts`** (new): `changeType(reviewMd, planMd)` reads the line. The reviewer's value wins (it saw the final diff), then the planner's. Default: `fix`.
+- **`git.ts` `rebaseOntoBase`**: the squashed commit becomes `<type>: <KEY> <ticket title>`. For `feat!` it also adds a `BREAKING CHANGE:` footer. Existing trailers stay.
+- **`publish.ts`**: the PR title becomes `<type>: <KEY>: <ticket title>`, so a squash that takes the PR title (the GitLab default) also carries the type.
+
+## 2. images.yml cuts the release
+- **`scripts/next-version.sh`** (new): looks at the commits since the highest strict `vX.Y.Z` tag.
+  - `!:` or `BREAKING CHANGE` → major.
+  - Any `feat` → minor.
+  - Anything else → patch.
+  - HEAD already tagged → reu
+user: 1. yes, chore, docs, ci should be patch.
+2. yes, default is fix.

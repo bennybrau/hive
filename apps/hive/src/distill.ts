@@ -6,7 +6,7 @@ import { ConflictError, contentHash, flagCorrection, initialStatus, normalizeTex
 /** A job that has been claimed this many times and fails (or its lease expires) again is given up on. */
 export const MAX_ATTEMPTS = 3;
 /** Sent with every claim so the worker and the stored result agree on which prompt produced the facts. */
-export const DISTILL_PROMPT_VERSION = "distill-v7";
+export const DISTILL_PROMPT_VERSION = "distill-v8";
 /** Cosine above which a distilled fact is "the same" as an existing one in its scope (anchor, don't insert). */
 const VECTOR_DUPE_MIN = 0.92;
 /** Cosine from which a fact anchored on the same quote in its scope is "the same" (a paraphrase of one decision). */

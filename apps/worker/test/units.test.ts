@@ -158,7 +158,7 @@ describe("ClaudeAuth", () => {
 
 describe("prompt", () => {
   it("the prompt file carries its version", () => {
-    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v7");
+    expect(loadPrompt(PROMPT_PATH).version).toBe("distill-v8");
     expect(loadPrompt(PROMPT_PATH).body).toContain('{"facts":[]}');
   });
 
@@ -192,6 +192,11 @@ describe("prompt", () => {
     expect(dialog).toContain("from a line that starts with `user:` only. Never quote the assistant's text");
     expect(dialog).not.toContain("coding agent");
     expect(dialog).not.toContain("from any line");
+    // since distill-v8: approving the factory's defaults is not a decision, and the change's internals are never facts
+    expect(dialog).toContain("Approving the plan or its proposed defaults is not deciding");
+    expect(dialog).toContain("A teammate who never saw this run reviews every fact");
+    expect(dialog).toContain("Never the internals of the change being planned");
+    for (const kind of ["session", "asf_run"]) expect(renderPrompt(loadPrompt(PROMPT_PATH), "gh/o/r", kind)).not.toContain("Approving the plan");
   });
 
   it("renderPrompt fills {{remember}} only on a remember job, and offers its personal scope", () => {

@@ -1,0 +1,18 @@
+{
+  "id": "dialog-split-version",
+  "kind": "asf_dialog",
+  "source": {
+    "episode": "run_73127d31779f2ee0:gate:gate_2aec4d12460d2286"
+  },
+  "repo_key": "gh/bennybrau/hive",
+  "expected": [],
+  "acceptable": [
+    {
+      "text": "Bump the distill prompt version whenever the prompt text changes, so stored results and eval runs can tell output of different prompt generations apart.",
+      "kind": "convention",
+      "scope": "repo:gh/bennybrau/hive",
+      "evidence": "WP4 changes the prompt text, and we need stored results and eval runs to tell WP3-only output from WP4 output."
+    }
+  ],
+  "notes": "Real gate note on a split plan. The rest approves the factory's defaults about metadata fields and scope rules: nothing a teammate outside the run would act on. The one change (bump the prompt version) is an instruction for this change, but stated as a general rule with its reason it is a standing team convention, so acceptable at most. distill-v7's candidates from this note were rejected as unreviewable."
+}

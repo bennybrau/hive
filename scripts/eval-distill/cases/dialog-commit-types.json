@@ -1,0 +1,24 @@
+{
+  "id": "dialog-commit-types",
+  "kind": "asf_dialog",
+  "source": {
+    "episode": "run_b82abb3ddb1c1b74:gate:gate_75158b39cab73343"
+  },
+  "repo_key": "gh/bennybrau/agentic-software-factory",
+  "expected": [],
+  "acceptable": [
+    {
+      "text": "When computing semver image releases from commits, the Conventional Commits types chore, docs and ci count as a patch bump.",
+      "kind": "decision",
+      "scope": "repo:gh/bennybrau/agentic-software-factory",
+      "evidence": "yes, chore, docs, ci should be patch."
+    },
+    {
+      "text": "When neither the planner nor the reviewer gives a change type, a factory commit defaults to fix.",
+      "kind": "decision",
+      "scope": "repo:gh/bennybrau/agentic-software-factory",
+      "evidence": "yes, default is fix."
+    }
+  ],
+  "notes": "Real answers to two factory questions (the questions themselves were cut off with the plan's tail). The person picks the options, so both facts are acceptable: product behaviour a teammate would understand, but each answer is a 'yes' to the factory's suggestion. The curator approved both."
+}
