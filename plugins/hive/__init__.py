@@ -4,7 +4,7 @@ Connects this Hermes instance to a shared Hive service (one per team, see the re
 
 What it does each turn:
   * brief      - on the first turn of a session in a repo: POST /v1/brief with the message as the task and
-                 inject the brief (gotchas, facts, where to look, past runs, tests) instead of recall.
+                 inject the brief (playbook, gotchas, facts, where to look, past runs, tests) instead of recall.
   * prefetch   - before the model sees the message: GET /v1/recall with a strict relevance gate,
                  inject at most HIVE_PREFETCH_K facts as a short cited list. Hermes replays the
                  injected block on EVERY later request of the session, so each line costs tokens
@@ -254,7 +254,13 @@ def _fact_line(f: dict[str, Any]) -> str:
     return f"- [hive:{str(f.get('id', ''))[:8]}] {f.get('text', '').strip()} ({label}, {f.get('kind', '')}{note})"
 
 
-BRIEF_SECTIONS = ("gotchas", "facts", "locations", "runs", "tests")
+def _playbook_item(s: dict[str, Any]) -> str:
+    """A playbook step or pitfall with the facts it rests on as [hive:<id8>] refs."""
+    refs = "".join(f" [hive:{str(fid)[:8]}]" for fid in s.get("fact_ids") or [])
+    return f"{str(s.get('text', '')).strip()}{refs}"
+
+
+BRIEF_SECTIONS = ("playbook", "gotchas", "facts", "locations", "runs", "tests")
 
 
 def brief_items(b: dict[str, Any]) -> int:
@@ -262,11 +268,17 @@ def brief_items(b: dict[str, Any]) -> int:
 
 
 def format_brief(b: dict[str, Any]) -> str:
-    """The first-turn block from POST /v1/brief: gotchas, facts, where to look, past runs, tests.
+    """The first-turn block from POST /v1/brief: playbook, gotchas, facts, where to look, past runs, tests.
     Empty when the brief has nothing. Replayed every turn like format_facts, so keep it compact."""
     if not brief_items(b):
         return ""
     lines = ["## Hive brief for this task (shared team memory) - cite a fact you use as [hive:<id>]"]
+    for pb in b.get("playbook") or []:
+        lines.append(f"Playbook: {pb.get('title', '')} ({pb.get('scope', '')})")
+        if pb.get("steps"):
+            lines += ["Steps:"] + [f"{i}. {_playbook_item(s)}" for i, s in enumerate(pb["steps"], 1)]
+        if pb.get("pitfalls"):
+            lines += ["Pitfalls:"] + [f"- {_playbook_item(s)}" for s in pb["pitfalls"]]
     if b.get("gotchas"):
         lines += ["Gotchas:"] + [_fact_line(f) for f in b["gotchas"]]
     if b.get("facts"):

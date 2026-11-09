@@ -352,6 +352,35 @@ def test_format_brief_is_empty_for_an_empty_brief():
     assert hive.format_brief({}) == ""
 
 
+PLAYBOOK = {"id": "pb000000-0000-0000-0000-000000000001", "title": "Add a migration", "scope": "repo:gh/acme/api",
+            "steps": [{"text": "Create a new file in migrations/.", "fact_ids": [G1["id"], F1["id"]]},
+                      {"text": "Run the migration tests.", "fact_ids": []}],
+            "pitfalls": [{"text": "Editing a shipped migration.", "fact_ids": [G1["id"]]}]}
+
+
+def test_format_brief_renders_the_playbook_before_gotchas():
+    assert hive.format_brief({"playbook": [PLAYBOOK], "gotchas": [G1]}).splitlines() == [
+        "## Hive brief for this task (shared team memory) - cite a fact you use as [hive:<id>]",
+        "Playbook: Add a migration (repo:gh/acme/api)",
+        "Steps:",
+        "1. Create a new file in migrations/. [hive:77777777] [hive:11111111]",
+        "2. Run the migration tests.",
+        "Pitfalls:",
+        "- Editing a shipped migration. [hive:77777777]",
+        "Gotchas:",
+        "- [hive:77777777] Never edit a shipped migration. (repo:gh/acme/api, gotcha)",
+    ]
+
+
+def test_brief_with_only_a_playbook_is_injected_and_counted(monkeypatch, fake):
+    fake.brief = {**{k: [] for k in hive.BRIEF_SECTIONS}, "playbook": [{**PLAYBOOK, "pitfalls": []}],
+                  "tokens": {"total": 40}}
+    p = _provider(monkeypatch, fake.url)
+    block = p.prefetch("add a migration")
+    assert "Playbook: Add a migration (repo:gh/acme/api)" in block and "Pitfalls:" not in block
+    assert p.recall_status().count == 1
+
+
 @pytest.mark.parametrize("kw,query", [
     ({"repo_key": "", "cwd": "/"}, "tests?"),
     ({"env": {"HIVE_BRIEF": "off"}}, "tests?"),

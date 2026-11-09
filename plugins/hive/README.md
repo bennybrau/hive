@@ -6,7 +6,7 @@ Connects a Hermes instance to the team's Hive. Stdlib only, no new dependencies 
 
 | When | What | Cost |
 |---|---|---|
-| First turn of a session in a repo (`prefetch`) | `POST /v1/brief` with your message as the task, the repo and your changed files; injects a compact brief (gotchas, facts as `[hive:<id>]` lines, where to look, past runs, tests; ~600 tokens) instead of recall. Asked once per session (`/new` asks again); if it fails, that turn uses recall | one HTTP POST, no LLM |
+| First turn of a session in a repo (`prefetch`) | `POST /v1/brief` with your message as the task, the repo and your changed files; injects a compact brief (playbook, gotchas, facts as `[hive:<id>]` lines, where to look, past runs, tests; ~600 tokens) instead of recall. Asked once per session (`/new` asks again); if it fails, that turn uses recall | one HTTP POST, no LLM |
 | Before each turn (`prefetch`) | `GET /v1/recall` with your message, the current repo, and a strict relevance gate; injects at most 5 facts as `[hive:<id>]` lines | ~30 ms, no LLM |
 | After each turn (`sync_turn`) | records the turn as an episode (Hermes redacts secrets first and runs this off the response path) | one HTTP POST |
 | Session end | records the whole transcript (tool output clipped) as a `session` episode, input for distill in M4 | one HTTP POST |
