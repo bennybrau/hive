@@ -268,6 +268,7 @@ retirement), and re-runs the experiment twice. Hermes itself is not changed. Mil
 ### M6 — Harden for other people (1–2 d)
 - `setup.sh` on the Mac Studio (compose up, Ollama model pull, create curator + N instance tokens, print install snippet for each Hermes). Tailscale or LAN URL. Backup = `pg_dump` cron.
 - Secret scrub on the plugin side is already done by Hermes before `sync_turn`; document it. `HIVE_NO_SYNC=1` kill switch.
+- Daily review digest (#107): the service sends the curator's review queue by email and/or Telegram once a day at the configured local time, retrying a failed channel a few times; missed days are not caught up.
 
 Total: ~15–18 focused days for M0–M6.
 

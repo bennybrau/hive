@@ -6,6 +6,7 @@ import { createEmbedder } from "./embed.js";
 import { startEmbedWorker } from "./jobs/embed.js";
 import { createRepoSync } from "./jobs/repo-sync.js";
 import { log } from "./log.js";
+import { startReviewDigestScheduler } from "./review-digest/scheduler.js";
 import { startWebhookDispatcher } from "./webhooks.js";
 
 const config = loadConfig();
@@ -37,6 +38,11 @@ const webhooks = config.secretKey
     })
   : null;
 
+// The digest's settings are encrypted under the key too.
+const reviewDigest = config.secretKey
+  ? startReviewDigestScheduler(pool, config.secretKey, { telegramApiUrl: config.telegramApiUrl })
+  : null;
+
 const app = buildApp(pool, {
   version: config.version,
   logger: true,
@@ -57,6 +63,7 @@ for (const sig of ["SIGINT", "SIGTERM"] as const) {
     await repoSync.stop();
     await worker?.stop();
     await webhooks?.stop();
+    await reviewDigest?.stop();
     await app.close();
     await pool.end();
     process.exit(0);

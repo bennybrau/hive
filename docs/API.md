@@ -173,6 +173,13 @@ malformed key stops the service at startup) and are never returned or logged.
   2 s apart, 10 s timeout each) on its own, so one failing doesn't stop the other. Errors never include the SMTP password
   or bot token. Nothing is recorded: `last_*` and the daily digest are unaffected. Telegram goes to
   `HIVE_TELEGRAM_API_URL` (default `https://api.telegram.org`).
+- The daily digest: while enabled with a channel (and with a key), the service checks every minute and sends the
+  first time the local clock in `timezone` reads `time` or later, once per local date: one `review_digests` row per
+  date, so restarts, several replicas and DST changes don't send twice, and a restart later that day still sends. A
+  missed day is not caught up the next morning. The digest lists the whole review queue; new = asked since the
+  latest digest sent on an earlier day (or since local midnight when there is none). An empty queue sends nothing (`last_item_count` 0). A channel that fails is tried once
+  per send and resent alone 1, 5 and 15 minutes later (4 sends at most, same day only); `last_error` shows the failure
+  until a resend succeeds.
 
 ## Webhooks (curator only; members get 403)
 
