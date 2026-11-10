@@ -87,16 +87,67 @@ const DONE: Record<Decision["action"], string> = {
 
 type Editing = { kind: "fix"; text: string } | { kind: "reject"; note: string } | null;
 
-function Evidence({
+/** The decision buttons for the current candidate; on a phone they are the card's footer, pinned to the bottom of the screen. */
+function Actions({
   c,
   editing,
   setEditing,
   submit,
+  approve,
 }: {
   c: Candidate;
   editing: Editing;
   setEditing: (e: Editing) => void;
   submit: () => void;
+  approve: () => void;
+}) {
+  const fixOk = editing?.kind !== "fix" || editing.text.trim().length >= 3;
+  return (
+    <div className="review-actions" role="group" aria-label="Decide">
+      {editing ? (
+        <>
+          <button type="button" onClick={() => setEditing(null)}>
+            Cancel
+          </button>
+          {editing.kind === "fix" ? (
+            <button type="button" className="primary" disabled={!fixOk} onClick={submit}>
+              Save fix
+            </button>
+          ) : (
+            <button type="button" className="danger" onClick={submit}>
+              Reject
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <button type="button" onClick={() => setEditing({ kind: "reject", note: "" })}>
+            Reject…
+          </button>
+          <button type="button" onClick={() => setEditing({ kind: "fix", text: c.text })}>
+            Fix…
+          </button>
+          <button type="button" className="primary" onClick={approve}>
+            Approve
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Evidence({
+  c,
+  editing,
+  setEditing,
+  submit,
+  approve,
+}: {
+  c: Candidate;
+  editing: Editing;
+  setEditing: (e: Editing) => void;
+  submit: () => void;
+  approve: () => void;
 }) {
   const onKey = (e: ReactKeyboardEvent) => {
     if (e.key === "Escape") {
@@ -107,6 +158,8 @@ function Evidence({
       submit();
     }
   };
+  // On a phone a long bot turn is cut to a few lines until asked for; the parent keys this by candidate, so it resets.
+  const [botOpen, setBotOpen] = useState(false);
   // The first conversation the fact came from, shown as the exchange; its snippet would only repeat it.
   const shown = c.anchors.find((a) => a.exchange);
   // The replaced fact has its own section; don't list it again as similar.
@@ -115,12 +168,20 @@ function Evidence({
   return (
     <aside className="review-evidence" aria-label="Evidence">
       {c.metadata?.asked && <span className="badge asked">asked to remember</span>}
+      <p className="review-card-meta">
+        {c.kind} · {c.scope} · {c.origin}
+      </p>
       {shown?.exchange && (
         <section className="exchange" aria-label="Exchange">
           {shown.exchange.assistant !== null && (
-            <div>
+            <div className={botOpen ? "exchange-bot" : "exchange-bot clamped"}>
               <span className="exchange-label">bot said</span>
               <pre className="quote">{shown.exchange.assistant}</pre>
+              {!botOpen && (
+                <button type="button" className="link more" onClick={() => setBotOpen(true)}>
+                  Show all of it
+                </button>
+              )}
             </div>
           )}
           <div className="exchange-user">
@@ -140,7 +201,7 @@ function Evidence({
             onChange={(e) => setEditing({ kind: "fix", text: e.target.value })}
             onKeyDown={onKey}
           />
-          <p className="help">Enter saves, Esc cancels.</p>
+          <p className="help keys-hint">Enter saves, Esc cancels.</p>
         </div>
       ) : (
         <p className="fact-text">{c.text}</p>
@@ -156,9 +217,10 @@ function Evidence({
             onChange={(e) => setEditing({ kind: "reject", note: e.target.value })}
             onKeyDown={onKey}
           />
-          <p className="help">Enter rejects, Esc cancels.</p>
+          <p className="help keys-hint">Enter rejects, Esc cancels.</p>
         </div>
       )}
+      <Actions c={c} editing={editing} setEditing={setEditing} submit={submit} approve={approve} />
       {old && (
         <section className="replaces" aria-label="Replaces">
           <h3>Replaces</h3>
@@ -179,15 +241,6 @@ function Evidence({
           </p>
         </section>
       )}
-
-      <dl>
-        <dt>Kind</dt>
-        <dd>{c.kind}</dd>
-        <dt>Scope</dt>
-        <dd>{c.scope}</dd>
-        <dt>Origin</dt>
-        <dd>{c.origin}</dd>
-      </dl>
 
       <h3>Anchors</h3>
       {c.anchors.length === 0 ? (
@@ -281,7 +334,7 @@ function FlaggedCard({
             onChange={(e) => setEditing({ kind: "fix", text: e.target.value })}
             onKeyDown={onKey}
           />
-          <p className="help">Enter saves, Esc cancels.</p>
+          <p className="help keys-hint">Enter saves, Esc cancels.</p>
         </div>
       ) : (
         <p className="fact-text">{f.text}</p>
@@ -319,7 +372,7 @@ function FlaggedCard({
             onChange={(e) => setEditing({ kind: "retire", note: e.target.value })}
             onKeyDown={onKey}
           />
-          <p className="help">Enter retires, Esc cancels.</p>
+          <p className="help keys-hint">Enter retires, Esc cancels.</p>
         </div>
       )}
       <div className="stale-actions">
@@ -355,6 +408,9 @@ function FlaggedCard({
     </li>
   );
 }
+
+/** Must match the breakpoint in styles.css where the review queue shows one card at a time. */
+const SINGLE_CARD = "(max-width: 900px)";
 
 function isTyping(t: EventTarget | null): boolean {
   return t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
@@ -405,6 +461,16 @@ function ReviewQueue() {
 
   // A different row (moved to, or decided away) drops any half-made edit.
   useEffect(() => setEditing(null), [current?.id]);
+
+  // On a phone the list is hidden and the card is the page, so a new card starts at its top.
+  const firstCard = useRef(true);
+  useEffect(() => {
+    if (firstCard.current) {
+      firstCard.current = false;
+      return;
+    }
+    if (typeof matchMedia === "function" && matchMedia(SINGLE_CARD).matches) scrollTo({ top: 0 });
+  }, [current?.id]);
 
   function move(to: number) {
     const next = Math.max(0, Math.min(to, shown.length - 1));
@@ -459,10 +525,10 @@ function ReviewQueue() {
           <p className="help keys">
             {shown.length + flagged.length} to review.
             {shown.length > 0 && (
-              <>
+              <span className="keys-hint">
                 {" "}
                 <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>a</kbd> approve, <kbd>f</kbd> fix, <kbd>r</kbd> reject.
-              </>
+              </span>
             )}
           </p>
         )}
@@ -507,7 +573,26 @@ function ReviewQueue() {
       )}
 
       {current && (
-        <div className="review-panes">
+        <nav className="review-stepper" aria-label="Candidate">
+          <button type="button" aria-label="Previous candidate" disabled={index === 0} onClick={() => move(index - 1)}>
+            ‹
+          </button>
+          <span aria-live="polite">
+            Candidate {index + 1} of {shown.length}
+          </span>
+          <button
+            type="button"
+            aria-label="Next candidate"
+            disabled={index >= shown.length - 1}
+            onClick={() => move(index + 1)}
+          >
+            ›
+          </button>
+        </nav>
+      )}
+
+      {current && (
+        <div className="review-panes queue">
           <ol className="review-list" aria-label="Candidates" ref={listRef}>
             {shown.map((c, i) => (
               <li
@@ -534,7 +619,14 @@ function ReviewQueue() {
               </li>
             ))}
           </ol>
-          <Evidence c={current} editing={editing} setEditing={setEditing} submit={submitEdit} />
+          <Evidence
+            key={current.id}
+            c={current}
+            editing={editing}
+            setEditing={setEditing}
+            submit={submitEdit}
+            approve={() => decide({ id: current.id, via: "review", action: "approve" })}
+          />
         </div>
       )}
 

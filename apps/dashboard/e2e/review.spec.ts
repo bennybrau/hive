@@ -57,6 +57,63 @@ test("a curator reviews a member's candidate from the keyboard, with undo", asyn
     .toBe(`retracted rejected: e2e ${marker}`);
 });
 
+test("a curator reviews a member's candidate on a phone, by tapping", async ({ browser }) => {
+  expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
+  expect(CURATOR, "HIVE_E2E_CURATOR_TOKEN is not set").not.toBe("");
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const marker = `zm${Date.now()}`;
+  const text = `Dashboard e2e candidate ${marker}: reviewed on a phone.`;
+  const res = await page.request.post(`${HIVE}/v1/facts`, {
+    headers: { authorization: `Bearer ${MEMBER}` },
+    data: { text, kind: "gotcha", scope: "global", anchors: [{ path: "README.md", line_start: 1, line_end: 3, quote: "hive" }] },
+  });
+  expect(res.status()).toBe(201);
+  const id = (await res.json()).fact.id as string;
+
+  await page.goto(`${HIVE}/`);
+  await page.getByLabel("Token").fill(CURATOR);
+  await page.getByRole("button", { name: "Sign in" }).tap();
+  await page.getByRole("link", { name: "Review" }).tap();
+  await expect(page).toHaveURL(/\/review$/);
+
+  // One card at a time: the list is hidden, nothing scrolls sideways, and the decisions are on screen under the fact.
+  await expect(page.getByRole("list", { name: "Candidates" })).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  const card = page.getByRole("complementary", { name: "Evidence" });
+  const next = page.getByRole("button", { name: "Next candidate" });
+  for (let i = 0; i < 100 && !(await card.getByText(text).isVisible()); i++) await next.tap();
+  await expect(card.getByText(text)).toBeVisible();
+  const decide = page.getByRole("group", { name: "Decide" });
+  const bar = (await decide.boundingBox())!;
+  const fact = (await card.getByText(text).boundingBox())!;
+  expect(bar.y).toBeGreaterThan(fact.y + fact.height);
+  expect(bar.y + bar.height).toBeLessThanOrEqual(844);
+  expect(bar.height).toBeGreaterThanOrEqual(48);
+
+  // Fix it by tapping, then let the undo window close.
+  await decide.getByRole("button", { name: "Fix…" }).tap();
+  await page.getByLabel("Fixed text").fill(`${text} Fixed.`);
+  await decide.getByRole("button", { name: "Save fix" }).tap();
+  await expect(page.getByRole("status")).toContainText("Fixed");
+  await expect(page.getByRole("status")).toHaveCount(0, { timeout: 10_000 });
+
+  await expect
+    .poll(async () => {
+      const got = await page.request.get(`${HIVE}/v1/facts/${id}`, { headers: { authorization: `Bearer ${CURATOR}` } });
+      const f = (await got.json()).fact;
+      return `${f.status} ${f.text}`;
+    })
+    .toBe(`active ${text} Fixed.`);
+  // It is active and global now, so retire it before an assistant recalls it.
+  const retire = await page.request.post(`${HIVE}/v1/facts/${id}/curate`, {
+    headers: { authorization: `Bearer ${CURATOR}` },
+    data: { action: "retire", note: "e2e" },
+  });
+  expect(retire.status()).toBe(200);
+  await context.close();
+});
+
 test("a curator keeps a fact the member corrected after an answer cited it", async ({ page }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   expect(CURATOR, "HIVE_E2E_CURATOR_TOKEN is not set").not.toBe("");

@@ -203,6 +203,12 @@ kbd {
 .review-evidence .replaces { margin: 0 0 12px; }
 .review-evidence .replaces h3 { margin-top: 0; }
 .review-evidence .replaces .old { color: var(--muted); text-decoration: line-through; margin: 0 0 4px; }
+.review-card-meta { font-size: 12px; color: var(--muted); margin: 0 0 8px; overflow-wrap: anywhere; }
+.review-actions { display: flex; gap: 8px; margin: 0 0 16px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 500; }
+button.link { padding: 0; border: 0; background: none; color: var(--accent); font-weight: 500; }
+.review-stepper { display: none; }
+.exchange-bot .more { display: none; }
 .similar .pct { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent); }
 
 .flagged { margin: 0 0 24px; }
@@ -314,3 +320,92 @@ table.stats .num { text-align: right; font-variant-numeric: tabular-nums; }
 .playbook-items ol { display: grid; gap: 12px; margin: 0; padding-left: 22px; }
 .playbook-items li { display: grid; gap: 6px; }
 .playbook-items > button { justify-self: start; }
+
+/* Phones and narrow tablets: the review queue is one card at a time, with the decisions in the card's
+   footer pinned to the bottom of the screen. Controls are at least 44px tall; nothing scrolls sideways. */
+@media (max-width: 900px) {
+  .review-panes.queue .review-list { display: none; }
+  .review-stepper {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0 0 8px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .review-stepper button { min-width: 44px; min-height: 44px; font-size: 20px; line-height: 1; padding: 0 12px; }
+  .review-panes.queue .review-evidence {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+  }
+  /* The fact being judged comes first, then the conversation it came from. */
+  .review-panes.queue .review-evidence > * { order: 2; }
+  .review-panes.queue .review-evidence > .badge,
+  .review-panes.queue .review-evidence > .review-card-meta,
+  .review-panes.queue .review-evidence > .fact-text,
+  .review-panes.queue .review-evidence > .field { order: 1; }
+  .review-panes.queue .review-evidence > .badge { align-self: start; margin-bottom: 8px; }
+  .review-panes.queue .review-evidence .fact-text { font-size: 19px; line-height: 1.4; font-weight: 500; margin: 4px 0 20px; }
+  .review-panes.queue .review-evidence .exchange { padding-top: 16px; border-top: 1px solid var(--line); }
+  .review-panes.queue .review-evidence .exchange .quote { font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .exchange-bot.clamped .quote {
+    max-height: 6.6em;
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(#000 55%, transparent);
+    mask-image: linear-gradient(#000 55%, transparent);
+  }
+  .exchange-bot.clamped .more { display: inline-flex; align-items: center; min-height: 44px; }
+  .review-panes.queue .review-evidence > .review-actions {
+    order: 3;
+    position: sticky;
+    z-index: 10;
+    bottom: 0;
+    margin: 16px -16px -16px;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+    border-radius: 0 0 var(--radius) var(--radius);
+    box-shadow: 0 -6px 18px rgb(28 25 23 / 0.08);
+  }
+  .review-panes.queue .review-actions button { flex: 1; min-height: 48px; font-size: 16px; }
+  /* Flagged facts have their own buttons, so they go below the card rather than between it and its decisions. */
+  .review-page { display: flex; flex-direction: column; }
+  .review-page > .flagged { order: 5; margin: 24px 0 0; }
+  .review-page > .flagged h2 { font-size: 15px; }
+  .review-page .toast { bottom: calc(92px + env(safe-area-inset-bottom)); }
+}
+
+@media (max-width: 640px) {
+  .page { padding: 16px; }
+  .shell { flex-wrap: wrap; height: auto; gap: 8px 12px; padding: 8px 16px 0; }
+  .shell .instance { display: none; }
+  .shell nav {
+    order: 10;
+    flex: 1 0 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin: 0 -16px;
+    padding: 0 12px;
+    gap: 0;
+  }
+  .shell nav::-webkit-scrollbar { display: none; }
+  .shell nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; white-space: nowrap; }
+  .shell button { min-height: 36px; }
+  .review-head { gap: 4px 12px; }
+  .flagged-card { padding: 12px; }
+  .stale-actions button { flex: 1; min-height: 44px; }
+  .toast { left: 16px; right: 16px; transform: none; justify-content: space-between; }
+  .toast button { min-height: 40px; padding: 0 16px; }
+  /* Below 16px, iOS Safari zooms the page when a field gets focus. */
+  input, textarea, select { font-size: 16px; }
+}
+
+/* No j/k/a/f/r keys to hint at on a touch screen. */
+@media (hover: none) and (pointer: coarse), (max-width: 640px) {
+  .keys-hint { display: none; }
+}

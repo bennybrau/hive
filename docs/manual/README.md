@@ -169,6 +169,11 @@ candidate list is on the left and the evidence for the selected one is on the ri
 | `f` | **fix**: edit the text, then `Enter` to save it as active (`Shift+Enter` for a new line, `Esc` cancels) |
 | `r` | **reject**: optional reason, then `Enter` (`Esc` cancels) |
 
+The **Approve**, **Fix…** and **Reject…** buttons under the fact do the same with a mouse or a finger.
+
+- **On a phone** the queue shows one candidate at a time: the fact first, then the conversation it came from
+  (a long bot reply is cut short; tap **Show all of it**). Use **‹ ›** to move between candidates. The decision
+  buttons stay at the bottom of the screen while you scroll the card.
 - **Undo**: every decision waits **5 seconds** before it is saved, with an **Undo** button. Making the next
   decision, or leaving the page, saves the previous one at once.
 - **Fixing into an existing fact**: if your fixed text is word for word an existing fact in that scope, the

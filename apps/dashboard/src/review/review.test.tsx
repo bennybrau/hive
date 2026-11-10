@@ -324,6 +324,84 @@ describe("review queue", () => {
   });
 });
 
+describe("without a keyboard", () => {
+  const decide = () => within(screen.getByRole("group", { name: "Decide" }));
+  const tap = (name: string) => fireEvent.click(decide().getByRole("button", { name }));
+
+  it("the stepper moves between candidates and stops at the ends", async () => {
+    await open();
+    const prev = screen.getByRole("button", { name: "Previous candidate" }) as HTMLButtonElement;
+    const next = screen.getByRole("button", { name: "Next candidate" }) as HTMLButtonElement;
+    expect(screen.getByText("Candidate 1 of 3")).toBeTruthy();
+    expect(prev.disabled).toBe(true);
+    fireEvent.click(next);
+    fireEvent.click(next);
+    expect(screen.getByText("Candidate 3 of 3")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Evidence" }).querySelector(".fact-text")!.textContent).toBe("candidate c3");
+    expect(next.disabled).toBe(true);
+    fireEvent.click(prev);
+    expect(rows()[1]!.getAttribute("aria-current")).toBe("true");
+  });
+
+  it("Approve approves the current candidate after the undo window", async () => {
+    await open();
+    tap("Approve");
+    expect(screen.getByText("Candidate 1 of 2")).toBeTruthy();
+    await tick(5000);
+    expect(posts()).toEqual([["c1", { action: "approve" }]]);
+  });
+
+  it("Fix… opens the text; Save fix is off under 3 chars and sends the fix", async () => {
+    await open();
+    tap("Fix…");
+    const box = screen.getByLabelText("Fixed text");
+    fireEvent.change(box, { target: { value: "ab" } });
+    expect((decide().getByRole("button", { name: "Save fix" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(box, { target: { value: "candidate c1, tightened" } });
+    tap("Save fix");
+    await tick(5000);
+    expect(posts()).toEqual([["c1", { action: "fix", new_text: "candidate c1, tightened" }]]);
+  });
+
+  it("Reject… asks for a note, Cancel backs out, and Reject sends it", async () => {
+    await open();
+    tap("Reject…");
+    tap("Cancel");
+    expect(screen.queryByLabelText(/Why reject it/)).toBeNull();
+    tap("Reject…");
+    fireEvent.change(screen.getByLabelText(/Why reject it/), { target: { value: "not true any more" } });
+    tap("Reject");
+    await tick(5000);
+    expect(posts()).toEqual([["c1", { action: "reject", note: "not true any more" }]]);
+  });
+
+  it("a long bot turn is cut short until Show all of it, and is cut again on the next candidate", async () => {
+    const said = (id: string, assistant: string) => ({
+      id,
+      episode_id: "e1",
+      repo_key: null,
+      path: null,
+      line_start: null,
+      line_end: null,
+      quote: "u",
+      verify_status: "unverified",
+      episode_snippet: null,
+      exchange: { assistant, user: "u" },
+    });
+    queue.candidates = [
+      candidate("c1", { anchors: [said("a1", "a long reply")] }),
+      candidate("c2", { anchors: [said("a2", "another reply")] }),
+    ];
+    await open();
+    const bot = () => screen.getByText("a long reply").closest(".exchange-bot")!;
+    expect(bot().classList.contains("clamped")).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Show all of it" }));
+    expect(bot().classList.contains("clamped")).toBe(false);
+    press("j");
+    expect(screen.getByText("another reply").closest(".exchange-bot")!.classList.contains("clamped")).toBe(true);
+  });
+});
+
 describe("corrected after citation", () => {
   const C2 = "c2aaaaaa-0000-0000-0000-000000000002";
   const section = () => screen.getByRole("region", { name: "Corrected after citation" });
