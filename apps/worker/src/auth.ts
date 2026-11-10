@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { spawnEnv } from "./env.js";
 import type { Exec } from "./exec.js";
+import { log as jsonLog } from "./log.js";
 
 /**
  * Before the first `claude` call with a credential, confirm the CLI will bill it as a subscription OAuth token
@@ -11,7 +12,7 @@ export class ClaudeAuth {
 
   constructor(
     private exec: Exec,
-    private log: (msg: string) => void = console.log,
+    private log: (msg: string) => void = jsonLog.info,
     private baseEnv: NodeJS.ProcessEnv = process.env,
   ) {}
 

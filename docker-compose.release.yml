@@ -1,0 +1,78 @@
+# Hive stack from the published images: needs only this file and a .env next to it (no checkout, no build).
+# Download both from a GitHub release; see README "Install (no checkout)".
+name: hive
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hive
+      POSTGRES_DB: hive
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (openssl rand -hex 24)}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive -d hive"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  hive:
+    image: ghcr.io/bennybrau/hive:${HIVE_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://hive:${POSTGRES_PASSWORD}@postgres:5432/hive
+      HIVE_HOST: 0.0.0.0
+      HIVE_PORT: 8800
+      # Ollama on the host by default; empty OLLAMA_URL = keyword-only search. Bundled Ollama instead:
+      # OLLAMA_URL=http://ollama:11434 and `docker compose --profile ollama up -d`.
+      OLLAMA_URL: ${OLLAMA_URL-http://host.docker.internal:11434}
+      HIVE_EMBED_MODEL: ${HIVE_EMBED_MODEL:-nomic-embed-text}
+      HIVE_VECTOR_MIN_SIM: ${HIVE_VECTOR_MIN_SIM:-0.55}
+      # Repos to ingest/verify live under HIVE_REPOS_HOST_ROOT on the host, mounted read-only at /repos.
+      # Unset = an empty named volume (no repos; facts and search still work).
+      HIVE_REPOS_ROOT: /repos
+      HIVE_REPOS_HOST_ROOT: ${HIVE_REPOS_HOST_ROOT:-/repos}
+      HIVE_REPO_SYNC_MINUTES: ${HIVE_REPO_SYNC_MINUTES:-15}
+      HIVE_SECRET_KEY: ${HIVE_SECRET_KEY:-}
+      HIVE_WEBHOOK_MAX_ATTEMPTS: ${HIVE_WEBHOOK_MAX_ATTEMPTS:-6}
+      HIVE_WEBHOOK_BACKOFF_SECONDS: ${HIVE_WEBHOOK_BACKOFF_SECONDS:-30}
+      HIVE_STALE_DAYS: ${HIVE_STALE_DAYS:-60}
+    volumes:
+      - ${HIVE_REPOS_HOST_ROOT:-hive-repos}:/repos:ro
+    # Docker Desktop (Mac) resolves host.docker.internal to the host itself. On a Linux host, set OLLAMA_URL in .env.
+    ports:
+      - "${HIVE_BIND:-127.0.0.1}:${HIVE_PORT:-8800}:8800"
+    # Healthcheck: built into the image (GET /health).
+
+  # The fact agent. Healthcheck built into the image (heartbeat file).
+  hive-worker:
+    image: ghcr.io/bennybrau/hive-worker:${HIVE_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      hive:
+        condition: service_healthy
+    environment:
+      HIVE_URL: http://hive:8800
+      # A `worker` role token (see README). Empty = the worker logs that and idles.
+      HIVE_TOKEN: ${HIVE_WORKER_TOKEN:-}
+      HIVE_DISTILL_RUNNER: ${HIVE_DISTILL_RUNNER:-claude}
+      HIVE_DISTILL_MODEL: ${HIVE_DISTILL_MODEL:-}
+      OLLAMA_URL: ${OLLAMA_URL-http://host.docker.internal:11434}
+
+  # Opt-in: `docker compose --profile ollama up -d`, then `docker compose exec ollama ollama pull nomic-embed-text`.
+  ollama:
+    image: ollama/ollama
+    profiles: [ollama]
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+
+volumes:
+  pgdata:
+  hive-repos:
+  ollama:

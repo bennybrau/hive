@@ -1,5 +1,6 @@
 import { chunkTranscript } from "./chunk.js";
 import type { Claimed, HiveClient } from "./client.js";
+import { log as jsonLog } from "./log.js";
 import { allowedScopes, anchorQuote, parseFacts, renderPrompt, type DistilledFact, type Prompt } from "./prompt.js";
 import type { Runner, Usage } from "./runners/types.js";
 
@@ -21,7 +22,7 @@ export type Step = "idle" | "unavailable" | "completed" | "failed" | "conflict";
 
 /** One claim and, if a job came back, its distill: complete, or fail with the reason. */
 export async function step(deps: LoopDeps): Promise<Step> {
-  const log = deps.log ?? console.log;
+  const log = deps.log ?? jsonLog.info;
   const res = await deps.hive.claim();
   if (res.kind === "none") return "idle";
   if (res.kind === "unavailable") {
@@ -88,7 +89,7 @@ export async function distill(deps: LoopDeps, claim: Claimed): Promise<{ facts: 
 
 /** Claim and distill until `signal` aborts. Never throws: errors are logged and retried after a back-off. */
 export async function runLoop(deps: LoopDeps, signal: AbortSignal, sleep = abortableSleep): Promise<void> {
-  const log = deps.log ?? console.log;
+  const log = deps.log ?? jsonLog.info;
   while (!signal.aborted) {
     try {
       if ((await step(deps)) === "unavailable") await sleep(BACKOFF_MS, signal);

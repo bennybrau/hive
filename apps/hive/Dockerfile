@@ -26,4 +26,7 @@ COPY --from=build /app/apps/dashboard/dist ./public
 COPY apps/hive/migrations ./migrations
 USER node
 EXPOSE 8800
+# Healthy once /health answers OK (published images carry this; compose needn't repeat it).
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:'+(process.env.HIVE_PORT||8800)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
 CMD ["node", "dist/index.js"]

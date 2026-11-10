@@ -1,5 +1,6 @@
 import type pg from "pg";
 import { toPgVector, type Embedder } from "../embed.js";
+import { log as jsonLog } from "../log.js";
 
 /** Tables with an `embedding` column, the text to embed, and the column to order the backlog by. */
 const TARGETS = [
@@ -64,7 +65,7 @@ export function startEmbedWorker(
 ): EmbedWorker {
   const idleMs = opts.idleMs ?? 5_000;
   const backoffMs = opts.errorBackoffMs ?? 30_000;
-  const log = opts.log ?? ((m: string) => console.error(m));
+  const log = opts.log ?? jsonLog.warn;
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
   let running: Promise<void> | null = null;

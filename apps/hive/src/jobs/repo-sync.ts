@@ -3,6 +3,7 @@
  * repos on a timer. One run per repo at a time; a second request while one runs gets RepoBusyError.
  */
 import type pg from "pg";
+import { log as jsonLog } from "../log.js";
 import { ingestRepo, type IngestSummary } from "./ingest.js";
 import { verifyAnchors, type VerifySummary } from "./verify.js";
 
@@ -24,7 +25,7 @@ export function createRepoSync(
   pool: pg.Pool,
   opts: { maxCommits: number; intervalMin: number; onWrite?: () => void; log?: (m: string) => void },
 ): RepoSync {
-  const log = opts.log ?? ((m: string) => console.error(m));
+  const log = opts.log ?? jsonLog.warn;
   const running = new Map<string, Promise<SyncResult>>();
   let timer: NodeJS.Timeout | null = null;
   let stopped = false;

@@ -53,6 +53,8 @@ jobs:
       - run: docker build -f apps/worker/Dockerfile -t hive-worker:ci .
       # the CLI the worker drives is in the image and runs as its user
       - run: docker run --rm hive-worker:ci claude --version
+      # the release compose runs on these images from an empty dir: healthy, /health ok, no build:, non-root
+      - run: scripts/test-release.sh
 
   plugin:
     name: hermes plugin (pytest vs pinned hermes-agent)

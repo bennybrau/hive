@@ -5,6 +5,7 @@ import { createPool, describeDbError } from "./db/pool.js";
 import { createEmbedder } from "./embed.js";
 import { startEmbedWorker } from "./jobs/embed.js";
 import { createRepoSync } from "./jobs/repo-sync.js";
+import { log } from "./log.js";
 import { startWebhookDispatcher } from "./webhooks.js";
 
 const config = loadConfig();
@@ -12,15 +13,15 @@ const pool = createPool(config.databaseUrl);
 
 try {
   const applied = await migrate(pool);
-  if (applied.length) console.log(`migrations applied: ${applied.join(", ")}`);
+  if (applied.length) log.info(`migrations applied: ${applied.join(", ")}`);
 } catch (err) {
-  console.error(`hive: database not ready: ${describeDbError(err)}`);
+  log.error(`hive: database not ready: ${describeDbError(err)}`);
   process.exit(1);
 }
 
 const embedder = createEmbedder(config.ollamaUrl, config.embedModel);
 const worker = embedder ? startEmbedWorker(pool, embedder) : null;
-if (!embedder) console.log("OLLAMA_URL is empty: meaning search off, keyword search only");
+if (!embedder) log.info("OLLAMA_URL is empty: meaning search off, keyword search only");
 
 const repoSync = createRepoSync(pool, {
   maxCommits: config.maxCommits,

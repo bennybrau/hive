@@ -46,6 +46,28 @@ Other machines: set `HIVE_BIND=0.0.0.0` (or the Tailscale IP) in `.env`, then `d
 
 Connect a Hermes: see [plugins/hive/README.md](plugins/hive/README.md).
 
+## Install (no checkout)
+
+Published images: `ghcr.io/bennybrau/hive` (service + dashboard) and `ghcr.io/bennybrau/hive-worker`, for
+linux/amd64 and linux/arm64. Each `vX.Y.Z` release attaches the compose file and `.env.example`. Needs only Docker
+(while the repo is private: `gh auth login` and `docker login ghcr.io` first).
+
+```bash
+mkdir hive && cd hive
+gh release download v0.1.0 -R bennybrau/hive -p docker-compose.release.yml -p .env.example
+mv docker-compose.release.yml docker-compose.yml && mv .env.example .env
+# in .env: POSTGRES_PASSWORD=$(openssl rand -hex 24), HIVE_SECRET_KEY=$(openssl rand -hex 32), HIVE_VERSION=0.1.0
+docker compose up -d --wait
+docker compose exec hive node dist/cli/mint-token.js --name jon-macbook --user jon --role curator   # your HIVE_TOKEN
+docker compose exec hive node dist/cli/mint-token.js --name hive-worker --user hive-worker --role worker
+# put that token in .env as HIVE_WORKER_TOKEN, then:
+docker compose up -d --wait hive-worker
+```
+
+Repos to ingest: set `HIVE_REPOS_HOST_ROOT` in `.env` (unset = none). Ollama in a container instead of on the host:
+`OLLAMA_URL=http://ollama:11434` and `docker compose --profile ollama up -d`. Upgrade: change `HIVE_VERSION`, then
+`docker compose pull && docker compose up -d --wait`.
+
 ## Tests
 
 ```bash

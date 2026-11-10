@@ -1,0 +1,88 @@
+# Build and publish the hive and hive-worker images to GHCR (linux/amd64 + linux/arm64) so installs pull instead of
+# building. A push to main publishes `:main` and `:sha-<7>`. Pushing a `vX.Y.Z` tag publishes `:X.Y.Z`, `:X.Y` and
+# `:latest`, then creates the GitHub release with docker-compose.release.yml and .env.example attached.
+name: images
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60 # arm64 runs under QEMU
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: hive
+            image: hive
+          - app: worker
+            image: hive-worker
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Also sets the OCI source/version/revision labels.
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-,format=short,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          flavor: |
+            latest=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      # The worker pins the Claude Code CLI at build time (see apps/worker/Dockerfile).
+      - id: build-args
+        run: |
+          {
+            echo "build_args<<EOF"
+            if [ "${{ matrix.app }}" = worker ]; then echo "CLAUDE_CODE_VERSION=2.1.284"; fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: apps/${{ matrix.app }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ steps.build-args.outputs.build_args }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+
+  # Only once both images are pushed: a release is never half-published.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" docker-compose.release.yml .env.example --generate-notes --verify-tag

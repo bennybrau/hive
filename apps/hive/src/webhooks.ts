@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import type pg from "pg";
+import { log as jsonLog } from "./log.js";
 import { decryptSecret } from "./secrets.js";
 
 export const WEBHOOK_EVENTS = ["fact.recorded", "fact.activated", "fact.retracted", "fact.superseded"] as const;
@@ -118,7 +119,7 @@ export function startWebhookDispatcher(
   opts: DeliverOptions & { intervalMs?: number; log?: (msg: string) => void } = {},
 ): WebhookDispatcher {
   const intervalMs = opts.intervalMs ?? 2_000;
-  const log = opts.log ?? ((m: string) => console.error(m));
+  const log = opts.log ?? jsonLog.warn;
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
   let running: Promise<void> | null = null;
