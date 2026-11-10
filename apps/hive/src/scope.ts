@@ -28,7 +28,7 @@ export function resolveScope(requested: string, instance: Instance, repoKey?: st
  * when repoKey is given; the first is the main one), and its own user's personal scope. Never other people's personal facts.
  * Returns [sql, params] with placeholders starting at $start.
  */
-export function readableScopes(instance: Instance, repoKey: string | string[] | undefined, start: number, col = "scope"): [string, unknown[]] {
+export function readableScopes(instance: Pick<Instance, "user_id">, repoKey: string | string[] | undefined, start: number, col = "scope"): [string, unknown[]] {
   const own = `personal:${instance.user_id}`;
   const keys = typeof repoKey === "string" ? [repoKey] : (repoKey ?? []);
   if (keys.length === 1) return [`(${col} = 'global' or ${col} = $${start} or ${col} = $${start + 1})`, [`repo:${keys[0]}`, own]];
