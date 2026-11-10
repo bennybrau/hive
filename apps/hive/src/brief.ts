@@ -12,6 +12,8 @@ import { embedQuery, HEADLINE, overlaps, searchDocs, searchFacts, TSQUERY, type 
 
 /** Same strict gate the plugin's prefetch uses: a brief is injected, so only close facts. */
 export const BRIEF_MIN_SIMILARITY = 0.62;
+/** With also_repos, the share of the budget the main repo's items get first. */
+export const BRIEF_MAIN_SHARE = 0.6;
 const FACTS_K = 5;
 const LOCATIONS_K = 8;
 const TESTS_K = 5;
@@ -232,6 +234,22 @@ export function packBudget(sections: Record<Section, unknown[]>, budget: number)
   return { out, tokens, dropped };
 }
 
+/**
+ * Pack the main repo's items first into `share` of the budget, then what's left of them and the extra repos' items into
+ * the rest. Each section keeps list order (main, then extras). A main item that missed the first pass is offered again
+ * in the second, so only the second pass's misses count as dropped.
+ */
+export function packShared(main: Record<Section, unknown[]>, extra: Record<Section, unknown[]>, budget: number, share: number) {
+  const first = packBudget(main, Math.floor(budget * share));
+  const taken = new Set(SECTIONS.flatMap((s) => first.out[s]));
+  const rest = Object.fromEntries(SECTIONS.map((s) => [s, [...main[s].filter((i) => !taken.has(i)), ...extra[s]]])) as Record<Section, unknown[]>;
+  const second = packBudget(rest, budget - first.tokens.total);
+  for (const s of SECTIONS) for (const i of second.out[s]) taken.add(i);
+  const out = Object.fromEntries(SECTIONS.map((s) => [s, [...main[s], ...extra[s]].filter((i) => taken.has(i))])) as Record<Section, unknown[]>;
+  const tokens = Object.fromEntries([...SECTIONS, "total" as const].map((s) => [s, first.tokens[s] + second.tokens[s]])) as Record<Section | "total", number>;
+  return { out, tokens, dropped: second.dropped };
+}
+
 export async function buildBrief(
   deps: SearchDeps,
   who: Instance,
@@ -247,12 +265,13 @@ export async function buildBrief(
   const extra = also?.known ?? [];
   const repoKeys = [repoKey, ...extra];
   const qvec = await embedQuery(deps.embedder, task);
-  const [terms, registered, factHits, matched] = await Promise.all([
+  const factOpts = { q: task, k: FACTS_K, statuses: ["active"], qvec, minSimilarity: BRIEF_MIN_SIMILARITY, changedPaths };
+  const [terms, registered, factHits, mainFactHits, matched] = await Promise.all([
     taskTerms(deps, task),
     deps.pool.query("select 1 from repos where key = $1", [repoKey]).then((r) => (r.rowCount ?? 0) > 0),
-    searchFacts(deps, who, {
-      q: task, repoKeys, k: FACTS_K, statuses: ["active"], qvec, minSimilarity: BRIEF_MIN_SIMILARITY, changedPaths,
-    }),
+    searchFacts(deps, who, { ...factOpts, repoKeys }),
+    // with extra repos, the main repo's own top facts too, so the extra repos' can't push them out of the top k
+    extra.length ? searchFacts(deps, who, { ...factOpts, repoKeys: [repoKey] }) : [],
     bestPlaybook(deps.pool, repoKey, task, changedPaths, extra),
   ]);
   const playbook = matched ? [trimPlaybook(matched)] : [];
@@ -263,7 +282,8 @@ export async function buildBrief(
   let tests: BriefTest[] = [];
   let gotchas: BriefFact[] = [];
   let runs: BriefRun[] = [];
-  // the main repo's list first; extra repos' after it, so they only get budget the main repo leaves
+  const otherLocations: BriefLocation[] = [];
+  const otherRuns: BriefRun[] = [];
   const extraLocations = await Promise.all(extra.map((k) => repoLocations(deps, k, task, terms, qvec)));
   if (registered) {
     locations = await repoLocations(deps, repoKey, task, terms, qvec);
@@ -281,20 +301,42 @@ export async function buildBrief(
     const allPaths = [...locations, ...extraLocations.flat()].map((l) => l.path);
     gotchas = await overlappingGotchas(deps, who, repoKeys, [...allPaths, ...changedPaths]);
     extra.forEach((k, i) => {
-      locations.push(...tag(extraLocations[i]!, k));
-      runs.push(...tag(extraRuns[i]!, k));
+      otherLocations.push(...tag(extraLocations[i]!, k));
+      otherRuns.push(...tag(extraRuns[i]!, k));
     });
   }
 
   const gotchaIds = new Set(gotchas.map((g) => g.id));
-  const facts: BriefFact[] = factHits
-    .filter((f) => !gotchaIds.has(f.id))
-    .map((f) => ({
-      id: f.id, text: f.text, kind: f.kind, scope: f.scope, locus: f.locus, verify: f.verify,
-      ...(f.near_changes !== undefined ? { near_changes: f.near_changes } : {}),
-    }));
+  const toFacts = (hits: typeof factHits): BriefFact[] =>
+    hits
+      .filter((f) => !gotchaIds.has(f.id))
+      .map((f) => ({
+        id: f.id, text: f.text, kind: f.kind, scope: f.scope, locus: f.locus, verify: f.verify,
+        ...(f.near_changes !== undefined ? { near_changes: f.near_changes } : {}),
+      }));
 
-  const { out, tokens, dropped } = packBudget({ playbook, gotchas, facts, locations, runs, tests }, budgetTokens);
+  let packed: ReturnType<typeof packBudget>;
+  if (extra.length) {
+    // the main repo's items get the first BRIEF_MAIN_SHARE of the budget; extra repos' compete for the rest
+    const extraScopes = new Set(extra.map((k) => `repo:${k}`));
+    const mainFactIds = new Set(mainFactHits.map((f) => f.id));
+    const mainPlaybook = playbook.filter((p) => p.scope === `repo:${repoKey}` || p.scope === "global");
+    packed = packShared(
+      {
+        playbook: mainPlaybook, gotchas: gotchas.filter((g) => !extraScopes.has(g.scope)), facts: toFacts(mainFactHits),
+        locations, runs, tests,
+      },
+      {
+        playbook: playbook.filter((p) => !mainPlaybook.includes(p)), gotchas: gotchas.filter((g) => extraScopes.has(g.scope)),
+        facts: toFacts(factHits.filter((f) => !mainFactIds.has(f.id))), locations: otherLocations, runs: otherRuns, tests: [],
+      },
+      budgetTokens,
+      BRIEF_MAIN_SHARE,
+    );
+  } else {
+    packed = packBudget({ playbook, gotchas, facts: toFacts(factHits), locations, runs, tests }, budgetTokens);
+  }
+  const { out, tokens, dropped } = packed;
   return {
     repo_key: repoKey,
     repo_indexed: registered,

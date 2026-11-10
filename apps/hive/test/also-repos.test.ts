@@ -184,6 +184,34 @@ describe("brief with also_repos", () => {
     expect((await brief({ also_repos: [B] })).playbook[0].title).toBe("Proj invoice playbook");
   });
 
+  it("the main repo keeps its fact and locations when the extra repo has more and stronger ones", async () => {
+    write(repo.dir, { "src/billing/invoice-rounding.ts": "export const r = 1;\n" });
+    commit(repo.dir, "a fourth billing file");
+    expect((await post(curator.token, "/v1/repos/ingest", { key: A })).statusCode).toBe(200);
+    const mainFact = "Totals are computed once per invoice here, never per line, in this repo";
+    embedder.fixed.set(TASK, vecAt(1)).set(mainFact, vecAt(0.7));
+    await fact({ text: mainFact });
+    for (let i = 1; i <= 6; i++) {
+      const text = `Fix invoice rounding in billing, lib rule ${i}: invoice rounding in billing ${"amounts are rounded per line and then summed. ".repeat(4).trim()}`;
+      embedder.fixed.set(text, vecAt(0.99));
+      await fact({ scope: `repo:${B}`, text });
+    }
+    for (let i = 1; i <= 3; i++) {
+      await fact({ scope: `repo:${B}`, kind: "gotcha", locus: ["src/billing/rounding.ts"], text: `Lib gotcha ${i}: ${"the rounding helper is easy to misuse. ".repeat(8)}` });
+    }
+    await runEmbedPass(pool, embedder);
+    const alone = await brief({ budget_tokens: 600 });
+    const mainLocations = alone.locations.map((l: { ref: string }) => l.ref);
+    expect(mainLocations).toHaveLength(4);
+    expect(texts(alone.facts)).toContain(mainFact);
+
+    const b = await brief({ budget_tokens: 600, also_repos: [B] });
+    expect(texts(b.facts)).toContain(mainFact);
+    expect(b.locations.filter((l: { repo_key: string }) => l.repo_key === A).map((l: { ref: string }) => l.ref)).toEqual(mainLocations);
+    expect(b.gotchas.length).toBeGreaterThan(0);
+    expect(b.tokens.total).toBeLessThanOrEqual(600);
+  });
+
   it("more than 3 is a 400; duplicates and repo_key itself are dropped; an unregistered repo is reported, not read", async () => {
     const four = await post(alice.token, "/v1/brief", { task: TASK, repo_key: A, also_repos: [B, C, "x/1", "x/2"] });
     expect(four.statusCode).toBe(400);

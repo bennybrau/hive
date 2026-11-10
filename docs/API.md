@@ -331,8 +331,12 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
     repos ingested before this existed get it on their next ingest.
   - `also_repos`: other repos to read too, cleaned and checked as for `/v1/recall`. `facts` and `gotchas` read their
     scopes too (a main-repo fact wins a score tie); `playbook` considers theirs, ranked after the repo's own and before a
-    global one; their `locations` and `runs` (same caps, each repo's own) follow the main repo's, so they only get budget
-    the main repo leaves. `tests` stay the main repo's. Only when `also_repos` is sent, each location and run gets its
+    global one; their `locations` and `runs` (same caps, each repo's own) follow the main repo's. `tests` stay the main
+    repo's. `facts` are the main repo's own top 5 (`global` and personal included) plus the merged top 5's others. Budget:
+    the main repo's items (its playbook if the pick is in `repo:<repo_key>` or `global`; gotchas not in an extra repo's
+    scope; its facts, locations, runs and tests) are packed first into `BRIEF_MAIN_SHARE` (60%) of `budget_tokens`; then
+    the main repo's leftovers followed by the extra repos' items share what's left. Each section lists the main repo's
+    items first. Only when `also_repos` is sent, each location and run gets its
     `repo_key` and the answer gets `unknown_repos: [...]` (keys that aren't registered, so weren't read).
   - Each fact in the answer's `gotchas` and `facts` (after the budget) gets `use_count + 1` and `last_used_at = now()`,
     like `/v1/recall`.

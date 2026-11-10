@@ -5,7 +5,7 @@ import type pg from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app.js";
 import { createInstance, type Instance } from "../src/auth.js";
-import { estimateTokens, nearbyTests, packBudget } from "../src/brief.js";
+import { BRIEF_MAIN_SHARE, estimateTokens, nearbyTests, packBudget, packShared } from "../src/brief.js";
 import { createFact, type FactInput } from "../src/facts.js";
 import { runEmbedPass } from "../src/jobs/embed.js";
 import { createRepoSync, type RepoSync } from "../src/jobs/repo-sync.js";
@@ -142,6 +142,39 @@ describe("units", () => {
     expect(out.tests).toHaveLength(1);
     expect(dropped).toEqual({ playbook: 0, gotchas: 0, facts: 1, locations: 1, runs: 0, tests: 0 });
     expect(tokens).toEqual({ playbook: 0, gotchas: 2 * cost, facts: 0, locations: cost, runs: cost, tests: cost, total: 5 * cost });
+  });
+
+  it("shared budget: the main repo's items are packed first, into BRIEF_MAIN_SHARE of it", () => {
+    const item = (tag: string, n: number) => ({ t: tag + "x".repeat(n) });
+    const none = { playbook: [], gotchas: [], facts: [], locations: [], runs: [], tests: [] };
+    // like the live stack: main has one fact and 4 locations; the extra repo has more and bigger gotchas, facts, locations
+    const main = { ...none, facts: [item("mf", 400)], locations: [1, 2, 3, 4].map((i) => item(`ml${i}`, 120)) };
+    const extra = {
+      ...none,
+      gotchas: [1, 2, 3, 4].map((i) => item(`eg${i}`, 800)),
+      facts: [1, 2, 3, 4, 5, 6].map((i) => item(`ef${i}`, 400)),
+      locations: [1, 2, 3, 4, 5, 6, 7, 8].map((i) => item(`el${i}`, 120)),
+    };
+    const plain = packBudget({ ...none, gotchas: extra.gotchas, facts: [...main.facts, ...extra.facts], locations: [...main.locations, ...extra.locations] }, 600);
+    expect(plain.out.locations.filter((l) => main.locations.includes(l as never)).length).toBeLessThan(4); // plain packing drops some
+
+    const { out, tokens, dropped } = packShared(main, extra, 600, BRIEF_MAIN_SHARE);
+    expect(out.facts[0]).toBe(main.facts[0]);
+    expect(out.locations.slice(0, 4)).toEqual(main.locations);
+    expect(out.gotchas.length).toBeGreaterThan(0);
+    expect(tokens.total).toBeLessThanOrEqual(600);
+    expect(tokens.total).toBe(Object.values({ ...tokens, total: 0 }).reduce((a, b) => a + b, 0));
+    const offered = { gotchas: 4, facts: 7, locations: 12 };
+    for (const [s, n] of Object.entries(offered)) expect(out[s as keyof typeof out].length + dropped[s as keyof typeof dropped]).toBe(n);
+  });
+
+  it("shared budget: with nothing from the main repo, the extra repos get all of it", () => {
+    const item = (n: number) => ({ t: "x".repeat(n) });
+    const none = { playbook: [], gotchas: [], facts: [], locations: [], runs: [], tests: [] };
+    const extra = { ...none, gotchas: [item(30), item(30)], facts: [item(390)], locations: [item(30), item(30)], runs: [item(30)], tests: [item(30)] };
+    const shared = packShared(none, extra, 50, BRIEF_MAIN_SHARE);
+    expect(shared).toEqual(packBudget(extra, 50));
+    expect(shared.tokens.total).toBeLessThanOrEqual(50);
   });
 });
 
