@@ -34,7 +34,7 @@ let n = 0;
 /** A candidate recorded at `at`, optionally quoted from an episode of `episode.kind` by `episode.user_id`. */
 async function candidate(
   at: string,
-  opts: Partial<FactInput> & { text?: string; episode?: { kind: string; user_id: string | null } } = {},
+  opts: Partial<FactInput> & { text?: string; episode?: { kind: string; user_id: string | null; author?: string } } = {},
   who = alice,
 ) {
   const { episode, ...input } = opts;
@@ -46,8 +46,8 @@ async function candidate(
   await pool.query("update facts set status = 'candidate', recorded_at = $2 where id = $1", [fact.id, at]);
   if (episode) {
     const ep = await pool.query<{ id: string }>(
-      "insert into episodes (kind, user_id, content) values ($1, $2, 'user: hi') returning id",
-      [episode.kind, episode.user_id],
+      "insert into episodes (kind, user_id, content, metadata) values ($1, $2, 'user: hi', $3) returning id",
+      [episode.kind, episode.user_id, episode.author ? { author: episode.author } : {}],
     );
     await pool.query("insert into anchors (fact_id, episode_id, quote) values ($1, $2, 'hi')", [fact.id, ep.rows[0]!.id]);
   }
@@ -108,13 +108,19 @@ describe("buildDigest", () => {
     await candidate("2026-11-02T08:00:00Z", { episode: { kind: "turn", user_id: "alice" } });
     await candidate("2026-11-03T08:00:00Z", { origin: "authored" });
     await candidate("2026-11-04T08:00:00Z"); // distilled, no episode
+    // A factory note is posted under the factory's token; the person is metadata.author.
+    await candidate("2026-11-05T08:00:00Z", { episode: { kind: "asf_dialog", user_id: "asf-factory", author: "jon" } });
+    await candidate("2026-11-06T08:00:00Z", { episode: { kind: "asf_dialog", user_id: "asf-factory" } });
     const d = await digest();
     expect(d.items.map((i) => i.source)).toEqual([
       "from a factory run",
       "from a chat with alice",
       "written by alice",
       "written by alice",
+      "from jon's note on a factory run",
+      "from a note on a factory run",
     ]);
+    expect(JSON.stringify(d)).not.toContain("asf-factory");
   });
 
   it("cuts a long candidate text and a long flagged correction to about 200 chars", async () => {
@@ -175,7 +181,7 @@ describe("renderers", () => {
     });
     const msg = renderTelegram(d);
     expect(msg.length).toBeLessThanOrEqual(TELEGRAM_MAX);
-    expect(msg.startsWith("<b>Hive: 20 facts to review (8 new today)</b>")).toBe(true);
+    expect(msg.startsWith("<b>Hive: 20 facts to review (8 new)</b>")).toBe(true);
     expect(msg).toContain('<a href="https://hive.example.com/review">');
     const shown = msg.split("[hive:abcd1234]").length - 1;
     expect(shown).toBeLessThan(15);
@@ -192,11 +198,11 @@ describe("renderers", () => {
   it("use singular wording for one fact, and mark new items", () => {
     const d = make([item({ isNew: true, waiting: "today" })]);
     const msg = renderTelegram(d);
-    expect(msg.split("\n")[0]).toBe("<b>Hive: 1 fact to review (1 new today)</b>");
+    expect(msg.split("\n")[0]).toBe("<b>Hive: 1 fact to review (1 new)</b>");
     expect(msg).toContain("🆕 The export runs nightly. [hive:abcd1234]");
     expect(msg).toContain("api · from a factory run · added today");
     const email = renderEmail(d);
-    expect(email.subject).toBe("Hive: 1 fact to review (1 new today)");
+    expect(email.subject).toBe("Hive: 1 fact to review (1 new)");
     expect(email.html).toContain(">new</span>");
     expect(email.text).toContain("https://hive.example.com/review");
     expect(renderEmail(make([item(), item()])).subject).toBe("Hive: 2 facts to review");

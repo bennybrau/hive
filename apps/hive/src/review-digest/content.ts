@@ -50,14 +50,15 @@ export async function buildDigest(pool: pg.Pool, input: DigestInput): Promise<Di
   const newAfter = input.since ?? startOfLocalDay(input.now, input.timezone);
   const shown = all.slice(0, DIGEST_ITEMS_MAX);
 
-  // The conversation each shown distilled candidate was quoted from: a factory run wins over a chat.
-  const { rows: episodes } = await pool.query<{ fact_id: string; kind: string; user_id: string | null }>(
-    `select a.fact_id, e.kind, e.user_id from anchors a join episodes e on e.id = a.episode_id
+  // The conversation each shown distilled candidate was quoted from: the factory wins over a chat. A factory note
+  // (asf_dialog) is posted under the factory's token, so the person who wrote it is metadata.author, not user_id.
+  const { rows: episodes } = await pool.query<{ fact_id: string; kind: string; user_id: string | null; author: string | null }>(
+    `select a.fact_id, e.kind, e.user_id, e.metadata->>'author' as author from anchors a join episodes e on e.id = a.episode_id
      where a.fact_id = any($1::uuid[])
-     order by a.fact_id, e.kind = 'asf_run' desc, e.user_id is null, e.created_at`,
+     order by a.fact_id, e.kind in ('asf_dialog', 'asf_run') desc, e.kind = 'asf_dialog' desc, e.user_id is null, e.created_at`,
     [shown.filter((i) => i.flag === null).map((i) => i.fact.id)],
   );
-  const episodeOf = new Map<string, { kind: string; user_id: string | null }>();
+  const episodeOf = new Map<string, { kind: string; user_id: string | null; author: string | null }>();
   for (const e of episodes) if (!episodeOf.has(e.fact_id)) episodeOf.set(e.fact_id, e);
 
   const today = localDate(input.now, input.timezone);
@@ -65,6 +66,8 @@ export async function buildDigest(pool: pg.Pool, input: DigestInput): Promise<Di
     let source: string;
     const ep = episodeOf.get(fact.id);
     if (flag !== null) source = `flagged: ${cut(flag)}`;
+    else if (fact.origin === "distilled" && ep?.kind === "asf_dialog")
+      source = ep.author ? `from ${ep.author}'s note on a factory run` : "from a note on a factory run";
     else if (fact.origin === "distilled" && ep?.kind === "asf_run") source = "from a factory run";
     else if (fact.origin === "distilled" && ep) source = ep.user_id ? `from a chat with ${ep.user_id}` : "from a chat";
     else source = fact.author_user_id ? `written by ${fact.author_user_id}` : "written by someone";
@@ -132,7 +135,7 @@ function esc(s: string): string {
 function headline(d: Digest): string {
   if (d.total === 0) return "Hive: Nothing to review";
   const facts = d.total === 1 ? "1 fact" : `${d.total} facts`;
-  return `Hive: ${facts} to review${d.newCount ? ` (${d.newCount} new today)` : ""}`;
+  return `Hive: ${facts} to review${d.newCount ? ` (${d.newCount} new)` : ""}`;
 }
 
 function details(i: DigestItem): string {
