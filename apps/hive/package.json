@@ -16,11 +16,17 @@
     "@fastify/static": "^10.1.8",
     "fastify": "^5.6.0",
     "fflate": "^0.8.3",
+    "nodemailer": "^10.4.0",
     "pg": "^8.16.0"
   },
   "devDependencies": {
+    "@types/mailparser": "^3.9.0",
     "@types/node": "^24.0.0",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.15.0",
+    "@types/smtp-server": "^3.5.13",
+    "mailparser": "^3.14.2",
+    "smtp-server": "^3.21.3",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0",
     "vitest": "^3.2.0"

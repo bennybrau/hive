@@ -47,6 +47,7 @@ const app = buildApp(pool, {
   distillLeaseSeconds: config.distillLeaseSeconds,
   dashboardDir: config.dashboardDir,
   staleDays: config.staleDays,
+  reviewDigest: { telegramApiUrl: config.telegramApiUrl },
   repos: { roots: { root: config.reposRoot, hostRoot: config.reposHostRoot }, sync: repoSync },
 });
 await app.listen({ host: config.host, port: config.port });

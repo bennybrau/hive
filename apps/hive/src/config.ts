@@ -32,6 +32,8 @@ export interface Config {
   staleDays: number;
   /** Built dashboard (index.html + assets); served at / when the directory exists. */
   dashboardDir: string;
+  /** Telegram Bot API base URL (the review digest posts to `<url>/bot<token>/sendMessage`). */
+  telegramApiUrl: string;
 }
 
 function num(env: NodeJS.ProcessEnv, key: string, dflt: number, ok: (n: number) => boolean): number {
@@ -79,5 +81,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webhookBackoffSeconds: num(env, "HIVE_WEBHOOK_BACKOFF_SECONDS", 30, (n) => n > 0),
     staleDays: num(env, "HIVE_STALE_DAYS", 60, (n) => Number.isInteger(n) && n > 0),
     dashboardDir: resolve(env.HIVE_DASHBOARD_DIR || "/app/public"), // @fastify/static needs an absolute root
+    telegramApiUrl: (env.HIVE_TELEGRAM_API_URL || "https://api.telegram.org").replace(/\/+$/, ""),
   };
 }

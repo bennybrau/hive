@@ -166,6 +166,13 @@ malformed key stops the service at startup) and are never returned or logged.
   telegram: {chat_id} | null}, last_sent_at, last_item_count, last_error}` for a curator, and null for members, without
   a key, or when not set (or saved under another key). `last_*` describe the latest digest (null before the first);
   `last_error` is e.g. `"email: …; telegram: …"`. The SMTP password and bot token are never returned.
+- `POST /v1/review-digest/test` — curator (403 otherwise); `503` without a key. Sends the review digest now, as it
+  would read today (new = asked since local midnight), on every configured channel. `409 {error}` when the digest isn't
+  configured (or was saved under another key) or has neither channel. `200 {email?, telegram?}`, a key per configured
+  channel: `{status: "sent", error: null}` or `{status: "failed", error}`. Each channel is tried up to 3 times (1 s, then
+  2 s apart, 10 s timeout each) on its own, so one failing doesn't stop the other. Errors never include the SMTP password
+  or bot token. Nothing is recorded: `last_*` and the daily digest are unaffected. Telegram goes to
+  `HIVE_TELEGRAM_API_URL` (default `https://api.telegram.org`).
 
 ## Webhooks (curator only; members get 403)
 

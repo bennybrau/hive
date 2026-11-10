@@ -12,6 +12,7 @@ import { factRoutes } from "./routes/facts.js";
 import { repoRoutes, type RepoDeps } from "./routes/repos.js";
 import { playbookRoutes } from "./routes/playbooks.js";
 import { reviewRoutes } from "./routes/review.js";
+import { reviewDigestRoutes, type ReviewDigestDeps } from "./routes/review-digest.js";
 import { healthRoutes } from "./routes/health.js";
 import { searchRoutes } from "./routes/search.js";
 import { settingsRoutes } from "./routes/settings.js";
@@ -41,6 +42,8 @@ export interface AppOptions {
   staleDays?: number;
   /** Built dashboard to serve at /; omitted or missing = API only. */
   dashboardDir?: string;
+  /** Where the review digest's Telegram messages go and how long its first retry waits (tests: a fake, short). */
+  reviewDigest?: ReviewDigestDeps;
 }
 
 /** API paths keep JSON 404s; any other page load is a dashboard route. */
@@ -69,6 +72,7 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
     reviewRoutes(v1, pool, onWrite);
     playbookRoutes(v1, pool);
     settingsRoutes(v1, pool, opts.secretKey ?? null);
+    reviewDigestRoutes(v1, pool, opts.secretKey ?? null, opts.reviewDigest ?? {});
     statsRoutes(v1, pool);
     webhookRoutes(v1, pool, opts.secretKey ?? null);
     workerRoutes(v1, {

@@ -47,6 +47,7 @@ services:
       HIVE_WEBHOOK_MAX_ATTEMPTS: ${HIVE_WEBHOOK_MAX_ATTEMPTS:-6}
       HIVE_WEBHOOK_BACKOFF_SECONDS: ${HIVE_WEBHOOK_BACKOFF_SECONDS:-30}
       HIVE_STALE_DAYS: ${HIVE_STALE_DAYS:-60}
+      HIVE_TELEGRAM_API_URL: ${HIVE_TELEGRAM_API_URL:-https://api.telegram.org}
     volumes:
       - ${HIVE_REPOS_HOST_ROOT:-${HOME}/dev}:/repos:ro
     # Docker Desktop (Mac) resolves host.docker.internal to the host itself. Do NOT add
