@@ -154,7 +154,18 @@ malformed key stops the service at startup) and are never returned or logged.
 - `PUT /v1/settings/agent-credential` `{credential}` (1–4096 chars) — curator (403 otherwise). The fact agent's
   credential, e.g. a `claude setup-token` OAuth token. Replaces any earlier one. `204`; `503 {error: "HIVE_SECRET_KEY is not set"}`
   without a key. A lost or changed key only means setting the credential again.
-- `GET /v1/settings` — curator or member. `{agent_credential: {present, set_at}}` (`set_at` null when not set).
+- `PUT /v1/settings/review-digest` — curator (403 otherwise); `503` without a key. The daily review digest:
+  `{enabled, time?, timezone?, dashboard_url, email?: {smtp_host, smtp_port, smtp_secure, smtp_user, smtp_pass?, from, to},
+  telegram?: {bot_token?, chat_id}}`. `time` is `HH:MM` 00:00–23:59 (default `18:00`), `timezone` an IANA name
+  (default `America/Chicago`), `dashboard_url` an http(s) URL, `smtp_port` 1–65535, `from` and each of `to` (1–10)
+  an email address. Leaving out `email` or `telegram` turns that channel off. Leaving out `smtp_pass` or `bot_token`
+  keeps the stored one (400 if none is stored). Replaces the whole config; the digest is built for the curator who
+  saved it. `204`; `400 {error}` on bad input, including any property not listed here.
+- `GET /v1/settings` — curator or member. `{agent_credential: {present, set_at}, review_digest}` (`set_at` null when
+  not set). `review_digest` is `{enabled, time, timezone, dashboard_url, channels: {email: {to, from} | null,
+  telegram: {chat_id} | null}, last_sent_at, last_item_count, last_error}` for a curator, and null for members, without
+  a key, or when not set (or saved under another key). `last_*` describe the latest digest (null before the first);
+  `last_error` is e.g. `"email: …; telegram: …"`. The SMTP password and bot token are never returned.
 
 ## Webhooks (curator only; members get 403)
 

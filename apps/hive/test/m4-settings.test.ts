@@ -49,7 +49,7 @@ describe("agent credential", () => {
   it("is not set at first", async () => {
     const res = await getSettings(app, alice.token);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json()).toEqual({ agent_credential: { present: false, set_at: null } });
+    expect(res.json()).toEqual({ agent_credential: { present: false, set_at: null }, review_digest: null });
   });
 
   it("a curator sets it; GET shows present/set_at and never the value", async () => {
@@ -58,7 +58,7 @@ describe("agent credential", () => {
     for (const t of [curator.token, alice.token]) {
       const res = await getSettings(app, t);
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ agent_credential: { present: true, set_at: expect.any(String) } });
+      expect(res.json()).toEqual({ agent_credential: { present: true, set_at: expect.any(String) }, review_digest: null });
       expect(res.body).not.toContain(CREDENTIAL);
     }
     const row = (await pool.query("select set_by_user_id from settings")).rows;
