@@ -321,6 +321,43 @@ table.stats .num { text-align: right; font-variant-numeric: tabular-nums; }
 .playbook-items li { display: grid; gap: 6px; }
 .playbook-items > button { justify-self: start; }
 
+.settings-form { display: grid; gap: 14px; max-width: 72ch; }
+.settings-form h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.settings-form fieldset { display: grid; gap: 12px; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); }
+.settings-form legend { font-weight: 600; padding: 0 4px; }
+.settings-form input:not([type="checkbox"]), .settings-form select {
+  font: inherit;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--muted);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+.settings-form input::placeholder { color: var(--muted); }
+.settings-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.toggle { display: flex; align-items: center; gap: 8px; font-weight: 500; }
+.toggle input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.settings-results { display: grid; gap: 4px; list-style: none; margin: 0; padding: 0; }
+.settings-results li { display: flex; flex-wrap: wrap; gap: 4px 8px; overflow-wrap: anywhere; }
+.settings-results li[data-status="sent"] span[aria-hidden] { color: var(--accent); }
+.settings-results li[data-status="failed"] span[aria-hidden] { color: var(--error); }
+.settings-last { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
+.settings-last dt { color: var(--muted); }
+.settings-last dd { margin: 0; overflow-wrap: anywhere; }
+
+/* Phones: one column, controls at least 44px tall. */
+@media (max-width: 600px) {
+  .settings-row { grid-template-columns: minmax(0, 1fr); }
+  .settings-form input:not([type="checkbox"]), .settings-form select, .settings-form button { min-height: 44px; }
+  .toggle { min-height: 44px; }
+  .toggle input { width: 22px; height: 22px; }
+  .settings-actions button { flex: 1; }
+  .settings-last { grid-template-columns: minmax(0, 1fr); }
+  .settings-last dd + dt { margin-top: 6px; }
+}
+
 /* Phones and narrow tablets: the review queue is one card at a time, with the decisions in the card's
    footer pinned to the bottom of the screen. Controls are at least 44px tall; nothing scrolls sideways. */
 @media (max-width: 900px) {

@@ -82,7 +82,16 @@ async function reviewDigestView(pool: pg.Pool, key: Buffer) {
     timezone: cfg.timezone,
     dashboard_url: cfg.dashboard_url,
     channels: {
-      email: cfg.email ? { to: cfg.email.to, from: cfg.email.from } : null,
+      email: cfg.email
+        ? {
+            smtp_host: cfg.email.smtp_host,
+            smtp_port: cfg.email.smtp_port,
+            smtp_secure: cfg.email.smtp_secure,
+            smtp_user: cfg.email.smtp_user,
+            from: cfg.email.from,
+            to: cfg.email.to,
+          }
+        : null,
       telegram: cfg.telegram ? { chat_id: cfg.telegram.chat_id } : null,
     },
     last_sent_at: last?.sent_at?.toISOString() ?? null,

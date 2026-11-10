@@ -3,6 +3,9 @@
 #
 #   scripts/test-dashboard-e2e.sh
 #
+# settings.spec overwrites the hive's review digest config; it skips when a real one is saved, unless
+# HIVE_E2E_DIGEST_OVERWRITE=1.
+#
 # Needs: the hive running (scripts/redeploy.sh) and docker. Mints a throwaway `e2e-<timestamp>` member
 # token and an `e2e-curator-<timestamp>` curator token each run (left in place). The browser shares the
 # hive container's network, so it reaches the hive at 127.0.0.1:8800 the same way on Mac and Linux.
@@ -32,7 +35,7 @@ export HIVE_E2E_STALE_IDS
 
 # The spec imports @playwright/test, so install it next to the spec rather than run it from the npx cache.
 docker run --rm --init --ipc=host --network "container:$hive" \
-  -e HIVE_E2E_TOKEN -e HIVE_E2E_CURATOR_TOKEN -e HIVE_E2E_STALE_IDS -v "$PWD/apps/dashboard/e2e:/spec:ro" \
+  -e HIVE_E2E_TOKEN -e HIVE_E2E_CURATOR_TOKEN -e HIVE_E2E_STALE_IDS -e HIVE_E2E_DIGEST_OVERWRITE -v "$PWD/apps/dashboard/e2e:/spec:ro" \
   "mcr.microsoft.com/playwright:v$PW_VERSION-noble" \
   bash -c "set -e; mkdir /tmp/e2e && cp /spec/*.spec.ts /tmp/e2e/ && cd /tmp/e2e \
     && npm init -y >/dev/null && npm install --silent --no-audit --no-fund @playwright/test@$PW_VERSION \

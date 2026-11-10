@@ -162,8 +162,8 @@ malformed key stops the service at startup) and are never returned or logged.
   keeps the stored one (400 if none is stored). Replaces the whole config; the digest is built for the curator who
   saved it. `204`; `400 {error}` on bad input, including any property not listed here.
 - `GET /v1/settings` — curator or member. `{agent_credential: {present, set_at}, review_digest}` (`set_at` null when
-  not set). `review_digest` is `{enabled, time, timezone, dashboard_url, channels: {email: {to, from} | null,
-  telegram: {chat_id} | null}, last_sent_at, last_item_count, last_error}` for a curator, and null for members, without
+  not set). `review_digest` is `{enabled, time, timezone, dashboard_url, channels: {email: {smtp_host, smtp_port,
+  smtp_secure, smtp_user, from, to} | null, telegram: {chat_id} | null}, last_sent_at, last_item_count, last_error}` for a curator, and null for members, without
   a key, or when not set (or saved under another key). `last_*` describe the latest digest (null before the first);
   `last_error` is e.g. `"email: …; telegram: …"`. The SMTP password and bot token are never returned.
 - `POST /v1/review-digest/test` — curator (403 otherwise); `503` without a key. Sends the review digest now, as it

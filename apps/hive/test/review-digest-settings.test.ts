@@ -78,7 +78,17 @@ describe("review digest settings", () => {
       time: "18:00",
       timezone: "America/Chicago",
       dashboard_url: "https://hive.example.com",
-      channels: { email: { to: ["jon@example.com"], from: "hive@example.com" }, telegram: { chat_id: "-100123" } },
+      channels: {
+        email: {
+          smtp_host: "smtp.example.com",
+          smtp_port: 587,
+          smtp_secure: false,
+          smtp_user: "hive",
+          from: "hive@example.com",
+          to: ["jon@example.com"],
+        },
+        telegram: { chat_id: "-100123" },
+      },
       last_sent_at: null,
       last_item_count: null,
       last_error: null,

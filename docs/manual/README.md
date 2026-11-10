@@ -13,6 +13,7 @@ automatically. The dashboard is where a person looks in and decides.
 - [Repos](#repos): the code and docs the hive has read
 - [Review](#review-curators): approve, fix or reject what's new (curators)
 - [Stats](#stats-curators): cost, growth and health (curators)
+- [Settings](#settings-curators): the daily review digest (curators)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 
 ## Who sees what
@@ -21,7 +22,7 @@ automatically. The dashboard is where a person looks in and decides.
 |---|---|---|
 | Facts, Search, Repos | ✓ | ✓ |
 | **Ingest now** on Repos | | ✓ |
-| Review, Stats | | ✓ |
+| Review, Stats, Settings | | ✓ |
 
 Everyone sees shared facts (`global` and every `repo:…`) plus **their own** personal facts. Nobody, curators
 included, ever sees another person's personal facts.
@@ -197,6 +198,30 @@ Pick a window of **7, 30 or 90 days**.
   minutes, so conversations aren't being distilled.
 - **Backlog**: candidates waiting for review and conversations waiting to be distilled, each with the age of the
   oldest. A growing distill backlog with a stale worker means the worker is down.
+
+## Settings (curators)
+
+**Daily review digest** is a short message, once a day, saying what is waiting in [Review](#review-curators),
+with a link to it. It goes by email, Telegram or both, and it is built for the curator who last saved the settings.
+
+1. Turn on **Send the daily digest** and pick the **time** and **time zone**.
+2. **Dashboard link** is where the digest's links point. It starts as the address you're using now.
+3. Turn on **Send by email**, **Send by Telegram** or both, and fill in the fields below.
+4. **Save**, then **Send test**. Each channel shows ✓ **Sent** or ✗ **Failed** with the reason. The test
+   doesn't count as the day's digest. Unsaved changes can't be tested: save first.
+
+Passwords and bot tokens are never shown again. A saved one reads **saved**; leave it blank to keep it, or type a
+new one to replace it. Turning a channel off and saving forgets its password or token. Below the buttons you
+see when the last digest went out, how many items it had, and its last error.
+
+**Telegram.** Message [@BotFather](https://t.me/BotFather), send `/newbot`, and follow the prompts. It answers
+with the **bot token** (like `123456:ABC-…`). Then find the **chat id**: send your new bot any message (or add it
+to a group and post there), open `https://api.telegram.org/bot<token>/getUpdates` in a browser, and copy
+`"chat":{"id": …}`. A group's id starts with `-`.
+
+**Gmail.** Use host `smtp.gmail.com`, port `465`, **Secure connection** on, your Gmail address as the user, and an
+**app password** (Google Account, Security, 2-Step Verification, App passwords) rather than your normal one.
+Gmail refuses the normal password.
 
 ## Keyboard shortcuts
 
