@@ -902,6 +902,21 @@ def test_search_hits_are_slim_and_say_where(monkeypatch, fake):
     assert fake.last("/v1/search")[0]["query"]["source"] == "doc,commit"
 
 
+def test_recall_and_search_send_also_repos_as_a_comma_list(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    fake.overrides["/v1/recall"] = (200, {"mode": "hybrid", "unknown_repos": ["gh/acme/nope"], "facts": []})
+    out = call(p, "hive_recall", query="tests", also_repos=["gh/acme/lib", " gh/acme/nope "])
+    assert out["unknown_repos"] == ["gh/acme/nope"]
+    assert fake.last("/v1/recall")[0]["query"]["also_repos"] == "gh/acme/lib,gh/acme/nope"
+    call(p, "hive_search", query="deploy", also_repos=["gh/acme/lib"])
+    assert fake.last("/v1/search")[0]["query"]["also_repos"] == "gh/acme/lib"
+    # left out when not given, so the answer is the same as before
+    assert "unknown_repos" not in call(p, "hive_search", query="deploy")
+    call(p, "hive_recall", query="tests", also_repos=[])
+    assert "also_repos" not in fake.last("/v1/search")[1]["query"]
+    assert "also_repos" not in fake.last("/v1/recall")[1]["query"]
+
+
 def test_search_and_status_tools(monkeypatch, fake):
     p = _provider(monkeypatch, fake.url)
     assert call(p, "hive_search", query="deploy")["results"][0]["source"] == "conversation"

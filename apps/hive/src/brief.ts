@@ -7,7 +7,7 @@
 import type { Instance } from "./auth.js";
 import { FACT_COLUMNS, type Fact } from "./facts.js";
 import { bestPlaybook, trimPlaybook, type BriefPlaybook } from "./playbooks.js";
-import { readableScopes } from "./scope.js";
+import { readableScopes, resolveAlsoRepos } from "./scope.js";
 import { embedQuery, HEADLINE, overlaps, searchDocs, searchFacts, TSQUERY, type SearchDeps } from "./search.js";
 
 /** Same strict gate the plugin's prefetch uses: a brief is injected, so only close facts. */
@@ -34,6 +34,8 @@ export interface BriefLocation {
   ref: string;
   path: string;
   source: "doc" | "path";
+  /** Which repo it is in; only when the brief was asked for also_repos. */
+  repo_key?: string;
 }
 export interface BriefRun {
   /** The run's ref (its id in the factory). */
@@ -42,6 +44,8 @@ export interface BriefRun {
   pr_url: string | null;
   merged_at: string;
   snippet: string;
+  /** Which repo it ran on; only when the brief was asked for also_repos. */
+  repo_key?: string;
 }
 export interface BriefTest {
   path: string;
@@ -54,6 +58,8 @@ export interface BriefTest {
 export interface Brief {
   repo_key: string;
   repo_indexed: boolean;
+  /** also_repos that aren't registered, so weren't read; only when also_repos was sent. */
+  unknown_repos?: string[];
   mode: "hybrid" | "keyword";
   terms: string[];
   budget_tokens: number;
@@ -135,9 +141,9 @@ export function nearbyTests(testPaths: string[], locations: string[], k = TESTS_
 }
 
 /** Active gotchas the caller can read whose locus or anchor paths overlap the given paths. */
-async function overlappingGotchas(deps: SearchDeps, who: Instance, repoKey: string, paths: string[]): Promise<BriefFact[]> {
+async function overlappingGotchas(deps: SearchDeps, who: Instance, repoKeys: string[], paths: string[]): Promise<BriefFact[]> {
   if (!paths.length) return [];
-  const [scopeSql, scopeParams] = readableScopes(who, repoKey, 1, "f.scope");
+  const [scopeSql, scopeParams] = readableScopes(who, repoKeys, 1, "f.scope");
   const { rows } = await deps.pool.query<Fact & { paths: string[] }>(
     `select ${FACT_COLUMNS.split(", ").map((c) => "f." + c).join(", ")},
             f.locus || coalesce((select array_agg(a.path) from anchors a where a.fact_id = f.id and a.path is not null), '{}') as paths
@@ -178,6 +184,31 @@ async function relatedRuns(deps: SearchDeps, repoKey: string, task: string, path
   return ranked.map((r) => byId.get(r.id)!);
 }
 
+/** Where to look in one registered repo: doc passages and path matches, alternated, one entry per file, top LOCATIONS_K. */
+async function repoLocations(deps: SearchDeps, repoKey: string, task: string, terms: string[], qvec: string | null): Promise<BriefLocation[]> {
+  const [docs, paths] = await Promise.all([
+    searchDocs(deps, { q: task, repoKeys: [repoKey], k: LOCATIONS_K, qvec }),
+    pathHits(deps, repoKey, terms),
+  ]);
+  const fromDocs: BriefLocation[] = docs.map((d) => ({
+    ref: d.line_start != null && d.line_end != null ? `${d.path}:${d.line_start}-${d.line_end}` : d.path!,
+    path: d.path!,
+    source: "doc",
+  }));
+  const fromPaths: BriefLocation[] = paths.map((p) => ({ ref: p, path: p, source: "path" }));
+  // alternate the two lists so both kinds make the cut; one entry per file
+  const locations: BriefLocation[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < Math.max(fromDocs.length, fromPaths.length) && locations.length < LOCATIONS_K; i++) {
+    for (const l of [fromDocs[i], fromPaths[i]]) {
+      if (!l || seen.has(l.path) || locations.length >= LOCATIONS_K) continue;
+      seen.add(l.path);
+      locations.push(l);
+    }
+  }
+  return locations;
+}
+
 /** Round-robin across sections in priority order; an item that doesn't fit is skipped (and counted). */
 export function packBudget(sections: Record<Section, unknown[]>, budget: number) {
   const out = Object.fromEntries(SECTIONS.map((s) => [s, [] as unknown[]])) as Record<Section, unknown[]>;
@@ -204,54 +235,55 @@ export function packBudget(sections: Record<Section, unknown[]>, budget: number)
 export async function buildBrief(
   deps: SearchDeps,
   who: Instance,
-  opts: { task: string; repoKey: string; changedPaths: string[]; budgetTokens: number },
+  opts: {
+    task: string; repoKey: string; changedPaths: string[]; budgetTokens: number;
+    /** Other repos to read too (facts, playbook, gotchas, locations, runs); ScopeError past MAX_ALSO_REPOS. */
+    alsoRepos?: string[];
+  },
 ): Promise<Brief> {
   const { task, repoKey, budgetTokens } = opts;
   const changedPaths = opts.changedPaths.filter(Boolean);
+  const also = opts.alsoRepos ? await resolveAlsoRepos(deps.pool, repoKey, opts.alsoRepos) : null;
+  const extra = also?.known ?? [];
+  const repoKeys = [repoKey, ...extra];
   const qvec = await embedQuery(deps.embedder, task);
   const [terms, registered, factHits, matched] = await Promise.all([
     taskTerms(deps, task),
     deps.pool.query("select 1 from repos where key = $1", [repoKey]).then((r) => (r.rowCount ?? 0) > 0),
     searchFacts(deps, who, {
-      q: task, repoKey, k: FACTS_K, statuses: ["active"], qvec, minSimilarity: BRIEF_MIN_SIMILARITY, changedPaths,
+      q: task, repoKeys, k: FACTS_K, statuses: ["active"], qvec, minSimilarity: BRIEF_MIN_SIMILARITY, changedPaths,
     }),
-    bestPlaybook(deps.pool, repoKey, task, changedPaths),
+    bestPlaybook(deps.pool, repoKey, task, changedPaths, extra),
   ]);
   const playbook = matched ? [trimPlaybook(matched)] : [];
+  // with also_repos, say which repo each location and run is in
+  const tag = <T extends object>(items: T[], key: string): T[] => (also ? items.map((i) => ({ ...i, repo_key: key })) : items);
 
   let locations: BriefLocation[] = [];
   let tests: BriefTest[] = [];
   let gotchas: BriefFact[] = [];
   let runs: BriefRun[] = [];
+  // the main repo's list first; extra repos' after it, so they only get budget the main repo leaves
+  const extraLocations = await Promise.all(extra.map((k) => repoLocations(deps, k, task, terms, qvec)));
   if (registered) {
-    const [docs, paths] = await Promise.all([
-      searchDocs(deps, { q: task, repoKey, k: LOCATIONS_K, qvec }),
-      pathHits(deps, repoKey, terms),
-    ]);
-    const fromDocs: BriefLocation[] = docs.map((d) => ({
-      ref: d.line_start != null && d.line_end != null ? `${d.path}:${d.line_start}-${d.line_end}` : d.path!,
-      path: d.path!,
-      source: "doc",
-    }));
-    const fromPaths: BriefLocation[] = paths.map((p) => ({ ref: p, path: p, source: "path" }));
-    // alternate the two lists so both kinds make the cut; one entry per file
-    const seen = new Set<string>();
-    for (let i = 0; i < Math.max(fromDocs.length, fromPaths.length) && locations.length < LOCATIONS_K; i++) {
-      for (const l of [fromDocs[i], fromPaths[i]]) {
-        if (!l || seen.has(l.path) || locations.length >= LOCATIONS_K) continue;
-        seen.add(l.path);
-        locations.push(l);
-      }
-    }
+    locations = await repoLocations(deps, repoKey, task, terms, qvec);
     const locPaths = locations.map((l) => l.path);
-    const [testRows, overlapping, related] = await Promise.all([
+    const [testRows, related] = await Promise.all([
       deps.pool.query<{ path: string }>("select path from repo_files where repo_key = $1 and path ~* '(test|spec)'", [repoKey]),
-      overlappingGotchas(deps, who, repoKey, [...locPaths, ...changedPaths]),
       relatedRuns(deps, repoKey, task, [...new Set([...locPaths, ...changedPaths])]),
     ]);
     tests = nearbyTests(testRows.rows.map((r) => r.path), locPaths);
-    gotchas = overlapping;
-    runs = related;
+    locations = tag(locations, repoKey);
+    runs = tag(related, repoKey);
+  }
+  if (registered || extra.length) {
+    const extraRuns = await Promise.all(extra.map((k, i) => relatedRuns(deps, k, task, extraLocations[i]!.map((l) => l.path))));
+    const allPaths = [...locations, ...extraLocations.flat()].map((l) => l.path);
+    gotchas = await overlappingGotchas(deps, who, repoKeys, [...allPaths, ...changedPaths]);
+    extra.forEach((k, i) => {
+      locations.push(...tag(extraLocations[i]!, k));
+      runs.push(...tag(extraRuns[i]!, k));
+    });
   }
 
   const gotchaIds = new Set(gotchas.map((g) => g.id));
@@ -266,6 +298,7 @@ export async function buildBrief(
   return {
     repo_key: repoKey,
     repo_indexed: registered,
+    ...(also ? { unknown_repos: also.unknown } : {}),
     mode: qvec ? "hybrid" : "keyword",
     terms,
     budget_tokens: budgetTokens,

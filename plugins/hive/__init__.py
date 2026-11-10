@@ -336,6 +336,11 @@ class HiveClient:
 
 # --------------------------------------------------------------------------- tool schemas
 
+_ALSO_REPOS = {
+    "type": "array", "items": {"type": "string"}, "maxItems": 3,
+    "description": "Up to 3 other repo keys (e.g. gh/owner/name) to read too, when the task spans repos.",
+}
+
 _SCHEMAS = [
     {
         "name": "hive_recall",
@@ -349,6 +354,7 @@ _SCHEMAS = [
                 "query": {"type": "string", "description": "Natural-language question or keywords."},
                 "k": {"type": "integer", "description": "Max facts (default 10)."},
                 "repo_key": {"type": "string", "description": "Limit repo facts to this repo (default: current repo, if any)."},
+                "also_repos": _ALSO_REPOS,
             },
             "required": ["query"],
         },
@@ -386,6 +392,7 @@ _SCHEMAS = [
                 "query": {"type": "string"},
                 "source": {"type": "string", "description": "all (default) or a comma list of fact,conversation,history,commit,doc"},
                 "k": {"type": "integer", "description": "Max results per list (default 10)."},
+                "also_repos": _ALSO_REPOS,
             },
             "required": ["query"],
         },
@@ -683,20 +690,23 @@ class HiveMemoryProvider(MemoryProvider):
         res = self._client.get("/v1/recall", {  # type: ignore[union-attr]
             "q": str(args.get("query", ""))[:2000], "k": int(args.get("k") or 10),
             "repo_key": args.get("repo_key") or self._repo_key or None,
+            "also_repos": _also_repos(args),
             "changed": self._changed(),
         })
         if not res.get("ok"):
             return res
-        return {"ok": True, "mode": res.get("mode"), "facts": [_slim_fact(f) for f in res.get("facts", [])]}
+        return {"ok": True, "mode": res.get("mode"), **_unknown_repos(res),
+                "facts": [_slim_fact(f) for f in res.get("facts", [])]}
 
     def _tool_search(self, args: dict[str, Any]) -> dict[str, Any]:
         res = self._client.get("/v1/search", {  # type: ignore[union-attr]
             "q": str(args.get("query", ""))[:2000], "source": args.get("source") or "all",
-            "k": int(args.get("k") or 10), "repo_key": self._repo_key or None,
+            "k": int(args.get("k") or 10), "repo_key": self._repo_key or None, "also_repos": _also_repos(args),
         })
         if not res.get("ok"):
             return res
-        return {"ok": True, "mode": res.get("mode"), "facts": [_slim_fact(f) for f in res.get("facts", [])],
+        return {"ok": True, "mode": res.get("mode"), **_unknown_repos(res),
+                "facts": [_slim_fact(f) for f in res.get("facts", [])],
                 "results": [_slim_hit(h) for h in res.get("results", [])]}
 
     def _tool_remember(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -810,6 +820,18 @@ def _slim_hit(h: dict[str, Any]) -> dict[str, Any]:
         out["repo"] = h["repo_key"]
     out["snippet"] = re.sub(r"</?b>", "", str(h.get("snippet", "")))
     return out
+
+
+def _also_repos(args: dict[str, Any]) -> str | None:
+    """The tool's also_repos as the comma list the API takes; None (left out) when not given."""
+    raw = args.get("also_repos") or []
+    keys = [str(k).strip() for k in (raw if isinstance(raw, list) else str(raw).split(","))]
+    return ",".join(k for k in keys if k) or None
+
+
+def _unknown_repos(res: dict[str, Any]) -> dict[str, Any]:
+    """also_repos the Hive doesn't know (so didn't read), when there are any."""
+    return {"unknown_repos": res["unknown_repos"]} if res.get("unknown_repos") else {}
 
 
 def _int_env(key: str, default: int) -> int:

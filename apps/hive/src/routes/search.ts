@@ -1,16 +1,28 @@
 import type { FastifyInstance } from "fastify";
 import { recordUse } from "../facts.js";
+import { resolveAlsoRepos, ScopeError } from "../scope.js";
 import { embedQuery, searchDocs, searchEpisodes, searchFacts, type SearchDeps, type TextHit } from "../search.js";
 
 const SOURCES = ["fact", "conversation", "history", "commit", "doc"] as const;
 type Source = (typeof SOURCES)[number];
 
 /**
+ * The repos to read: repo_key, then the registered ones of also_repos (a comma list), plus also_repos that
+ * aren't registered (null when also_repos wasn't sent). Without repo_key every repo is readable, so also_repos is ignored.
+ */
+async function repoKeysOf(deps: SearchDeps, repoKey: string | undefined, alsoRepos: string | undefined) {
+  if (!repoKey) return { repoKeys: undefined, unknown: null };
+  if (alsoRepos === undefined) return { repoKeys: [repoKey], unknown: null };
+  const { known, unknown } = await resolveAlsoRepos(deps.pool, repoKey, alsoRepos.split(","));
+  return { repoKeys: [repoKey, ...known], unknown };
+}
+
+/**
  * Hot path. Pure SQL plus one local query embedding (~5 ms warm); no LLM calls.
  * If the embedder is down, both endpoints answer keyword-only and say so in `mode`.
  */
 export function searchRoutes(app: FastifyInstance, deps: SearchDeps): void {
-  app.get<{ Querystring: { q: string; repo_key?: string; k?: number; min_sim?: number; changed?: string } }>(
+  app.get<{ Querystring: { q: string; repo_key?: string; also_repos?: string; k?: number; min_sim?: number; changed?: string } }>(
     "/v1/recall",
     {
       schema: {
@@ -20,6 +32,8 @@ export function searchRoutes(app: FastifyInstance, deps: SearchDeps): void {
           properties: {
             q: { type: "string", minLength: 1, maxLength: 2000 },
             repo_key: { type: "string" },
+            // comma list of up to 3 other repos to read too; unregistered ones come back in unknown_repos
+            also_repos: { type: "string", maxLength: 2000 },
             k: { type: "integer", minimum: 1, maximum: 50, default: 10 },
             // Strict gate for prefetch: drop any hit (keyword matches included) whose cosine
             // similarity to the question is below this. Un-embedded rows are kept.
@@ -31,19 +45,26 @@ export function searchRoutes(app: FastifyInstance, deps: SearchDeps): void {
         },
       },
     },
-    async (req) => {
-      const { q, repo_key, k, min_sim, changed } = req.query;
+    async (req, reply) => {
+      const { q, repo_key, also_repos, k, min_sim, changed } = req.query;
+      let repos;
+      try {
+        repos = await repoKeysOf(deps, repo_key, also_repos);
+      } catch (err) {
+        if (err instanceof ScopeError) return reply.code(400).send({ error: err.message });
+        throw err;
+      }
       const qvec = await embedQuery(deps.embedder, q);
       const changedPaths = changed ? changed.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 200) : undefined;
       const facts = await searchFacts(deps, req.instance!, {
-        q, repoKey: repo_key, k: k ?? 10, statuses: ["active"], qvec, minSimilarity: min_sim, changedPaths,
+        q, repoKeys: repos.repoKeys, k: k ?? 10, statuses: ["active"], qvec, minSimilarity: min_sim, changedPaths,
       });
       await recordUse(deps.pool, facts.map((f) => f.id), req.log);
-      return { mode: qvec ? "hybrid" : "keyword", facts };
+      return { mode: qvec ? "hybrid" : "keyword", ...(repos.unknown ? { unknown_repos: repos.unknown } : {}), facts };
     },
   );
 
-  app.get<{ Querystring: { q: string; source?: string; repo_key?: string; k?: number; include_candidates?: boolean } }>(
+  app.get<{ Querystring: { q: string; source?: string; repo_key?: string; also_repos?: string; k?: number; include_candidates?: boolean } }>(
     "/v1/search",
     {
       schema: {
@@ -54,6 +75,7 @@ export function searchRoutes(app: FastifyInstance, deps: SearchDeps): void {
             q: { type: "string", minLength: 1, maxLength: 2000 },
             source: { type: "string", default: "all" }, // all | comma list of fact,conversation,history,commit,doc
             repo_key: { type: "string" },
+            also_repos: { type: "string", maxLength: 2000 }, // comma list, as for /v1/recall
             k: { type: "integer", minimum: 1, maximum: 100, default: 20 },
             include_candidates: { type: "boolean", default: false },
           },
@@ -61,25 +83,33 @@ export function searchRoutes(app: FastifyInstance, deps: SearchDeps): void {
       },
     },
     async (req, reply) => {
-      const { q, repo_key, include_candidates } = req.query;
+      const { q, repo_key, also_repos, include_candidates } = req.query;
       const k = req.query.k ?? 20;
       const raw = req.query.source ?? "all";
       const sources = raw === "all" ? [...SOURCES] : (raw.split(",").map((s) => s.trim()) as Source[]);
       const bad = sources.filter((s) => !SOURCES.includes(s));
       if (bad.length) return reply.code(400).send({ error: `unknown source ${bad.join(",")}`, valid: ["all", ...SOURCES] });
+      let repos;
+      try {
+        repos = await repoKeysOf(deps, repo_key, also_repos);
+      } catch (err) {
+        if (err instanceof ScopeError) return reply.code(400).send({ error: err.message });
+        throw err;
+      }
+      const { repoKeys } = repos;
 
       const who = req.instance!;
       const qvec = await embedQuery(deps.embedder, q);
       const statuses = include_candidates ? ["active", "candidate"] : ["active"];
       const [facts, conversation, history, commit, doc] = await Promise.all([
-        sources.includes("fact") ? searchFacts(deps, who, { q, repoKey: repo_key, k, statuses, qvec }) : [],
+        sources.includes("fact") ? searchFacts(deps, who, { q, repoKeys, k, statuses, qvec }) : [],
         sources.includes("conversation") ? searchEpisodes(deps, who, "conversation", { q, k, qvec }) : [],
         sources.includes("history") ? searchEpisodes(deps, who, "history", { q, k, qvec }) : [],
-        sources.includes("commit") ? searchEpisodes(deps, who, "commit", { q, k, qvec, repoKey: repo_key }) : [],
-        sources.includes("doc") ? searchDocs(deps, { q, repoKey: repo_key, k, qvec }) : [],
+        sources.includes("commit") ? searchEpisodes(deps, who, "commit", { q, k, qvec, repoKeys }) : [],
+        sources.includes("doc") ? searchDocs(deps, { q, repoKeys, k, qvec }) : [],
       ]);
       const text: TextHit[] = [...conversation, ...history, ...commit, ...doc].sort((a, b) => b.score - a.score).slice(0, k);
-      return { mode: qvec ? "hybrid" : "keyword", facts, results: text };
+      return { mode: qvec ? "hybrid" : "keyword", ...(repos.unknown ? { unknown_repos: repos.unknown } : {}), facts, results: text };
     },
   );
 }

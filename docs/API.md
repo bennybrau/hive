@@ -63,7 +63,8 @@ answer that cited this fact (see Episodes and Worker): `text` is what they said 
 `candidate_id` the distilled candidate that replaces it (or `null`). Only an `active` fact is flagged, and the latest
 flag wins. It is listed in the review queue's `flagged` until curated with `keep`, `fix` or `retire`.
 
-Readable scopes for every call: `global`, all `repo:*` (or only `repo:<repo_key>` when given), and
+Readable scopes for every call: `global`, all `repo:*` (or only `repo:<repo_key>` when given, plus the registered `also_repos`
+where a call takes them), and
 your own `personal:<user>`. Other users' personal facts are never returned.
 
 ## Review (curator only; members get 403)
@@ -285,7 +286,12 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   Keyword hits on embedded rows now report their `similarity` too.
   Each returned fact gets `use_count + 1` and `last_used_at = now()` (best effort: a failure is logged, the answer is
   unchanged). `/v1/search` does not count.
-- `GET /v1/search?q=&source=all|fact,conversation,history,commit,doc&repo_key=&k=20&include_candidates=false` —
+  `also_repos` = comma list of up to 3 other repo keys to read too, for a task that spans repos (more → 400). Trimmed;
+  duplicates and `repo_key` itself are dropped. Registered ones add their `repo:` scope; the rest come back in
+  `unknown_repos` and aren't read (an unregistered repo's facts included). On a score tie the `repo_key` repo's fact
+  goes first. Only with `repo_key` (without it every repo is readable and `also_repos` is ignored). The answer has
+  `unknown_repos: [...]` only when `also_repos` is sent.
+- `GET /v1/search?q=&source=all|fact,conversation,history,commit,doc&repo_key=&also_repos=&k=20&include_candidates=false` —
   `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id | path+line_start+line_end+sha+remote_url | ref+subject | ref+title+pr_url+merged_at | ref+author, ...}]}`.
   Doc hits' `sha` is the commit the repo was last ingested at (usable in a blob link); commit hits' `subject` is the message's first line.
   `conversation` = turn episodes, only YOUR user's. `history` = YOUR user's session episodes plus every `asf_run` and
@@ -293,10 +299,12 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   conversation, and every token can already read every `repo:` scope. `asf_run` hits also carry the run's `title`,
   `pr_url` and `merged_at` (null when not sent); `asf_dialog` hits carry `ref` and `author` (`metadata.author`).
   `commit` and `doc` are shared: commit messages and document chunks of registered repos (`repo_key` narrows to one).
+  `also_repos` works as for `/v1/recall` and widens `fact`, `commit` and `doc` to those repos too (not `history`,
+  which isn't narrowed by repo anyway); `unknown_repos` likewise.
 
 ## Brief (hot path: SQL + one local query embedding, no LLM)
 
-- `POST /v1/brief` `{task, repo_key, changed_paths?: string[] (≤200), budget_tokens?: 100–4000 (600)}` — what to know before
+- `POST /v1/brief` `{task, repo_key, changed_paths?: string[] (≤200), budget_tokens?: 100–4000 (600), also_repos?: string[] (≤3)}` — what to know before
   starting a task in a repo. `{repo_key, repo_indexed, mode, terms, budget_tokens, tokens:{playbook, gotchas, facts, locations, runs, tests, total},
   dropped:{playbook, gotchas, facts, locations, runs, tests}, playbook:[...], gotchas:[...], facts:[...], locations:[...], runs:[...], tests:[...]}`.
   - `playbook` `[{id, title, scope, steps, pitfalls}]`, 0 or 1: the active playbook in `global` or `repo:<repo_key>` that
@@ -321,6 +329,11 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   - A repo that isn't registered still answers 200, with `repo_indexed: false` and only `facts`. Code paths come from
     `repo_files` (every tracked file of the default branch except `node_modules`, `vendor`, `dist`, ...), filled by ingest;
     repos ingested before this existed get it on their next ingest.
+  - `also_repos`: other repos to read too, cleaned and checked as for `/v1/recall`. `facts` and `gotchas` read their
+    scopes too (a main-repo fact wins a score tie); `playbook` considers theirs, ranked after the repo's own and before a
+    global one; their `locations` and `runs` (same caps, each repo's own) follow the main repo's, so they only get budget
+    the main repo leaves. `tests` stay the main repo's. Only when `also_repos` is sent, each location and run gets its
+    `repo_key` and the answer gets `unknown_repos: [...]` (keys that aren't registered, so weren't read).
   - Each fact in the answer's `gotchas` and `facts` (after the budget) gets `use_count + 1` and `last_used_at = now()`,
     like `/v1/recall`.
 

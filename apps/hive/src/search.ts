@@ -144,16 +144,20 @@ export async function searchFacts(
   deps: SearchDeps,
   who: Instance,
   opts: {
-    q: string; repoKey?: string; k: number; statuses: string[]; qvec: string | null; minSimilarity?: number;
+    /** The main repo first, then any extra repos to read too; on a score tie the main repo's fact goes first. */
+    q: string; repoKeys?: string[]; k: number; statuses: string[]; qvec: string | null; minSimilarity?: number;
     /** Repo-relative paths the caller is working on (git status); facts located there rank higher. */
     changedPaths?: string[];
   },
 ): Promise<FactHit[]> {
-  const [scopeSql, scopeParams] = readableScopes(who, opts.repoKey, 3, "t.scope");
+  const repoKeys = opts.repoKeys?.length ? opts.repoKeys : undefined;
+  const [scopeSql, scopeParams] = readableScopes(who, repoKeys, 3, "t.scope");
   const filter: [string, unknown[]] = [`t.status = any($2) and ${scopeSql}`, [opts.statuses, ...scopeParams]];
   const changed = (opts.changedPaths ?? []).filter(Boolean);
+  const main = repoKeys && repoKeys.length > 1 ? `repo:${repoKeys[0]}` : null;
   // with changed paths, look deeper so a located fact ranked just below k can be lifted into it
-  const depth = changed.length ? opts.k * 3 : opts.k;
+  // (and with extra repos, so a main-repo fact tied just below k wins the tie)
+  const depth = changed.length || main ? opts.k * 3 : opts.k;
   const ranked = await hybridIds(deps, { table: "facts", tsv: "text_tsv", filter }, opts.q, opts.qvec, depth, opts.minSimilarity);
   if (ranked.length === 0) return [];
   const { rows } = await deps.pool.query<Fact & { anchors: number; verify: string | null; paths: string[] }>(
@@ -167,9 +171,10 @@ export async function searchFacts(
     [ranked.map((r) => r.id)],
   );
   const near = new Set(rows.filter((r) => overlaps(r.paths, changed)).map((r) => r.id));
-  if (near.size) {
+  const inMain = new Set(main ? rows.filter((r) => r.scope === main).map((r) => r.id) : []);
+  if (near.size || main) {
     for (const r of ranked) if (near.has(r.id)) r.score += LOCUS_BOOST;
-    ranked.sort((a, b) => b.score - a.score);
+    ranked.sort((a, b) => b.score - a.score || Number(inMain.has(b.id)) - Number(inMain.has(a.id)));
   }
   return byRank(ranked.slice(0, opts.k), rows).map(({ paths: _paths, ...r }) => (changed.length ? { ...r, near_changes: near.has(r.id) } : r));
 }
@@ -225,17 +230,17 @@ export const HEADLINE = `ts_headline('english', left(t.content, 20000), ${TSQUER
  * Conversations (turn episodes) and session history: only the caller's own user's.
  * History also holds asf_run episodes (a factory run's plan and review) and asf_dialog episodes (what a person
  * said to the factory), shared like commits: they are repo history, and every token can read every repo scope.
- * Commits: shared repo history, visible to everyone, optionally one repo's.
+ * Commits: shared repo history, visible to everyone, optionally only some repos'.
  */
 export async function searchEpisodes(
   deps: SearchDeps,
   who: Instance,
   source: EpisodeSource,
-  opts: { q: string; k: number; qvec: string | null; repoKey?: string },
+  opts: { q: string; k: number; qvec: string | null; repoKeys?: string[] },
 ): Promise<TextHit[]> {
   let filter: [string, unknown[]];
   if (source === "commit") {
-    filter = opts.repoKey ? ["t.kind = 'commit' and t.repo_key = $2", [opts.repoKey]] : ["t.kind = 'commit'", []];
+    filter = opts.repoKeys?.length ? ["t.kind = 'commit' and t.repo_key = any($2)", [opts.repoKeys]] : ["t.kind = 'commit'", []];
   } else if (source === "history") {
     filter = ["((t.kind = 'session' and t.user_id = $2) or t.kind in ('asf_run','asf_dialog'))", [who.user_id]];
   } else {
@@ -262,9 +267,9 @@ export async function searchEpisodes(
 
 export async function searchDocs(
   deps: SearchDeps,
-  opts: { q: string; repoKey?: string; k: number; qvec: string | null },
+  opts: { q: string; repoKeys?: string[]; k: number; qvec: string | null },
 ): Promise<TextHit[]> {
-  const filter: [string, unknown[]] = opts.repoKey ? ["t.repo_key = $2", [opts.repoKey]] : ["true", []];
+  const filter: [string, unknown[]] = opts.repoKeys?.length ? ["t.repo_key = any($2)", [opts.repoKeys]] : ["true", []];
   const ranked = await hybridIds(deps, { table: "doc_chunks", tsv: "content_tsv", filter }, opts.q, opts.qvec, opts.k);
   if (ranked.length === 0) return [];
   const { rows } = await deps.pool.query<{

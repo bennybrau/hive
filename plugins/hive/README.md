@@ -24,6 +24,10 @@ Connects a Hermes instance to the team's Hive. Stdlib only, no new dependencies 
 Prefetch and `hive_recall` also send the files you've changed (`git status`, at most 200) so facts located
 there rank higher, and a fact whose source was edited or deleted is marked "source changed since" / "source gone".
 
+`hive_recall` and `hive_search` take an optional `also_repos` (up to 3 repo keys, e.g. `gh/acme/lib`) to read other
+repos too when a task spans them; keys the Hive doesn't know come back in `unknown_repos`. The first-turn brief
+reads the current repo only.
+
 Token rules for prefetch, because Hermes replays the injected block on every later request of the session:
 - a fact is injected **once per session**; later turns only add new ones (`/new` resets, `/branch` and compression inherit);
 - a fact is injected only if its meaning similarity to the message is ≥ `HIVE_PREFETCH_MIN_SIM` (0.62), so

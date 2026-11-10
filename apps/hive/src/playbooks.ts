@@ -164,23 +164,28 @@ export function globToRegExp(glob: string): RegExp {
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
- * The active playbook in global or repo:<key> that best fits the task: most changed paths matching its globs,
- * then most of its words in the task, then the repo's own over a global one, then the newest. No hits at all -> null.
+ * The active playbook in global, repo:<key> or one of the extra repos that best fits the task: most changed paths
+ * matching its globs, then most of its words in the task, then the repo's own over an extra repo's over a global one,
+ * then the newest. No hits at all -> null.
  */
-export async function bestPlaybook(pool: pg.Pool, repoKey: string, task: string, changedPaths: string[]): Promise<Playbook | null> {
+export async function bestPlaybook(
+  pool: pg.Pool, repoKey: string, task: string, changedPaths: string[], alsoRepos: string[] = [],
+): Promise<Playbook | null> {
+  const main = `repo:${repoKey}`;
   const { rows } = await pool.query<Playbook>(
-    `select ${PLAYBOOK_COLUMNS} from playbooks where status = 'active' and (scope = 'global' or scope = $1)`,
-    [`repo:${repoKey}`],
+    `select ${PLAYBOOK_COLUMNS} from playbooks where status = 'active' and (scope = 'global' or scope = any($1))`,
+    [[main, ...alsoRepos.map((k) => `repo:${k}`)]],
   );
   const ranked = rows
     .map((p) => {
       const globs = p.applies_paths.map(globToRegExp);
       const pathHits = changedPaths.filter((cp) => globs.some((g) => g.test(cp))).length;
       const wordHits = p.applies_words.filter((w) => w.trim() && new RegExp(`\\b${escapeRegExp(w.trim())}\\b`, "i").test(task)).length;
-      return { p, pathHits, wordHits, repo: p.scope !== "global", at: new Date(p.created_at).getTime() };
+      const own = p.scope === main ? 2 : p.scope === "global" ? 0 : 1;
+      return { p, pathHits, wordHits, own, at: new Date(p.created_at).getTime() };
     })
     .filter((r) => r.pathHits + r.wordHits > 0)
-    .sort((a, b) => b.pathHits - a.pathHits || b.wordHits - a.wordHits || Number(b.repo) - Number(a.repo) || b.at - a.at);
+    .sort((a, b) => b.pathHits - a.pathHits || b.wordHits - a.wordHits || b.own - a.own || b.at - a.at);
   return ranked[0]?.p ?? null;
 }
 
