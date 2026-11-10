@@ -109,6 +109,18 @@ describe("digestTick", () => {
     expect(telegramReqs).toHaveLength(1);
   });
 
+  it("marks as new only what arrived since the last digest that went out", async () => {
+    await tick(cst("2026-11-10", "18:00"));
+    expect(String(telegramReqs[0]!.body.text).split("\n")[0]).toBe("<b>Hive: 1 fact to review</b>");
+    const { fact } = await createFact(pool, { text: "Deploys wait for the nightly export.", kind: "decision", scope: "global", origin: "authored" }, curator.instance);
+    await pool.query("update facts set status = 'candidate', recorded_at = $2 where id = $1", [fact.id, cst("2026-11-10", "20:00")]);
+    await tick(cst("2026-11-11", "18:00"));
+    const text = String(telegramReqs[1]!.body.text);
+    expect(text.split("\n")[0]).toBe("<b>Hive: 2 facts to review (1 new)</b>");
+    expect(text).toContain("🆕 Deploys wait for the nightly export.");
+    expect(text).not.toContain("🆕 The export runs nightly.");
+  });
+
   it("sends at 18:01 when that is the first tick after the time", async () => {
     await tick(cst("2026-11-10", "18:01"));
     expect(telegramReqs).toHaveLength(1);
