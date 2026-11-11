@@ -57,6 +57,51 @@ test("a curator reviews a member's candidate from the keyboard, with undo", asyn
     .toBe(`retracted rejected: e2e ${marker}`);
 });
 
+test("a curator shares a member's global candidate with a team on approve", async ({ page }) => {
+  expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
+  expect(CURATOR, "HIVE_E2E_CURATOR_TOKEN is not set").not.toBe("");
+  const marker = `zs${Date.now()}`;
+  const key = `e2e-${marker}`;
+  // No cleanup: a team can't be deleted while a fact is in it.
+  const team = await page.request.post(`${HIVE}/v1/teams`, {
+    headers: { authorization: `Bearer ${CURATOR}` },
+    data: { key, name: `E2E ${marker}` },
+  });
+  expect(team.status()).toBe(201);
+  const text = `Dashboard e2e candidate ${marker}: shared with a team.`;
+  const res = await page.request.post(`${HIVE}/v1/facts`, {
+    headers: { authorization: `Bearer ${MEMBER}` },
+    data: { text, kind: "gotcha", scope: "global" },
+  });
+  expect(res.status()).toBe(201);
+  const id = (await res.json()).fact.id as string;
+
+  await page.goto(`${HIVE}/`);
+  await page.getByLabel("Token").fill(CURATOR);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/facts$/);
+  await page.getByRole("link", { name: "Review" }).click();
+  await expect(page).toHaveURL(/\/review$/);
+
+  const row = page.getByRole("list", { name: "Candidates" }).locator(`li[data-id="${id}"]`);
+  await row.click();
+  await expect(row).toHaveAttribute("aria-current", "true");
+  const decide = page.getByRole("group", { name: "Decide" });
+  await decide.getByLabel("Share with").selectOption(`team:${key}`);
+  await decide.getByRole("button", { name: "Approve" }).click();
+  await expect(row).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("Approved");
+  await expect(page.getByRole("status")).toHaveCount(0, { timeout: 10_000 });
+
+  await expect
+    .poll(async () => {
+      const got = await page.request.get(`${HIVE}/v1/facts/${id}`, { headers: { authorization: `Bearer ${CURATOR}` } });
+      const f = (await got.json()).fact;
+      return `${f.status} ${f.scope}`;
+    })
+    .toBe(`active team:${key}`);
+});
+
 test("a curator reviews a member's candidate on a phone, by tapping", async ({ browser }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   expect(CURATOR, "HIVE_E2E_CURATOR_TOKEN is not set").not.toBe("");

@@ -205,6 +205,7 @@ kbd {
 .review-evidence .replaces .old { color: var(--muted); text-decoration: line-through; margin: 0 0 4px; }
 .review-card-meta { font-size: 12px; color: var(--muted); margin: 0 0 8px; overflow-wrap: anywhere; }
 .review-actions { display: flex; gap: 8px; margin: 0 0 16px; }
+.review-actions .share-with { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 500; }
 button.link { padding: 0; border: 0; background: none; color: var(--accent); font-weight: 500; }
 .review-stepper { display: none; }

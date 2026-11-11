@@ -46,15 +46,23 @@ function json(body: unknown, status = 200): Response {
 
 let queue: { candidates: Candidate[]; flagged: Flagged[]; last_distill_at: string | null };
 let reviewStatus: number;
+let mergedInto: { id: string } | null;
 let curateStatus: number;
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
   const url = new URL(String(input), "http://hive");
   if (url.pathname === "/v1/review/queue") return json(queue);
-  if (url.pathname === "/v1/teams") return json({ teams: [{ key: "billing", name: "Billing", created_at: "", members: [], repos: [] }] });
+  if (url.pathname === "/v1/teams") {
+    return json({
+      teams: [
+        { key: "billing", name: "Billing", created_at: "", members: [], repos: [] },
+        { key: "platform", name: "Platform", created_at: "", members: [], repos: [] },
+      ],
+    });
+  }
   if (url.pathname === "/v1/teams/mine") return json({ teams: [{ key: "billing", name: "Billing", role: "member" }] });
   if (/^\/v1\/facts\/[^/]+\/review$/.test(url.pathname)) {
-    return reviewStatus === 200 ? json({ fact: {}, merged_into: null }) : json({ error: "fact is not a candidate" }, reviewStatus);
+    return reviewStatus === 200 ? json({ fact: {}, merged_into: mergedInto }) : json({ error: "fact is not a candidate" }, reviewStatus);
   }
   if (/^\/v1\/facts\/[^/]+\/curate$/.test(url.pathname)) {
     return curateStatus === 200 ? json({ fact: {} }) : json({ error: "fact is not active" }, curateStatus);
@@ -78,6 +86,7 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   queue = { candidates: [candidate("c1"), candidate("c2"), candidate("c3")], flagged: [], last_distill_at: null };
   reviewStatus = 200;
+  mergedInto = null;
   curateStatus = 200;
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
@@ -433,6 +442,105 @@ describe("levels", () => {
     expect(screen.getByText("Nothing to review at this level.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Level"), { target: { value: "" } });
     expect(rows()).toHaveLength(3);
+  });
+});
+
+describe("share with", () => {
+  const share = () => screen.getByLabelText("Share with") as HTMLSelectElement;
+  const options = () => [...share().options].map((o) => [o.value, o.textContent]);
+  const teamsLoaded = () => screen.findByRole("option", { name: "Platform" });
+
+  it("offers Keep, every team and Organisation, leaving out the candidate's own scope", async () => {
+    queue.candidates = [candidate("c1", { scope: "team:billing" }), candidate("c2")];
+    await open();
+    await teamsLoaded();
+    expect(options()).toEqual([
+      ["", "Keep"],
+      ["team:platform", "Platform"],
+      ["global", "Organisation"],
+    ]);
+    press("j");
+    expect(options()).toEqual([
+      ["", "Keep"],
+      ["team:billing", "Billing"],
+      ["team:platform", "Platform"],
+    ]);
+  });
+
+  it("is hidden while fix or reject is open", async () => {
+    await open();
+    press("f");
+    expect(screen.queryByLabelText("Share with")).toBeNull();
+    press("Escape", screen.getByLabelText("Fixed text"));
+    press("r");
+    expect(screen.queryByLabelText("Share with")).toBeNull();
+  });
+
+  it("Keep sends no scope", async () => {
+    await open();
+    expect(share().value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await tick(5000);
+    expect(posts()).toEqual([["c1", { action: "approve" }]]);
+  });
+
+  it("Approve sends the chosen scope, and so does a", async () => {
+    await open();
+    await teamsLoaded();
+    fireEvent.change(share(), { target: { value: "team:billing" } });
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.change(share(), { target: { value: "team:billing" } });
+    press("a");
+    await tick(5000);
+    expect(posts()).toEqual([
+      ["c1", { action: "approve", scope: "team:billing" }],
+      ["c2", { action: "approve", scope: "team:billing" }],
+    ]);
+  });
+
+  it("goes back to Keep on the next candidate, and fix never sends it", async () => {
+    await open();
+    await teamsLoaded();
+    fireEvent.change(share(), { target: { value: "global" } });
+    press("j");
+    expect(share().value).toBe("");
+    press("k");
+    expect(share().value).toBe("");
+    fireEvent.change(share(), { target: { value: "team:billing" } });
+    press("f");
+    const box = screen.getByLabelText("Fixed text");
+    fireEvent.change(box, { target: { value: "candidate c1, tightened" } });
+    press("Enter", box);
+    await tick(5000);
+    expect(posts()).toEqual([["c1", { action: "fix", new_text: "candidate c1, tightened" }]]);
+  });
+
+  it("says what an approve was merged into, links to it, and clears on the next decision", async () => {
+    const into = "7a8b9c0d-aaaa-bbbb-cccc-000000000001";
+    mergedInto = { id: into };
+    await open();
+    await teamsLoaded();
+    fireEvent.change(share(), { target: { value: "team:billing" } });
+    press("a");
+    await tick(5000);
+    const link = await screen.findByRole("link", { name: "7a8b9c0d" });
+    expect(link.closest("p")!.textContent).toBe("Merged into 7a8b9c0d");
+    expect(link.closest("p")!.getAttribute("role")).toBeNull();
+    expect(link.getAttribute("href")).toBe(`/facts/${into}`);
+    press("a");
+    expect(screen.queryByText(/Merged into/)).toBeNull();
+  });
+
+  it("says what a fix was merged into", async () => {
+    const into = "7a8b9c0d-aaaa-bbbb-cccc-000000000002";
+    mergedInto = { id: into };
+    await open();
+    press("f");
+    const box = screen.getByLabelText("Fixed text");
+    fireEvent.change(box, { target: { value: "an existing fact" } });
+    press("Enter", box);
+    await tick(5000);
+    expect((await screen.findByRole("link", { name: "7a8b9c0d" })).getAttribute("href")).toBe(`/facts/${into}`);
   });
 });
 

@@ -96,17 +96,27 @@ type Teams = { teams: Team[]; mine: MyTeam[] };
 /** The decision buttons for the current candidate; on a phone they are the card's footer, pinned to the bottom of the screen. */
 function Actions({
   c,
+  teams,
   editing,
   setEditing,
+  shareWith,
+  setShareWith,
   submit,
   approve,
 }: {
   c: Candidate;
+  teams: Team[];
   editing: Editing;
   setEditing: (e: Editing) => void;
+  shareWith: string;
+  setShareWith: (s: string) => void;
   submit: () => void;
   approve: () => void;
 }) {
+  // Where an approve can move the candidate: "" keeps its scope; its own scope isn't offered.
+  const share = [...teams.map((t) => ({ value: `team:${t.key}`, label: t.name })), { value: "global", label: "Organisation" }].filter(
+    (o) => o.value !== c.scope,
+  );
   const fixOk = editing?.kind !== "fix" || editing.text.trim().length >= 3;
   return (
     <div className="review-actions" role="group" aria-label="Decide">
@@ -133,6 +143,17 @@ function Actions({
           <button type="button" onClick={() => setEditing({ kind: "fix", text: c.text })}>
             Fix…
           </button>
+          <label className="share-with">
+            Share with
+            <select value={shareWith} onChange={(e) => setShareWith(e.target.value)}>
+              <option value="">Keep</option>
+              {share.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
           <button type="button" className="primary" onClick={approve}>
             Approve
           </button>
@@ -147,6 +168,8 @@ function Evidence({
   levels,
   editing,
   setEditing,
+  shareWith,
+  setShareWith,
   submit,
   approve,
 }: {
@@ -154,6 +177,8 @@ function Evidence({
   levels: Teams;
   editing: Editing;
   setEditing: (e: Editing) => void;
+  shareWith: string;
+  setShareWith: (s: string) => void;
   submit: () => void;
   approve: () => void;
 }) {
@@ -228,7 +253,16 @@ function Evidence({
           <p className="help keys-hint">Enter rejects, Esc cancels.</p>
         </div>
       )}
-      <Actions c={c} editing={editing} setEditing={setEditing} submit={submit} approve={approve} />
+      <Actions
+        c={c}
+        teams={levels.teams}
+        editing={editing}
+        setEditing={setEditing}
+        shareWith={shareWith}
+        setShareWith={setShareWith}
+        submit={submit}
+        approve={approve}
+      />
       {old && (
         <section className="replaces" aria-label="Replaces">
           <h3>Replaces</h3>
@@ -446,7 +480,8 @@ function ReviewQueue() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const [editing, setEditing] = useState<Editing>(null);
-  const { hidden, pending, error, decide, undo } = usePendingDecision();
+  const [shareWith, setShareWith] = useState("");
+  const { hidden, pending, error, merged, decide, undo } = usePendingDecision();
   const rowRefs = useRef<(HTMLLIElement | null)[]>([]);
   const listRef = useRef<HTMLOListElement>(null);
   const levels = useTeams();
@@ -477,8 +512,11 @@ function ReviewQueue() {
   const index = Math.min(active, Math.max(shown.length - 1, 0));
   const current = shown[index];
 
-  // A different row (moved to, or decided away) drops any half-made edit.
-  useEffect(() => setEditing(null), [current?.id]);
+  // A different row (moved to, or decided away) drops any half-made edit and goes back to Keep.
+  useEffect(() => {
+    setEditing(null);
+    setShareWith("");
+  }, [current?.id]);
 
   // On a phone the list is hidden and the card is the page, so a new card starts at its top.
   const firstCard = useRef(true);
@@ -504,6 +542,10 @@ function ReviewQueue() {
     rowRefs.current[i]?.focus();
   }
 
+  function approve(c: Candidate) {
+    decide({ id: c.id, via: "review", action: "approve", ...(shareWith ? { scope: shareWith } : {}) });
+  }
+
   function submitEdit() {
     if (!current || !editing) return;
     if (editing.kind === "fix") {
@@ -523,7 +565,7 @@ function ReviewQueue() {
     if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || isTyping(e.target) || !current) return;
     if (e.key === "j" || e.key === "ArrowDown") move(index + 1);
     else if (e.key === "k" || e.key === "ArrowUp") move(index - 1);
-    else if (e.key === "a") decide({ id: current.id, via: "review", action: "approve" });
+    else if (e.key === "a") approve(current);
     else if (e.key === "f") setEditing({ kind: "fix", text: current.text });
     else if (e.key === "r") setEditing({ kind: "reject", note: "" });
     else return;
@@ -563,6 +605,20 @@ function ReviewQueue() {
       {error && (
         <p className="error" role="alert">
           {error}
+        </p>
+      )}
+      {merged && (
+        <p className="help merged">
+          Merged into{" "}
+          <a
+            href={`/facts/${encodeURIComponent(merged.id)}`}
+            onClick={(e) => {
+              e.preventDefault();
+              navigate(`/facts/${encodeURIComponent(merged.id)}`);
+            }}
+          >
+            {merged.id.slice(0, 8)}
+          </a>
         </p>
       )}
       {!queue && !loadError && <p className="help">Loading…</p>}
@@ -650,8 +706,10 @@ function ReviewQueue() {
             levels={levels}
             editing={editing}
             setEditing={setEditing}
+            shareWith={shareWith}
+            setShareWith={setShareWith}
             submit={submitEdit}
-            approve={() => decide({ id: current.id, via: "review", action: "approve" })}
+            approve={() => approve(current)}
           />
         </div>
       )}
