@@ -45,6 +45,7 @@ docker compose exec hive node dist/cli/mint-token.js --name jon-studio --user jo
 Other machines: set `HIVE_BIND=0.0.0.0` (or the Tailscale IP) in `.env`, then `docker compose up -d`.
 
 Connect a Hermes: see [plugins/hive/README.md](plugins/hive/README.md).
+Connect Claude Code (or any MCP client) to `<HIVE_URL>/mcp`: see [docs/CLAUDE_CODE.md](docs/CLAUDE_CODE.md).
 
 ## Install (no checkout)
 

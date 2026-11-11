@@ -1,20 +1,75 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import type { Instance } from "../auth.js";
 import { recordUse } from "../facts.js";
 import { resolveAlsoRepos, ScopeError } from "../scope.js";
-import { embedQuery, searchDocs, searchEpisodes, searchFacts, type SearchDeps, type TextHit } from "../search.js";
+import { embedQuery, searchDocs, searchEpisodes, searchFacts, type FactHit, type SearchDeps, type TextHit } from "../search.js";
 
-const SOURCES = ["fact", "conversation", "history", "commit", "doc"] as const;
-type Source = (typeof SOURCES)[number];
+export const SOURCES = ["fact", "conversation", "history", "commit", "doc"] as const;
+export type Source = (typeof SOURCES)[number];
+
+/** "all" or a comma list of SOURCES; anything else comes back in `bad`. */
+export function parseSources(raw: string): { sources: Source[]; bad: string[] } {
+  const sources = raw === "all" ? [...SOURCES] : (raw.split(",").map((s) => s.trim()) as Source[]);
+  return { sources, bad: sources.filter((s) => !SOURCES.includes(s)) };
+}
 
 /**
- * The repos to read: repo_key, then the registered ones of also_repos (a comma list), plus also_repos that
- * aren't registered (null when also_repos wasn't sent). Without repo_key every repo is readable, so also_repos is ignored.
+ * The repos to read: repoKey, then the registered ones of alsoRepos, plus alsoRepos that
+ * aren't registered (null when alsoRepos wasn't sent). Without repoKey every repo is readable, so alsoRepos is ignored.
  */
-async function repoKeysOf(deps: SearchDeps, repoKey: string | undefined, alsoRepos: string | undefined) {
+async function repoKeysOf(deps: SearchDeps, repoKey: string | undefined, alsoRepos: string[] | undefined) {
   if (!repoKey) return { repoKeys: undefined, unknown: null };
   if (alsoRepos === undefined) return { repoKeys: [repoKey], unknown: null };
-  const { known, unknown } = await resolveAlsoRepos(deps.pool, repoKey, alsoRepos.split(","));
+  const { known, unknown } = await resolveAlsoRepos(deps.pool, repoKey, alsoRepos);
   return { repoKeys: [repoKey, ...known], unknown };
+}
+
+export interface RecallResult {
+  mode: "hybrid" | "keyword";
+  unknown_repos?: string[];
+  facts: FactHit[];
+}
+
+/** /v1/recall and MCP hive_recall: active facts, counted as used. ScopeError past MAX_ALSO_REPOS. */
+export async function recall(
+  deps: SearchDeps,
+  who: Instance,
+  opts: { q: string; repoKey?: string; alsoRepos?: string[]; k: number; minSimilarity?: number; changedPaths?: string[] },
+  log: FastifyBaseLogger,
+): Promise<RecallResult> {
+  const repos = await repoKeysOf(deps, opts.repoKey, opts.alsoRepos);
+  const qvec = await embedQuery(deps.embedder, opts.q);
+  const facts = await searchFacts(deps, who, {
+    q: opts.q, repoKeys: repos.repoKeys, k: opts.k, statuses: ["active"], qvec, minSimilarity: opts.minSimilarity, changedPaths: opts.changedPaths,
+  });
+  await recordUse(deps.pool, facts.map((f) => f.id), log);
+  return { mode: qvec ? "hybrid" : "keyword", ...(repos.unknown ? { unknown_repos: repos.unknown } : {}), facts };
+}
+
+export interface SearchResult extends RecallResult {
+  results: TextHit[];
+}
+
+/** /v1/search and MCP hive_search: facts plus text hits from the chosen sources. ScopeError past MAX_ALSO_REPOS. */
+export async function search(
+  deps: SearchDeps,
+  who: Instance,
+  opts: { q: string; sources: Source[]; repoKey?: string; alsoRepos?: string[]; k: number; includeCandidates?: boolean },
+): Promise<SearchResult> {
+  const { q, sources, k } = opts;
+  const repos = await repoKeysOf(deps, opts.repoKey, opts.alsoRepos);
+  const { repoKeys } = repos;
+  const qvec = await embedQuery(deps.embedder, q);
+  const statuses = opts.includeCandidates ? ["active", "candidate"] : ["active"];
+  const [facts, conversation, history, commit, doc] = await Promise.all([
+    sources.includes("fact") ? searchFacts(deps, who, { q, repoKeys, k, statuses, qvec }) : [],
+    sources.includes("conversation") ? searchEpisodes(deps, who, "conversation", { q, k, qvec }) : [],
+    sources.includes("history") ? searchEpisodes(deps, who, "history", { q, k, qvec }) : [],
+    sources.includes("commit") ? searchEpisodes(deps, who, "commit", { q, k, qvec, repoKeys }) : [],
+    sources.includes("doc") ? searchDocs(deps, { q, repoKeys, k, qvec }) : [],
+  ]);
+  const text: TextHit[] = [...conversation, ...history, ...commit, ...doc].sort((a, b) => b.score - a.score).slice(0, k);
+  return { mode: qvec ? "hybrid" : "keyword", ...(repos.unknown ? { unknown_repos: repos.unknown } : {}), facts, results: text };
 }
 
 /**
@@ -47,20 +102,15 @@ export function searchRoutes(app: FastifyInstance, deps: SearchDeps): void {
     },
     async (req, reply) => {
       const { q, repo_key, also_repos, k, min_sim, changed } = req.query;
-      let repos;
+      const changedPaths = changed ? changed.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 200) : undefined;
       try {
-        repos = await repoKeysOf(deps, repo_key, also_repos);
+        return await recall(deps, req.instance!, {
+          q, repoKey: repo_key, alsoRepos: also_repos?.split(","), k: k ?? 10, minSimilarity: min_sim, changedPaths,
+        }, req.log);
       } catch (err) {
         if (err instanceof ScopeError) return reply.code(400).send({ error: err.message });
         throw err;
       }
-      const qvec = await embedQuery(deps.embedder, q);
-      const changedPaths = changed ? changed.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 200) : undefined;
-      const facts = await searchFacts(deps, req.instance!, {
-        q, repoKeys: repos.repoKeys, k: k ?? 10, statuses: ["active"], qvec, minSimilarity: min_sim, changedPaths,
-      });
-      await recordUse(deps.pool, facts.map((f) => f.id), req.log);
-      return { mode: qvec ? "hybrid" : "keyword", ...(repos.unknown ? { unknown_repos: repos.unknown } : {}), facts };
     },
   );
 
@@ -84,32 +134,16 @@ export function searchRoutes(app: FastifyInstance, deps: SearchDeps): void {
     },
     async (req, reply) => {
       const { q, repo_key, also_repos, include_candidates } = req.query;
-      const k = req.query.k ?? 20;
-      const raw = req.query.source ?? "all";
-      const sources = raw === "all" ? [...SOURCES] : (raw.split(",").map((s) => s.trim()) as Source[]);
-      const bad = sources.filter((s) => !SOURCES.includes(s));
+      const { sources, bad } = parseSources(req.query.source ?? "all");
       if (bad.length) return reply.code(400).send({ error: `unknown source ${bad.join(",")}`, valid: ["all", ...SOURCES] });
-      let repos;
       try {
-        repos = await repoKeysOf(deps, repo_key, also_repos);
+        return await search(deps, req.instance!, {
+          q, sources, repoKey: repo_key, alsoRepos: also_repos?.split(","), k: req.query.k ?? 20, includeCandidates: include_candidates,
+        });
       } catch (err) {
         if (err instanceof ScopeError) return reply.code(400).send({ error: err.message });
         throw err;
       }
-      const { repoKeys } = repos;
-
-      const who = req.instance!;
-      const qvec = await embedQuery(deps.embedder, q);
-      const statuses = include_candidates ? ["active", "candidate"] : ["active"];
-      const [facts, conversation, history, commit, doc] = await Promise.all([
-        sources.includes("fact") ? searchFacts(deps, who, { q, repoKeys, k, statuses, qvec }) : [],
-        sources.includes("conversation") ? searchEpisodes(deps, who, "conversation", { q, k, qvec }) : [],
-        sources.includes("history") ? searchEpisodes(deps, who, "history", { q, k, qvec }) : [],
-        sources.includes("commit") ? searchEpisodes(deps, who, "commit", { q, k, qvec, repoKeys }) : [],
-        sources.includes("doc") ? searchDocs(deps, { q, repoKeys, k, qvec }) : [],
-      ]);
-      const text: TextHit[] = [...conversation, ...history, ...commit, ...doc].sort((a, b) => b.score - a.score).slice(0, k);
-      return { mode: qvec ? "hybrid" : "keyword", ...(repos.unknown ? { unknown_repos: repos.unknown } : {}), facts, results: text };
     },
   );
 }

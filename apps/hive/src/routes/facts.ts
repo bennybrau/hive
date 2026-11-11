@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type pg from "pg";
+import type { Instance } from "../auth.js";
 import {
   ConflictError,
   createFact,
@@ -34,7 +35,7 @@ const anchorSchema = {
 /** List, detail and the stale list also show how much a fact is used and whether it's pinned; other responses keep FACT_COLUMNS. */
 const FACT_USE_COLUMNS = `${FACT_COLUMNS}, use_count, cite_count, last_used_at, pinned`;
 
-interface CreateBody {
+export interface CreateBody {
   text: string;
   kind: (typeof FACT_KINDS)[number];
   scope: string;
@@ -42,6 +43,21 @@ interface CreateBody {
   locus?: string[];
   anchors?: Record<string, unknown>[];
   supersedes?: string;
+}
+
+/**
+ * POST /v1/facts and MCP hive_remember: an authored fact; its status follows initialStatus (a member's shared fact is a candidate).
+ * ScopeError for a scope the caller can't write, SupersedeError for a bad supersedes.
+ */
+export async function remember(pool: pg.Pool, who: Instance, b: CreateBody, onWrite: () => void): Promise<{ fact: Fact; deduped: boolean }> {
+  const scope = resolveScope(b.scope, who, b.repo_key);
+  const res = await createFact(
+    pool,
+    { text: b.text, kind: b.kind, scope, origin: "authored", locus: b.locus, anchors: b.anchors, supersedes: b.supersedes },
+    who,
+  );
+  if (!res.deduped) onWrite();
+  return res;
 }
 
 export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => void, staleDays: number): void {
@@ -69,25 +85,11 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
       },
     },
     async (req, reply) => {
-      const who = req.instance!;
-      let scope: string;
       try {
-        scope = resolveScope(req.body.scope, who, req.body.repo_key);
-      } catch (err) {
-        if (err instanceof ScopeError) return reply.code(400).send({ error: err.message });
-        throw err;
-      }
-      const b = req.body;
-      try {
-        const { fact, deduped } = await createFact(
-          pool,
-          { text: b.text, kind: b.kind, scope, origin: "authored", locus: b.locus, anchors: b.anchors, supersedes: b.supersedes },
-          who,
-        );
-        if (!deduped) onWrite();
+        const { fact, deduped } = await remember(pool, req.instance!, req.body, onWrite);
         return reply.code(deduped ? 200 : 201).send({ fact, deduped });
       } catch (err) {
-        if (err instanceof SupersedeError) return reply.code(400).send({ error: err.message });
+        if (err instanceof ScopeError || err instanceof SupersedeError) return reply.code(400).send({ error: err.message });
         throw err;
       }
     },

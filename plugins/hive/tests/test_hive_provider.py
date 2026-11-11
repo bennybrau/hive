@@ -168,6 +168,9 @@ def test_unavailable_without_env(monkeypatch):
     ("ssh://git@github.com/bennybrau/hive.git", "gh/bennybrau/hive"),
     ("https://gitlab.example.com/team/sub/repo.git", "gitlab.example.com/team/sub/repo"),
     ("", ""),
+    ("git@gitlab.com:team/sub/repo.git", "gitlab.com/team/sub/repo"),
+    ("https://GitHub.com/bennybrau/hive.git", "gh/bennybrau/hive"),
+    ("git@GitLab.Example.com:team/repo.git", "gitlab.example.com/team/repo"),
 ])
 def test_repo_key_from_remote(url, key):
     assert hive.repo_key_from_remote(url) == key

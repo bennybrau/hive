@@ -1,6 +1,6 @@
 # Hive HTTP API (as built)
 
-All `/v1/*` endpoints need `Authorization: Bearer <HIVE_TOKEN>`. JSON in, JSON out.
+All `/v1/*` endpoints and `/mcp` need `Authorization: Bearer <HIVE_TOKEN>`. JSON in, JSON out.
 Who you are (instance, user, role) always comes from the token, never from the body.
 
 Roles (`mint-token --role`): `member` (default), `curator`, and `worker`, the fact-agent container. A worker token
@@ -365,6 +365,29 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
     `repo_key` and the answer gets `unknown_repos: [...]` (keys that aren't registered, so weren't read).
   - Each fact in the answer's `gotchas` and `facts` (after the budget) gets `use_count + 1` and `last_used_at = now()`,
     like `/v1/recall`.
+
+## MCP (`/mcp`, for Claude Code and other MCP clients)
+
+- `POST /mcp` — [MCP](https://modelcontextprotocol.io) over streamable HTTP, stateless: every request stands alone
+  (no `Mcp-Session-Id`, no SSE stream; answers are JSON). Same `Authorization: Bearer <HIVE_TOKEN>` and roles as `/v1`:
+  401 without a valid token, 403 for a worker token. `GET` and `DELETE /mcp` are 405. Set up: [CLAUDE_CODE.md](CLAUDE_CODE.md).
+- The server's instructions tell the model to call `hive_brief` once at the start of a task in a repository and
+  `hive_recall` before re-deriving something the team may already know.
+- The tools call the same code as the `/v1` routes, so scopes, the status rule and use counts are the same. Answers are
+  compact text in the plugin's format: one line per fact, `- [hive:<id8>] text (scope, kind)` (`personal` for your own
+  personal facts), and the descriptions tell the model to cite the tag.
+- Repository: the server can't see the caller's checkout, so tools take `remote_url` (`git remote get-url origin`),
+  turned into a repo key with the plugin's rule (`git@github.com:o/r.git` → `gh/o/r`, other hosts → `<host>/<path>`), or
+  `repo_key`, which wins when both are sent. An unparseable `remote_url`, a repo that isn't registered, or an
+  `also_repos` entry that isn't registered is a `Note:` line in the answer, not an error.
+
+| Tool | Arguments | Same as |
+|---|---|---|
+| `hive_brief` | `task`, `remote_url` \| `repo_key`, `also_repos?` (≤3) | `POST /v1/brief` with `budget_tokens` 600, no `changed_paths`. No repo → `isError`. |
+| `hive_recall` | `q`, `remote_url?` \| `repo_key?`, `also_repos?`, `k?` (10, ≤50) | `GET /v1/recall`. No repo → every repo. |
+| `hive_search` | `q`, `remote_url?` \| `repo_key?`, `also_repos?`, `source?` (all), `k?` (10, ≤100) | `GET /v1/search`: with a repo, facts, docs and commits of that repo plus `also_repos`; no repo → every repo. |
+| `hive_remember` | `text`, `kind`, `scope` (repo\|global\|personal), `remote_url?` \| `repo_key?` | `POST /v1/facts`: a member's repo/global fact is a candidate until a curator approves it; personal is active at once. Answers the id8, status and a note. `scope=repo` without a repo → `isError`. |
+| `hive_status` | none | `GET /v1/status`. |
 
 ## Repos (ingest + verify)
 

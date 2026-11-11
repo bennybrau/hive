@@ -6,6 +6,7 @@ import { bearerAuth, confineWorker } from "./auth.js";
 import { DistillNotifier } from "./distill.js";
 import type { Embedder } from "./embed.js";
 import type { EmbedWorker } from "./jobs/embed.js";
+import { mcpRoutes } from "./mcp.js";
 import { briefRoutes } from "./routes/brief.js";
 import { episodeRoutes } from "./routes/episodes.js";
 import { factRoutes } from "./routes/facts.js";
@@ -59,11 +60,13 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
   const notifier = opts.distillNotifier ?? new DistillNotifier();
 
   healthRoutes(app, pool, opts.version);
+  const statusOpts = { version: opts.version, embedModel: embedder?.model ?? null, worker };
+  const searchDeps = { pool, embedder, minSimilarity: opts.minSimilarity ?? 0.55 };
   // Everything under /v1 requires a bearer token.
   app.register(async (v1) => {
     v1.addHook("onRequest", bearerAuth(pool));
     v1.addHook("onRequest", confineWorker);
-    statusRoutes(v1, pool, { version: opts.version, embedModel: embedder?.model ?? null, worker });
+    statusRoutes(v1, pool, statusOpts);
     factRoutes(v1, pool, onWrite, opts.staleDays ?? 60);
     episodeRoutes(v1, pool, () => {
       onWrite();
@@ -84,9 +87,15 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
       leaseSeconds: opts.distillLeaseSeconds ?? 600,
       onWrite,
     });
-    searchRoutes(v1, { pool, embedder, minSimilarity: opts.minSimilarity ?? 0.55 });
-    briefRoutes(v1, { pool, embedder, minSimilarity: opts.minSimilarity ?? 0.55 });
+    searchRoutes(v1, searchDeps);
+    briefRoutes(v1, searchDeps);
     if (opts.repos) repoRoutes(v1, pool, opts.repos);
+  });
+  // MCP for Claude Code and other MCP clients: the same tokens and roles; a worker token gets 403.
+  app.register(async (mcp) => {
+    mcp.addHook("onRequest", bearerAuth(pool));
+    mcp.addHook("onRequest", confineWorker);
+    mcpRoutes(mcp, { search: searchDeps, onWrite, status: statusOpts });
   });
 
   const dashboard = opts.dashboardDir && existsSync(opts.dashboardDir) ? opts.dashboardDir : null;
