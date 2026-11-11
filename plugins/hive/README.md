@@ -46,6 +46,8 @@ Subagents, cron jobs and memory flushes read but never write.
 The repo comes from `git remote get-url origin` in the session's directory (`github.com/o/r` → `gh/o/r`);
 `hive_remember` defaults to that repo's scope, or `global` outside a repo. Shared facts from members are
 **candidates** until the curator approves them; personal facts are only ever visible to you.
+`scope=team` writes into your team (pass `team: <key>` if you're in more than one). Facts are labelled by level:
+`personal`, `repo`, `team: <name> (your team|other team)` or `organisation`.
 
 Review flow: the plugin asks `GET /v1/status` once (again later only if that call failed) and offers `hive_review` only when the token's
 role is `curator` (if the hive can't be reached, the tool isn't offered; the server refuses non-curators anyway).

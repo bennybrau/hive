@@ -13,6 +13,7 @@ import { parseSources, recall, search, SOURCES, type SearchResult } from "./rout
 import { status, type StatusOpts } from "./routes/status.js";
 import { MAX_ALSO_REPOS, ScopeError } from "./scope.js";
 import type { SearchDeps, TextHit } from "./search.js";
+import { TEAM_KEY_PATTERN, type Level } from "./teams.js";
 
 export interface McpDeps {
   search: SearchDeps;
@@ -41,9 +42,29 @@ const alsoRepos = z
   .optional()
   .describe(`Up to ${MAX_ALSO_REPOS} other repo keys (e.g. gh/owner/name) to read too, when the task spans repos.`);
 
-/** One fact as the plugin shows it: `- [hive:<id8>] text (scope, kind[, note])`, personal scopes just "personal". */
-export function factLine(f: { id: string; text: string; kind: string; scope: string; verify?: string | null }): string {
-  const label = f.scope.startsWith("personal:") ? "personal" : f.scope;
+interface Labelled {
+  scope: string;
+  level?: Level;
+  team_name?: string;
+  own_team?: boolean;
+}
+
+/**
+ * The plugin's _level_label: personal, repo, organisation or `team: <name> (your team|other team)`.
+ * Without a level it is worked out from the scope; a team is then named by its key.
+ */
+export function levelLabel(f: Labelled): string {
+  const level =
+    f.level ??
+    (f.scope.startsWith("personal:") ? "personal" : f.scope.startsWith("repo:") ? "repository" : f.scope.startsWith("team:") ? "team" : "organisation");
+  if (level === "repository") return "repo";
+  if (level !== "team") return level;
+  return `team: ${f.team_name ?? f.scope.slice(5)} (${f.own_team ? "your team" : "other team"})`;
+}
+
+/** One fact as the plugin shows it: `- [hive:<id8>] text (level, kind[, note])`. */
+export function factLine(f: Labelled & { id: string; text: string; kind: string; verify?: string | null }): string {
+  const label = levelLabel(f);
   const note = ({ drifted: ", source changed since", missing: ", source gone" } as Record<string, string>)[f.verify ?? ""] ?? "";
   return `- [hive:${f.id.slice(0, 8)}] ${f.text.trim()} (${label}, ${f.kind}${note})`;
 }
@@ -202,12 +223,20 @@ function buildServer(deps: McpDeps, who: Instance, log: FastifyBaseLogger): McpS
       description:
         "Save a durable fact to the team's shared memory. Only for things still true and useful weeks from now that aren't " +
         "obvious from the code or README: decisions and why, invariants, gotchas, ownership, conventions. Not for task " +
-        "progress or to-dos. Shared facts (repo/global) from non-curators wait for curator review; personal facts are " +
+        "progress or to-dos. Shared facts (repo/global/team) from non-curators wait for curator review; personal facts are " +
         "visible only to this user.",
       inputSchema: {
         text: z.string().min(3).max(2000).describe("One self-contained statement."),
         kind: z.enum(FACT_KINDS),
-        scope: z.enum(["repo", "global", "personal"]).describe("repo = this repository; global = applies everywhere; personal = only you."),
+        scope: z
+          .enum(["repo", "global", "personal", "team"])
+          .describe("repo = this repository; global = applies everywhere; team = your team; personal = only you."),
+        team: z
+          .string()
+          .max(64)
+          .regex(new RegExp(TEAM_KEY_PATTERN))
+          .optional()
+          .describe("Team key, for scope=team; needed when you're in more than one team."),
         ...repoArgs,
       },
     },
@@ -217,7 +246,7 @@ function buildServer(deps: McpDeps, who: Instance, log: FastifyBaseLogger): McpS
         if (args.scope === "repo" && !repoKey) {
           return text([...notes, "scope=repo needs the repository: pass remote_url or repo_key, or use scope=global."], true);
         }
-        const { fact, deduped } = await remember(deps.search.pool, who, { text: args.text, kind: args.kind, scope: args.scope, repo_key: repoKey }, deps.onWrite);
+        const { fact, deduped } = await remember(deps.search.pool, who, { text: args.text, kind: args.kind, scope: args.scope, repo_key: repoKey, team: args.team }, deps.onWrite);
         const note = deduped
           ? `already known (${fact.status}); nothing new saved`
           : fact.status === "candidate"
@@ -225,7 +254,7 @@ function buildServer(deps: McpDeps, who: Instance, log: FastifyBaseLogger): McpS
             : fact.status === "active"
               ? "saved and active"
               : fact.status;
-        return text([...notes, `[hive:${fact.id.slice(0, 8)}] status ${fact.status}, ${fact.scope.startsWith("personal:") ? "personal" : fact.scope}: ${note}`]);
+        return text([...notes, `[hive:${fact.id.slice(0, 8)}] status ${fact.status}, ${levelLabel({ scope: fact.scope, own_team: true })}: ${note}`]);
       }),
   );
 

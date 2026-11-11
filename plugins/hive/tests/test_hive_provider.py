@@ -228,8 +228,8 @@ def test_prefetch_and_recall_send_changed_files_so_located_facts_rank_higher(mon
 def test_prefetch_flags_facts_whose_source_changed(monkeypatch, fake):
     fake.facts = [{**F1, "verify": "drifted"}, {**F2, "verify": "missing"}, {**F3, "verify": "verified"}]
     block = _provider(monkeypatch, fake.url).prefetch("q")
-    assert "Use vitest, never jest. (global, convention, source changed since)" in block
-    assert "Deploys go to Cloud Run. (repo:gh/acme/api, system, source gone)" in block
+    assert "Use vitest, never jest. (organisation, convention, source changed since)" in block
+    assert "Deploys go to Cloud Run. (repo, system, source gone)" in block
     assert "Jon prefers tabs. (personal, preference)" in block
 
 def test_prefetch_sends_gate_and_repo_and_formats_a_short_cited_block(monkeypatch, fake):
@@ -241,7 +241,7 @@ def test_prefetch_sends_gate_and_repo_and_formats_a_short_cited_block(monkeypatc
     assert float(req["min_sim"]) == hive.DEFAULT_PREFETCH_MIN_SIM
     assert int(req["k"]) == hive.DEFAULT_PREFETCH_K
     assert block.splitlines()[0].startswith("## Hive")
-    assert "- [hive:11111111] Use vitest, never jest. (global, convention)" in block
+    assert "- [hive:11111111] Use vitest, never jest. (organisation, convention)" in block
     assert "(personal, preference)" in block  # personal scope shown without the user id
     assert p.recall_status().count == 3
 
@@ -329,9 +329,9 @@ def test_first_turn_in_a_repo_injects_the_brief_instead_of_recall(monkeypatch, f
     assert block.splitlines() == [
         "## Hive brief for this task (shared team memory) - cite a fact you use as [hive:<id>]",
         "Gotchas:",
-        "- [hive:77777777] Never edit a shipped migration. (repo:gh/acme/api, gotcha)",
+        "- [hive:77777777] Never edit a shipped migration. (repo, gotcha)",
         "Facts:",
-        "- [hive:11111111] Use vitest, never jest. (global, convention)",
+        "- [hive:11111111] Use vitest, never jest. (organisation, convention)",
         "Where to look: docs/deploy.md:10-24, src/db.ts",
         "Past runs:",
         "- Add retries to the db pool (https://github.com/acme/api/pull/7)",
@@ -371,7 +371,7 @@ def test_format_brief_renders_the_playbook_before_gotchas():
         "Pitfalls:",
         "- Editing a shipped migration. [hive:77777777]",
         "Gotchas:",
-        "- [hive:77777777] Never edit a shipped migration. (repo:gh/acme/api, gotcha)",
+        "- [hive:77777777] Never edit a shipped migration. (repo, gotcha)",
     ]
 
 
@@ -729,6 +729,74 @@ def test_remember_surfaces_server_validation_errors(monkeypatch, fake):
     assert out == {"ok": False, "status": 400, "error": "body/kind must be equal to one of the allowed values"}
 
 
+def test_remember_team_scope_sends_the_team_and_labels_the_result(monkeypatch, fake):
+    fake.overrides["/v1/facts"] = (201, {"fact": {"id": "44444444-aaaa-bbbb-cccc-000000000004", "status": "candidate",
+                                                  "scope": "team:payments"}, "deduped": False})
+    p = _provider(monkeypatch, fake.url)
+    out = call(p, "hive_remember", text="Refunds go through the ledger.", kind="decision", scope="team", team="payments")
+    assert fake.last("/v1/facts")[0]["body"] == {"text": "Refunds go through the ledger.", "kind": "decision",
+                                                 "scope": "team", "team": "payments"}
+    assert out["scope"] == "team:payments" and out["level"] == "team"
+    assert out["team"] == "payments" and out["own_team"] is True
+    call(p, "hive_remember", text="Refunds go through the ledger.", kind="decision", scope="team")
+    assert "team" not in fake.last("/v1/facts")[1]["body"]
+
+
+def test_remember_sends_a_team_with_another_scope_so_the_server_refuses_it(monkeypatch, fake):
+    fake.overrides["/v1/facts"] = (400, {"error": 'team only goes with scope "team" or "team:<key>", not "global"'})
+    p = _provider(monkeypatch, fake.url)
+    out = call(p, "hive_remember", text="x is y", kind="system", scope="global", team="payments")
+    assert fake.last("/v1/facts")[0]["body"]["team"] == "payments"
+    assert out["ok"] is False and out["status"] == 400 and "team only goes with" in out["error"]
+
+
+def test_remember_into_another_team_comes_back_as_not_ok(monkeypatch, fake):
+    fake.overrides["/v1/facts"] = (403, {"error": "you are not in team payments"})
+    p = _provider(monkeypatch, fake.url)
+    out = call(p, "hive_remember", text="x is y", kind="system", scope="team", team="payments")
+    assert out == {"ok": False, "status": 403, "error": "you are not in team payments"}
+
+
+def test_remember_result_has_the_level_of_a_non_team_scope(monkeypatch, fake):
+    p = _provider(monkeypatch, fake.url)
+    out = call(p, "hive_remember", text="x is y", kind="system", scope="global")
+    assert out["level"] == "organisation" and "team" not in out and "own_team" not in out
+
+
+@pytest.mark.parametrize("fact,label", [
+    ({"scope": "personal:jon", "level": "personal"}, "personal"),
+    ({"scope": "repo:gh/acme/api", "level": "repository"}, "repo"),
+    ({"scope": "global", "level": "organisation"}, "organisation"),
+    ({"scope": "team:payments", "level": "team", "team": "payments", "team_name": "Payments", "own_team": True},
+     "team: Payments (your team)"),
+    ({"scope": "team:payments", "level": "team", "team": "payments", "team_name": "Payments", "own_team": False},
+     "team: Payments (other team)"),
+    # No level (an older Hive): worked out from the scope; a team is named by its key.
+    ({"scope": "personal:jon"}, "personal"),
+    ({"scope": "repo:gh/acme/api"}, "repo"),
+    ({"scope": "team:payments"}, "team: payments (other team)"),
+    ({"scope": "global"}, "organisation"),
+])
+def test_level_label(fact, label):
+    assert hive._level_label(fact) == label
+
+
+def test_prefetch_shows_team_levels(monkeypatch, fake):
+    team = {"id": "55555555-aaaa-bbbb-cccc-000000000005", "text": "Refunds go through the ledger.", "kind": "decision",
+            "scope": "team:payments", "status": "active", "similarity": 0.9, "level": "team", "team": "payments",
+            "team_name": "Payments", "own_team": True}
+    fake.facts = [team, {**F1, "level": "organisation"}]
+    block = _provider(monkeypatch, fake.url).prefetch("refunds?")
+    assert "Refunds go through the ledger. (team: Payments (your team), decision)" in block
+    assert "Use vitest, never jest. (organisation, convention)" in block
+
+
+def test_slim_fact_keeps_the_level_fields():
+    f = {"id": "x", "text": "t", "kind": "decision", "scope": "team:payments", "status": "active", "level": "team",
+         "team": "payments", "team_name": "Payments", "own_team": False, "anchors": 2}
+    assert hive._slim_fact(f) == {k: v for k, v in f.items() if k != "anchors"}
+
+
 def test_retract_needs_a_full_id(monkeypatch, fake):
     p = _provider(monkeypatch, fake.url)
     assert not call(p, "hive_retract", id="11111111", reason="wrong")["ok"]
@@ -751,7 +819,7 @@ def test_remember_passes_supersedes_and_rejects_a_short_id(monkeypatch, fake):
 def test_a_superseding_fact_is_one_prefetch_line(monkeypatch, fake):
     fake.facts = [{**F1, "supersedes": F2["id"]}]
     block = _provider(monkeypatch, fake.url).prefetch("tests?")
-    assert block.splitlines()[1:] == ["- [hive:11111111] Use vitest, never jest. (global, convention)"]
+    assert block.splitlines()[1:] == ["- [hive:11111111] Use vitest, never jest. (organisation, convention)"]
 
 
 # --- review (curator only) ------------------------------------------------------------

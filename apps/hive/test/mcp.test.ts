@@ -171,7 +171,7 @@ describe("hive_brief", () => {
     const { text, isError } = await call(alice.token, "hive_brief", { task: TASK, remote_url: "git@github.com:acme/proj.git" });
     expect(isError).toBe(false);
     expect(text).toContain("## Hive brief for this task");
-    expect(text).toContain(`[hive:${factA.id.slice(0, 8)}] Invoice billing totals are rounded half-even (repo:${A}, convention)`);
+    expect(text).toContain(`[hive:${factA.id.slice(0, 8)}] Invoice billing totals are rounded half-even (repo, convention)`);
     expect(text).toContain("docs/money.md");
     expect(await useCount(factA.id)).toBe(1);
   });
@@ -318,6 +318,40 @@ describe("hive_remember", () => {
   it("scope=repo needs a repo", async () => {
     const res = await call(alice.token, "hive_remember", { text: "Something about this repo", kind: "decision", scope: "repo" });
     expect(res.isError).toBe(true);
+  });
+});
+
+describe("team facts", () => {
+  beforeEach(async () => {
+    await pool.query("insert into teams (key, name) values ('a', 'Team A'), ('b', 'Team B') on conflict (key) do nothing");
+    await pool.query(
+      "insert into team_members (team_key, user_id, role) values ('a', 'alice', 'member'), ('b', 'bob', 'member') on conflict do nothing",
+    );
+  });
+
+  it("a member writes into their team; a non-member gets an error", async () => {
+    const res = await call(alice.token, "hive_remember", {
+      text: "Refunds always go through the ledger service", kind: "decision", scope: "team", team: "a",
+    });
+    expect(res.isError, res.text).toBe(false);
+    expect(res.text).toContain("status candidate, team: a (your team)");
+    const { rows } = await pool.query("select scope from facts where id::text like $1", [`${tags(res.text)[0]}%`]);
+    expect(rows[0]).toEqual({ scope: "team:a" });
+
+    const not = await call(alice.token, "hive_remember", { text: "Something about team B", kind: "decision", scope: "team", team: "b" });
+    expect(not).toEqual({ text: "you are not in team b", isError: true });
+    const none = await call(alice.token, "hive_remember", { text: "Something about team C", kind: "decision", scope: "team", team: "zz" });
+    expect(none).toEqual({ text: 'no such team "zz"', isError: true });
+  });
+
+  it("recall labels the caller's own team and other teams", async () => {
+    const ownTeam = await fact({ scope: "team:a", text: "Team A rounds billing invoice totals per line" });
+    const otherTeam = await fact({ scope: "team:b", text: "Team B rounds billing invoice totals at the end" });
+    await runEmbedPass(pool, new FakeEmbedder());
+    const { text } = await call(alice.token, "hive_recall", { q: "billing invoice rounding", repo_key: A, k: 20 });
+    expect(text).toContain(`[hive:${ownTeam.id.slice(0, 8)}] Team A rounds billing invoice totals per line (team: Team A (your team), convention)`);
+    expect(text).toContain(`[hive:${otherTeam.id.slice(0, 8)}] Team B rounds billing invoice totals at the end (team: Team B (other team), convention)`);
+    expect(text).toContain("Billing invoice rounding is documented in money docs (organisation, convention)");
   });
 });
 

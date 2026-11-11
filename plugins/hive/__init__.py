@@ -247,9 +247,29 @@ def format_facts(facts: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _scope_level(scope: str) -> str:
+    if scope.startswith("personal:"):
+        return "personal"
+    if scope.startswith("repo:"):
+        return "repository"
+    return "team" if scope.startswith("team:") else "organisation"
+
+
+def _level_label(f: dict[str, Any]) -> str:
+    """personal, repo, organisation or `team: <name> (your team|other team)`. Without a level it is worked
+    out from the scope; a team is then named by its key."""
+    scope = str(f.get("scope") or "")
+    level = f.get("level") or _scope_level(scope)
+    if level == "repository":
+        return "repo"
+    if level != "team":
+        return str(level)
+    name = f.get("team_name") or f.get("team") or scope[5:]
+    return f"team: {name} ({'your team' if f.get('own_team') else 'other team'})"
+
+
 def _fact_line(f: dict[str, Any]) -> str:
-    scope = f.get("scope", "")
-    label = "personal" if scope.startswith("personal:") else scope
+    label = _level_label(f)
     note = {"drifted": ", source changed since", "missing": ", source gone"}.get(str(f.get("verify") or ""), "")
     return f"- [hive:{str(f.get('id', ''))[:8]}] {f.get('text', '').strip()} ({label}, {f.get('kind', '')}{note})"
 
@@ -363,15 +383,17 @@ _SCHEMAS = [
         "name": "hive_remember",
         "description": "Save a durable fact to the team's shared memory. Only for things still true and useful "
                        "weeks from now that aren't obvious from the code or README: decisions and why, invariants, "
-                       "gotchas, ownership, conventions. Not for task progress or to-dos. Shared facts (global/repo) "
+                       "gotchas, ownership, conventions. Not for task progress or to-dos. Shared facts (global/repo/team) "
                        "from non-curators wait for curator review; personal facts are visible only to this user.",
         "parameters": {
             "type": "object",
             "properties": {
                 "text": {"type": "string", "description": "One self-contained statement."},
                 "kind": {"type": "string", "enum": FACT_KINDS},
-                "scope": {"type": "string", "enum": ["repo", "global", "personal"],
-                          "description": "repo = this repository (default when in one); global = applies everywhere; personal = only you."},
+                "scope": {"type": "string", "enum": ["repo", "global", "personal", "team"],
+                          "description": "repo = this repository (default when in one); global = applies everywhere; "
+                                         "team = your team; personal = only you."},
+                "team": {"type": "string", "description": "Team key, for scope=team; needed when you're in more than one team."},
                 "repo_key": {"type": "string", "description": "Override the detected repo for scope=repo."},
                 "path": {"type": "string", "description": "Source file this fact is about (provenance)."},
                 "quote": {"type": "string", "description": "Exact text from that file or conversation that supports it."},
@@ -717,6 +739,8 @@ class HiveMemoryProvider(MemoryProvider):
             if not repo_key:
                 return {"ok": False, "error": "scope=repo but no repository detected; pass repo_key or use scope=global"}
             body["repo_key"] = repo_key
+        if args.get("team"):
+            body["team"] = args["team"]  # with another scope the server answers 400
         if args.get("path") or args.get("quote"):
             anchor = {k: args[k] for k in ("path", "quote") if args.get(k)}
             if repo_key:
@@ -737,7 +761,12 @@ class HiveMemoryProvider(MemoryProvider):
                 "active": "saved and active"}.get(fact.get("status", ""), fact.get("status", ""))
         if res.get("deduped"):
             note = f"already known ({fact.get('status')}); nothing new saved"
-        return {"ok": True, "id": fact.get("id"), "status": fact.get("status"), "scope": fact.get("scope"), "note": note}
+        scope = str(fact.get("scope") or "")
+        out = {"ok": True, "id": fact.get("id"), "status": fact.get("status"), "scope": scope,
+               "level": _scope_level(scope), "note": note}
+        if scope.startswith("team:"):
+            out.update(team=scope[5:], own_team=True)  # POST doesn't label the fact; only members write a team
+        return out
 
     def _tool_retract(self, args: dict[str, Any]) -> dict[str, Any]:
         fid = str(args.get("id", "")).strip()
@@ -782,7 +811,8 @@ class HiveMemoryProvider(MemoryProvider):
 
 def _slim_fact(f: dict[str, Any]) -> dict[str, Any]:
     """What the model needs from a fact, nothing more (tool output is tokens too)."""
-    return {k: f.get(k) for k in ("id", "text", "kind", "scope", "status", "similarity", "verify", "near_changes")
+    return {k: f.get(k) for k in ("id", "text", "kind", "scope", "level", "team", "team_name", "own_team", "status",
+                                       "similarity", "verify", "near_changes")
             if f.get(k) is not None}
 
 
