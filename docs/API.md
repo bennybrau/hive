@@ -14,13 +14,17 @@ may only use `/v1/worker/*` and `/v1/status`; every other `/v1` call is a 403
 
 ## Facts
 
-- `POST /v1/facts` — remember. Body `{text, kind, scope, repo_key?, locus?, anchors?, supersedes?}`.
+- `POST /v1/facts` — remember. Body `{text, kind, scope, repo_key?, team?, locus?, anchors?, supersedes?}`.
   - `kind`: `decision | invariant | gotcha | preference | convention | system`
-  - `scope`: `global`, `personal` (→ `personal:<your user>`), `repo` (needs `repo_key`), or `repo:<key>`.
-    Writing to someone else's `personal:*` is a 400.
+  - `scope`: `global`, `personal` (→ `personal:<your user>`), `repo` (needs `repo_key`), `repo:<key>`, `team` or
+    `team:<key>`. Writing to someone else's `personal:*` is a 400.
+  - `team` (a team key, with `scope: "team"`) says which team; without it, `team` means the one team you are a member
+    or reviewer of (a team that only lists your repo doesn't count), and none or several is a 400. A `team` that
+    differs from `team:<key>`, or `team` with a scope that isn't a team scope, is a 400. An unknown team is a 404.
+    Only the team's members and reviewers, and any curator, may write into it (403 otherwise).
   - `anchors[]`: `{path, line_start, line_end, quote, commit_sha, repo_key, episode_id}` — provenance; checked by `verify` in M3.
   - Status on create: personal → `active`; shared by a curator → `active` (logged as a self-approve review);
-    shared by a member → `candidate`.
+    shared by a member → `candidate`. A team scope is shared: a team member's or team reviewer's fact is a `candidate`.
   - Same text (case/whitespace-insensitive) in the same scope → `200 {deduped: true}` with the existing fact. New → `201`.
   - `supersedes`: id of the fact this one replaces. It must exist, be readable, `active`, and in the same scope
     (400 otherwise). When the new fact is (or later becomes, on review) `active`, the old one becomes
@@ -35,6 +39,11 @@ may only use `/v1/worker/*` and `/v1/status`; every other `/v1` call is a 403
 - The list and the detail's `fact` also carry `use_count` (times a brief or recall returned it), `cite_count` (turns
   whose answer cited it; see Episodes) and `last_used_at` (the latest of either; null if never), plus `pinned` and
   `stale` (below). Other responses that return a fact don't.
+- Levels: the list, the detail's `fact`, and the facts of `/v1/recall`, `/v1/search` and `/v1/brief` (`facts` and
+  `gotchas`) carry `level`: `personal`, `repository` (`repo:*`), `team` (`team:*`) or `organisation` (`global`). A
+  team fact also carries `team` (its key), `team_name`, and `own_team`: true when the team is one of yours, i.e. you
+  are in it, or it lists the call's `repo_key` (`repo_key` of the list; the detail has none). Labels don't change
+  what is returned or its order.
 - `POST /v1/facts/:id/retract` `{reason}` — author or curator only (403 otherwise). Kept as history.
 
 ### Stale facts (curator only; members get 403)
@@ -64,7 +73,7 @@ answer that cited this fact (see Episodes and Worker): `text` is what they said 
 flag wins. It is listed in the review queue's `flagged` until curated with `keep`, `fix` or `retire`.
 
 Readable scopes for every call: `global`, all `repo:*` (or only `repo:<repo_key>` when given, plus the registered `also_repos`
-where a call takes them), and
+where a call takes them), every `team:*` (whatever your teams, `repo_key` or not), and
 your own `personal:<user>`. Other users' personal facts are never returned.
 
 ## Review (curator only; members get 403)
@@ -111,7 +120,7 @@ A playbook is a short procedure for a class of task: when it applies, its steps 
 - `GET /v1/playbooks?scope=` → `{playbooks}`: active ones, newest first (`scope` as stored, e.g. `repo:<key>`).
 - `GET /v1/playbooks/:id` → `{playbook}`, whatever its status. 404 no such playbook.
 - `POST /v1/playbooks` `{scope, repo_key?, title, applies_paths?, applies_words?, steps?, pitfalls?}` → 201 `{playbook}`.
-  `scope` is `global`, `repo` (with `repo_key`) or `repo:<key>`; `personal` → 400. `title` ≤ 200 chars; ≤ 20 globs,
+  `scope` is `global`, `repo` (with `repo_key`) or `repo:<key>`; `personal`, `team` or `team:<key>` → 400. `title` ≤ 200 chars; ≤ 20 globs,
   words, steps and pitfalls; each text ≤ 1000 chars. Globs: `**` = any folders, `*` = any characters except `/`,
   `?` = one character except `/`. Every `fact_ids` entry must be an existing fact, else 400 listing the unknown ids.
 - `PUT /v1/playbooks/:id` (same fields, all optional) → `{playbook}`: a new active version with `supersedes` = the old
@@ -122,7 +131,7 @@ A playbook is a short procedure for a class of task: when it applies, its steps 
 ## Teams
 
 A team is a group of people (each a `member` or a `reviewer`) and the repos it works on. Facts and playbooks may be
-stored in `team:<key>` scope (nothing writes there yet). Teams are an order of preference, not a wall: any token can
+stored in `team:<key>` scope (facts written with `POST /v1/facts`; playbooks can't be yet, 400). Teams are an order of preference, not a wall: any token can
 read any team's facts. Everyone can list teams; only a curator changes them (members get 403).
 A team is `{key, name, created_at, members: [{user_id, role}], repos: [repo_key]}`, members and repos sorted.
 
@@ -151,6 +160,7 @@ A team is `{key, name, created_at, members: [{user_id, role}], repos: [repo_key]
       by_status: {active: 12, candidate: 3, ...},  // all facts, not just the window
       by_origin: {authored: 9, distilled: 6, ...},
       by_scope:  {global: 4, "repo:<key>": 8, personal: 3},  // every personal:<user> folds into "personal"
+      by_team:   {billing: 5, platform: 0},        // facts in team:<key>, every team (none yet: 0)
       per_day:   [{day, count}]                    // facts recorded in the window
     },
     cost:        [{day, job, calls, input_tokens, output_tokens, cost_usd}],  // llm_calls per day and job

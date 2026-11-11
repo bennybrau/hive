@@ -35,11 +35,12 @@ function curatorOnly(req: FastifyRequest, reply: FastifyReply): boolean {
   return false;
 }
 
-/** Playbooks live in shared scopes only: global or repo:<key>. */
-function sharedScope(req: FastifyRequest, scope: string, repoKey?: string): string {
+/** Playbooks live in shared scopes only: global or repo:<key> (not team scopes, yet). */
+async function sharedScope(pool: pg.Pool, req: FastifyRequest, scope: string, repoKey?: string): Promise<string> {
+  if (scope === "team" || scope.startsWith("team:")) throw new PlaybookError(400, "a playbook can't be in a team scope (use global or repo)");
   let resolved: string;
   try {
-    resolved = resolveScope(scope, req.instance!, repoKey);
+    resolved = await resolveScope(pool, scope, req.instance!, { repoKey });
   } catch (err) {
     if (err instanceof ScopeError) throw new PlaybookError(400, err.message);
     throw err;
@@ -78,7 +79,7 @@ export function playbookRoutes(app: FastifyInstance, pool: pg.Pool): void {
       if (!curatorOnly(req, reply)) return reply;
       return handle(reply, async () => {
         const { repo_key, ...b } = req.body;
-        const scope = sharedScope(req, b.scope!, repo_key);
+        const scope = await sharedScope(pool, req, b.scope!, repo_key);
         const playbook = await createPlaybook(pool, { ...b, scope, title: b.title! }, req.instance!.user_id);
         return reply.code(201).send({ playbook });
       });
@@ -92,7 +93,7 @@ export function playbookRoutes(app: FastifyInstance, pool: pg.Pool): void {
       if (!curatorOnly(req, reply)) return reply;
       return handle(reply, async () => {
         const { repo_key, ...b } = req.body;
-        const scope = b.scope === undefined ? undefined : sharedScope(req, b.scope, repo_key);
+        const scope = b.scope === undefined ? undefined : await sharedScope(pool, req, b.scope, repo_key);
         return { playbook: await updatePlaybook(pool, req.params.id, { ...b, scope }, req.instance!.user_id) };
       });
     },

@@ -3,6 +3,7 @@ import type { Instance } from "../auth.js";
 import { recordUse } from "../facts.js";
 import { resolveAlsoRepos, ScopeError } from "../scope.js";
 import { embedQuery, searchDocs, searchEpisodes, searchFacts, type FactHit, type SearchDeps, type TextHit } from "../search.js";
+import { labelFor, type LevelLabel } from "../teams.js";
 
 export const SOURCES = ["fact", "conversation", "history", "commit", "doc"] as const;
 export type Source = (typeof SOURCES)[number];
@@ -27,7 +28,7 @@ async function repoKeysOf(deps: SearchDeps, repoKey: string | undefined, alsoRep
 export interface RecallResult {
   mode: "hybrid" | "keyword";
   unknown_repos?: string[];
-  facts: FactHit[];
+  facts: (FactHit & LevelLabel)[];
 }
 
 /** /v1/recall and MCP hive_recall: active facts, counted as used. ScopeError past MAX_ALSO_REPOS. */
@@ -43,7 +44,10 @@ export async function recall(
     q: opts.q, repoKeys: repos.repoKeys, k: opts.k, statuses: ["active"], qvec, minSimilarity: opts.minSimilarity, changedPaths: opts.changedPaths,
   });
   await recordUse(deps.pool, facts.map((f) => f.id), log);
-  return { mode: qvec ? "hybrid" : "keyword", ...(repos.unknown ? { unknown_repos: repos.unknown } : {}), facts };
+  return {
+    mode: qvec ? "hybrid" : "keyword", ...(repos.unknown ? { unknown_repos: repos.unknown } : {}),
+    facts: await labelFor(deps.pool, who, opts.repoKey, facts),
+  };
 }
 
 export interface SearchResult extends RecallResult {
@@ -69,7 +73,10 @@ export async function search(
     sources.includes("doc") ? searchDocs(deps, { q, repoKeys, k, qvec }) : [],
   ]);
   const text: TextHit[] = [...conversation, ...history, ...commit, ...doc].sort((a, b) => b.score - a.score).slice(0, k);
-  return { mode: qvec ? "hybrid" : "keyword", ...(repos.unknown ? { unknown_repos: repos.unknown } : {}), facts, results: text };
+  return {
+    mode: qvec ? "hybrid" : "keyword", ...(repos.unknown ? { unknown_repos: repos.unknown } : {}),
+    facts: await labelFor(deps.pool, who, opts.repoKey, facts), results: text,
+  };
 }
 
 /**

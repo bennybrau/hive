@@ -9,6 +9,7 @@ import { FACT_COLUMNS, type Fact } from "./facts.js";
 import { bestPlaybook, trimPlaybook, type BriefPlaybook } from "./playbooks.js";
 import { readableScopes, resolveAlsoRepos } from "./scope.js";
 import { embedQuery, HEADLINE, overlaps, searchDocs, searchFacts, TSQUERY, type SearchDeps } from "./search.js";
+import { labelFor, type LevelLabel } from "./teams.js";
 
 /** Same strict gate the plugin's prefetch uses: a brief is injected, so only close facts. */
 export const BRIEF_MIN_SIMILARITY = 0.62;
@@ -69,8 +70,9 @@ export interface Brief {
   dropped: Record<Section, number>;
   /** The best-matching playbook (0 or 1), trimmed to PLAYBOOK_MAX_TOKENS. */
   playbook: BriefPlaybook[];
-  gotchas: BriefFact[];
-  facts: BriefFact[];
+  /** Labelled after packing, so the labels don't change what fits the budget. */
+  gotchas: (BriefFact & LevelLabel)[];
+  facts: (BriefFact & LevelLabel)[];
   locations: BriefLocation[];
   runs: BriefRun[];
   tests: BriefTest[];
@@ -337,6 +339,7 @@ export async function buildBrief(
     packed = packBudget({ playbook, gotchas, facts: toFacts(factHits), locations, runs, tests }, budgetTokens);
   }
   const { out, tokens, dropped } = packed;
+  const labelled = await labelFor(deps.pool, who, repoKey, [...(out.gotchas as BriefFact[]), ...(out.facts as BriefFact[])]);
   return {
     repo_key: repoKey,
     repo_indexed: registered,
@@ -347,8 +350,8 @@ export async function buildBrief(
     tokens,
     dropped,
     playbook: out.playbook as BriefPlaybook[],
-    gotchas: out.gotchas as BriefFact[],
-    facts: out.facts as BriefFact[],
+    gotchas: labelled.slice(0, out.gotchas.length),
+    facts: labelled.slice(out.gotchas.length),
     locations: out.locations as BriefLocation[],
     runs: out.runs as BriefRun[],
     tests: out.tests as BriefTest[],

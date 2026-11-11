@@ -38,6 +38,11 @@ export function statsRoutes(app: FastifyInstance, pool: pg.Pool): void {
       const by_origin = await countBy(pool, "origin");
       // Personal scopes fold into one bucket: no user ids in the response.
       const by_scope = await countBy(pool, "case when scope like 'personal:%' then 'personal' else scope end");
+      // Every team, one with no facts too: by key.
+      const teams = await pool.query<{ key: string; count: number }>(
+        `select t.key, count(f.id)::int as count from teams t left join facts f on f.scope = 'team:' || t.key group by 1 order by 1`,
+      );
+      const by_team = Object.fromEntries(teams.rows.map((r) => [r.key, r.count]));
       const per_day = await pool.query(
         `select ${DAY("recorded_at")} as day, count(*)::int as count from facts
          where recorded_at >= ${SINCE} group by 1 order by 1`,
@@ -83,7 +88,7 @@ export function statsRoutes(app: FastifyInstance, pool: pg.Pool): void {
       return {
         days,
         since: since.rows[0]!.since,
-        facts: { by_status, by_origin, by_scope, per_day: per_day.rows },
+        facts: { by_status, by_origin, by_scope, by_team, per_day: per_day.rows },
         cost: cost.rows,
         cost_totals: costTotals.rows,
         workers: workers.rows,

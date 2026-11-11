@@ -16,6 +16,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
       {
         "id": "fact:repo-a",
         "kind": "convention",
+        "level": "repository",
         "locus": [],
         "near_changes": false,
         "scope": "repo:gh/acme/proj",
@@ -25,6 +26,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
       {
         "id": "fact:global",
         "kind": "convention",
+        "level": "organisation",
         "locus": [],
         "near_changes": false,
         "scope": "global",
@@ -34,6 +36,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
       {
         "id": "fact:alice-personal",
         "kind": "convention",
+        "level": "personal",
         "locus": [],
         "near_changes": false,
         "scope": "personal:alice",
@@ -45,6 +48,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
       {
         "id": "fact:repo-a-gotcha",
         "kind": "gotcha",
+        "level": "repository",
         "locus": [
           "src/billing/invoice.ts",
         ],
@@ -126,6 +130,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
       {
         "id": "fact:repo-a",
         "kind": "convention",
+        "level": "repository",
         "locus": [],
         "scope": "repo:gh/acme/proj",
         "text": "Invoice billing totals are rounded half-even",
@@ -134,6 +139,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
       {
         "id": "fact:global",
         "kind": "convention",
+        "level": "organisation",
         "locus": [],
         "scope": "global",
         "text": "Billing invoice rounding is documented in money docs",
@@ -142,6 +148,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
       {
         "id": "fact:alice-personal",
         "kind": "convention",
+        "level": "personal",
         "locus": [],
         "scope": "personal:alice",
         "text": "Alice prefers to check invoice rounding by hand in billing",
@@ -150,6 +157,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
       {
         "id": "fact:repo-b",
         "kind": "convention",
+        "level": "repository",
         "locus": [],
         "scope": "repo:gh/acme/lib",
         "text": "The lib rounds billing invoice amounts with bankers rounding",
@@ -160,6 +168,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
       {
         "id": "fact:repo-a-gotcha",
         "kind": "gotcha",
+        "level": "repository",
         "locus": [
           "src/billing/invoice.ts",
         ],
@@ -260,6 +269,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "id": "fact:candidate",
         "kind": "convention",
         "last_used_at": null,
+        "level": "repository",
         "locus": [],
         "metadata": {},
         "origin": "authored",
@@ -278,6 +288,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "id": "fact:alice-personal",
         "kind": "convention",
         "last_used_at": "<time>",
+        "level": "personal",
         "locus": [],
         "metadata": {},
         "origin": "authored",
@@ -296,6 +307,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "id": "fact:global",
         "kind": "convention",
         "last_used_at": "<time>",
+        "level": "organisation",
         "locus": [],
         "metadata": {},
         "origin": "authored",
@@ -314,6 +326,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "id": "fact:repo-b",
         "kind": "convention",
         "last_used_at": "<time>",
+        "level": "repository",
         "locus": [],
         "metadata": {},
         "origin": "authored",
@@ -332,6 +345,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "id": "fact:repo-a-gotcha",
         "kind": "gotcha",
         "last_used_at": "<time>",
+        "level": "repository",
         "locus": [
           "src/billing/invoice.ts",
         ],
@@ -352,6 +366,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "id": "fact:repo-a",
         "kind": "convention",
         "last_used_at": "<time>",
+        "level": "repository",
         "locus": [],
         "metadata": {},
         "origin": "authored",
@@ -374,6 +389,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "jon",
         "id": "fact:repo-b",
         "kind": "convention",
+        "level": "repository",
         "locus": [],
         "matched": [
           "keyword",
@@ -395,6 +411,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "jon",
         "id": "fact:repo-a-gotcha",
         "kind": "gotcha",
+        "level": "repository",
         "locus": [
           "src/billing/invoice.ts",
         ],
@@ -418,6 +435,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "jon",
         "id": "fact:repo-a",
         "kind": "convention",
+        "level": "repository",
         "locus": [],
         "matched": [
           "keyword",
@@ -439,6 +457,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "jon",
         "id": "fact:global",
         "kind": "convention",
+        "level": "organisation",
         "locus": [],
         "matched": [
           "keyword",
@@ -460,6 +479,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "alice",
         "id": "fact:alice-personal",
         "kind": "convention",
+        "level": "personal",
         "locus": [],
         "matched": [
           "keyword",
@@ -486,6 +506,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "jon",
         "id": "fact:repo-a-gotcha",
         "kind": "gotcha",
+        "level": "repository",
         "locus": [
           "src/billing/invoice.ts",
         ],
@@ -509,6 +530,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "jon",
         "id": "fact:repo-a",
         "kind": "convention",
+        "level": "repository",
         "locus": [],
         "matched": [
           "keyword",
@@ -530,6 +552,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "jon",
         "id": "fact:global",
         "kind": "convention",
+        "level": "organisation",
         "locus": [],
         "matched": [
           "keyword",
@@ -551,6 +574,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "alice",
         "id": "fact:alice-personal",
         "kind": "convention",
+        "level": "personal",
         "locus": [],
         "matched": [
           "keyword",
@@ -645,6 +669,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "jon",
         "id": "fact:repo-a-gotcha",
         "kind": "gotcha",
+        "level": "repository",
         "locus": [
           "src/billing/invoice.ts",
         ],
@@ -668,6 +693,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "jon",
         "id": "fact:repo-a",
         "kind": "convention",
+        "level": "repository",
         "locus": [],
         "matched": [
           "keyword",
@@ -689,6 +715,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "jon",
         "id": "fact:global",
         "kind": "convention",
+        "level": "organisation",
         "locus": [],
         "matched": [
           "keyword",
@@ -710,6 +737,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
         "author_user_id": "alice",
         "id": "fact:alice-personal",
         "kind": "convention",
+        "level": "personal",
         "locus": [],
         "matched": [
           "keyword",
@@ -909,6 +937,7 @@ Files: docs/money.md, src/billing/invoice.test.ts, src/billing/invoice.ts",
         "author_user_id": "jon",
         "id": "fact:repo-a-gotcha",
         "kind": "gotcha",
+        "level": "repository",
         "locus": [
           "src/billing/invoice.ts",
         ],
@@ -932,6 +961,7 @@ Files: docs/money.md, src/billing/invoice.test.ts, src/billing/invoice.ts",
         "author_user_id": "jon",
         "id": "fact:repo-a",
         "kind": "convention",
+        "level": "repository",
         "locus": [],
         "matched": [
           "keyword",
@@ -953,6 +983,7 @@ Files: docs/money.md, src/billing/invoice.test.ts, src/billing/invoice.ts",
         "author_user_id": "jon",
         "id": "fact:global",
         "kind": "convention",
+        "level": "organisation",
         "locus": [],
         "matched": [
           "keyword",
@@ -974,6 +1005,7 @@ Files: docs/money.md, src/billing/invoice.test.ts, src/billing/invoice.ts",
         "author_user_id": "alice",
         "id": "fact:alice-personal",
         "kind": "convention",
+        "level": "personal",
         "locus": [],
         "matched": [
           "keyword",

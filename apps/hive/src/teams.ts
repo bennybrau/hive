@@ -131,3 +131,44 @@ export async function ownTeams(pool: pg.Pool, who: Pick<Instance, "user_id">, re
   );
   return rows.map((r) => r.team_key);
 }
+
+/** Every team's name, by key. */
+export async function teamNames(pool: pg.Pool): Promise<Map<string, string>> {
+  const { rows } = await pool.query<{ key: string; name: string }>("select key, name from teams");
+  return new Map(rows.map((r) => [r.key, r.name]));
+}
+
+export type Level = "personal" | "repository" | "team" | "organisation";
+
+export interface LevelLabel {
+  level: Level;
+  /** Team scopes only: the team's key and name, and whether it is one of the caller's own teams (see ownTeams). */
+  team?: string;
+  team_name?: string;
+  own_team?: boolean;
+}
+
+/** Each row with the level its scope is at, and for a team scope which team. Order and fields are kept. */
+export function labelFacts<T extends { scope: string }>(rows: T[], ownTeamKeys: string[], names: Map<string, string>): (T & LevelLabel)[] {
+  const own = new Set(ownTeamKeys);
+  return rows.map((r) => {
+    if (r.scope.startsWith("team:")) {
+      const key = r.scope.slice(5);
+      return { ...r, level: "team", team: key, team_name: names.get(key) ?? key, own_team: own.has(key) };
+    }
+    const level: Level = r.scope.startsWith("personal:") ? "personal" : r.scope.startsWith("repo:") ? "repository" : "organisation";
+    return { ...r, level };
+  });
+}
+
+/** labelFacts with the caller's own teams (for repoKey) and the team names looked up, when any row is in a team scope. */
+export async function labelFor<T extends { scope: string }>(
+  pool: pg.Pool,
+  who: Pick<Instance, "user_id">,
+  repoKey: string | undefined,
+  rows: T[],
+): Promise<(T & LevelLabel)[]> {
+  if (!rows.some((r) => r.scope.startsWith("team:"))) return labelFacts(rows, [], new Map());
+  const [own, names] = await Promise.all([ownTeams(pool, who, repoKey), teamNames(pool)]);
+  return labelFacts(rows, own, names);
+}

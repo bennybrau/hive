@@ -16,7 +16,8 @@ import {
   type CurateInput,
   type Fact,
 } from "../facts.js";
-import { readableScopes, resolveScope, ScopeError } from "../scope.js";
+import { readableScopes, resolveScope, ScopeError, ScopeForbidden, ScopeNotFound } from "../scope.js";
+import { labelFor, TEAM_KEY_PATTERN } from "../teams.js";
 
 const anchorSchema = {
   type: "object",
@@ -40,6 +41,8 @@ export interface CreateBody {
   kind: (typeof FACT_KINDS)[number];
   scope: string;
   repo_key?: string;
+  /** With scope "team": which team (else the caller's one team). */
+  team?: string;
   locus?: string[];
   anchors?: Record<string, unknown>[];
   supersedes?: string;
@@ -47,10 +50,11 @@ export interface CreateBody {
 
 /**
  * POST /v1/facts and MCP hive_remember: an authored fact; its status follows initialStatus (a member's shared fact is a candidate).
- * ScopeError for a scope the caller can't write, SupersedeError for a bad supersedes.
+ * ScopeError for a scope the caller can't write (ScopeNotFound: no such team, ScopeForbidden: not their team),
+ * SupersedeError for a bad supersedes.
  */
 export async function remember(pool: pg.Pool, who: Instance, b: CreateBody, onWrite: () => void): Promise<{ fact: Fact; deduped: boolean }> {
-  const scope = resolveScope(b.scope, who, b.repo_key);
+  const scope = await resolveScope(pool, b.scope, who, { repoKey: b.repo_key, team: b.team });
   const res = await createFact(
     pool,
     { text: b.text, kind: b.kind, scope, origin: "authored", locus: b.locus, anchors: b.anchors, supersedes: b.supersedes },
@@ -77,6 +81,7 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
             kind: { type: "string", enum: [...FACT_KINDS] },
             scope: { type: "string", minLength: 1, maxLength: 220 },
             repo_key: { type: "string", minLength: 1, maxLength: 200 },
+            team: { type: "string", minLength: 1, maxLength: 64, pattern: TEAM_KEY_PATTERN },
             locus: { type: "array", maxItems: 50, items: { type: "string", maxLength: 500 } },
             anchors: { type: "array", maxItems: 20, items: anchorSchema },
             supersedes: { type: "string", format: "uuid" },
@@ -89,6 +94,8 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
         const { fact, deduped } = await remember(pool, req.instance!, req.body, onWrite);
         return reply.code(deduped ? 200 : 201).send({ fact, deduped });
       } catch (err) {
+        if (err instanceof ScopeNotFound) return reply.code(404).send({ error: err.message });
+        if (err instanceof ScopeForbidden) return reply.code(403).send({ error: err.message });
         if (err instanceof ScopeError || err instanceof SupersedeError) return reply.code(400).send({ error: err.message });
         throw err;
       }
@@ -136,7 +143,7 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
         params,
       );
       const has_more = rows.length > limit;
-      return { facts: has_more ? rows.slice(0, limit) : rows, has_more };
+      return { facts: await labelFor(pool, who, qs.repo_key, has_more ? rows.slice(0, limit) : rows), has_more };
     },
   );
 
@@ -193,7 +200,8 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
         `select action, note, new_text, reviewer_user_id, created_at from reviews where fact_id = $1 order by created_at, id`,
         [req.params.id],
       );
-      return { fact: rows[0], anchors: anchors.rows, reviews: reviews.rows, ...(await factChain(pool, req.params.id)) };
+      const [fact] = await labelFor(pool, who, undefined, rows);
+      return { fact, anchors: anchors.rows, reviews: reviews.rows, ...(await factChain(pool, req.params.id)) };
     },
   );
 

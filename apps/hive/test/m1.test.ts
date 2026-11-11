@@ -45,14 +45,15 @@ beforeEach(async () => {
 
 describe("scope + status rules (unit)", () => {
   const member: Instance = { id: "i", name: "n", user_id: "alice", role: "member" };
-  it("resolves scope shorthands and refuses other people's personal scope", () => {
-    expect(resolveScope("global", member)).toBe("global");
-    expect(resolveScope("personal", member)).toBe("personal:alice");
-    expect(resolveScope("repo", member, "gh/o/r")).toBe("repo:gh/o/r");
-    expect(resolveScope("repo:gh/o/r", member)).toBe("repo:gh/o/r");
-    expect(() => resolveScope("repo", member)).toThrow(ScopeError);
-    expect(() => resolveScope("personal:bob", member)).toThrow(/another user/);
-    expect(() => resolveScope("team", member)).toThrow(/unknown scope/);
+  it("resolves scope shorthands and refuses other people's personal scope", async () => {
+    expect(await resolveScope(pool, "global", member)).toBe("global");
+    expect(await resolveScope(pool, "personal", member)).toBe("personal:alice");
+    expect(await resolveScope(pool, "repo", member, { repoKey: "gh/o/r" })).toBe("repo:gh/o/r");
+    expect(await resolveScope(pool, "repo:gh/o/r", member)).toBe("repo:gh/o/r");
+    await expect(resolveScope(pool, "repo", member)).rejects.toThrow(ScopeError);
+    await expect(resolveScope(pool, "personal:bob", member)).rejects.toThrow(/another user/);
+    await expect(resolveScope(pool, "team", member)).rejects.toThrow(/in no team/);
+    await expect(resolveScope(pool, "teams", member)).rejects.toThrow(/unknown scope/);
   });
   it("hash ignores case and whitespace but not scope", () => {
     expect(contentHash("We  deploy to Cloud Run ", "global")).toBe(contentHash("we deploy to cloud run", "global"));
