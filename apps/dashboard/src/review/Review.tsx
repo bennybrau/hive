@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboa
 import { apiFetch, type Role } from "../api";
 import { navigate } from "../App";
 import type { Fact } from "../facts/query";
+import { LevelBadge } from "../levels/LevelBadge";
+import { LevelFilter } from "../levels/LevelFilter";
+import { matchesLevel, useTeams, type MyTeam, type Team } from "../levels/levels";
 import { usePendingDecision, type Decision } from "./usePendingDecision";
 
 interface Anchor {
@@ -87,6 +90,9 @@ const DONE: Record<Decision["action"], string> = {
 
 type Editing = { kind: "fix"; text: string } | { kind: "reject"; note: string } | null;
 
+/** For the badge: the queue isn't labelled, so levels are worked out from scope and these. */
+type Teams = { teams: Team[]; mine: MyTeam[] };
+
 /** The decision buttons for the current candidate; on a phone they are the card's footer, pinned to the bottom of the screen. */
 function Actions({
   c,
@@ -138,12 +144,14 @@ function Actions({
 
 function Evidence({
   c,
+  levels,
   editing,
   setEditing,
   submit,
   approve,
 }: {
   c: Candidate;
+  levels: Teams;
   editing: Editing;
   setEditing: (e: Editing) => void;
   submit: () => void;
@@ -169,7 +177,7 @@ function Evidence({
     <aside className="review-evidence" aria-label="Evidence">
       {c.metadata?.asked && <span className="badge asked">asked to remember</span>}
       <p className="review-card-meta">
-        {c.kind} · {c.scope} · {c.origin}
+        {c.kind} · <LevelBadge fact={c} {...levels} /> · {c.origin}
       </p>
       {shown?.exchange && (
         <section className="exchange" aria-label="Exchange">
@@ -286,11 +294,13 @@ type FlagEditing = { kind: "fix"; text: string } | { kind: "retire"; note: strin
 /** A flagged fact: what the person said, the candidate replacing it, and keep / fix / retire. */
 function FlaggedCard({
   f,
+  levels,
   candidateLoaded,
   selectCandidate,
   decide,
 }: {
   f: Flagged;
+  levels: Teams;
   candidateLoaded: boolean;
   selectCandidate: (id: string) => void;
   decide: (d: Decision) => void;
@@ -340,7 +350,7 @@ function FlaggedCard({
         <p className="fact-text">{f.text}</p>
       )}
       <p className="meta">
-        {f.kind} in {f.scope}. Corrected {timeAgo(f.correction.at)}.
+        {f.kind} in <LevelBadge fact={f} {...levels} />. Corrected {timeAgo(f.correction.at)}.
       </p>
       <blockquote className="quote">{f.correction.text}</blockquote>
       {replacing && (
@@ -439,6 +449,8 @@ function ReviewQueue() {
   const { hidden, pending, error, decide, undo } = usePendingDecision();
   const rowRefs = useRef<(HTMLLIElement | null)[]>([]);
   const listRef = useRef<HTMLOListElement>(null);
+  const levels = useTeams();
+  const [level, setLevel] = useState("");
 
   useEffect(() => {
     let live = true;
@@ -454,8 +466,14 @@ function ReviewQueue() {
     };
   }, []);
 
-  const shown = useMemo(() => queue?.candidates.filter((c) => !hidden.has(c.id)) ?? [], [queue, hidden]);
-  const flagged = useMemo(() => queue?.flagged.filter((f) => !hidden.has(f.id)) ?? [], [queue, hidden]);
+  const shown = useMemo(
+    () => queue?.candidates.filter((c) => !hidden.has(c.id) && matchesLevel(c, level)) ?? [],
+    [queue, hidden, level],
+  );
+  const flagged = useMemo(
+    () => queue?.flagged.filter((f) => !hidden.has(f.id) && matchesLevel(f, level)) ?? [],
+    [queue, hidden, level],
+  );
   const index = Math.min(active, Math.max(shown.length - 1, 0));
   const current = shown[index];
 
@@ -532,6 +550,9 @@ function ReviewQueue() {
             )}
           </p>
         )}
+        {queue && (queue.candidates.length > 0 || queue.flagged.length > 0) && (
+          <LevelFilter id="r-level" value={level} teams={levels.teams} onChange={setLevel} />
+        )}
       </header>
 
       {loadError && (
@@ -546,7 +567,10 @@ function ReviewQueue() {
       )}
       {!queue && !loadError && <p className="help">Loading…</p>}
 
-      {queue && shown.length === 0 && flagged.length === 0 && (
+      {queue && shown.length === 0 && flagged.length === 0 && level && (
+        <p className="help">Nothing to review at this level.</p>
+      )}
+      {queue && shown.length === 0 && flagged.length === 0 && !level && (
         <p className="review-empty">
           Nothing to review.{" "}
           <span className="help">
@@ -563,6 +587,7 @@ function ReviewQueue() {
               <FlaggedCard
                 key={f.id}
                 f={f}
+                levels={levels}
                 candidateLoaded={!!f.replacing && shown.some((c) => c.id === f.replacing!.id)}
                 selectCandidate={selectCandidate}
                 decide={decide}
@@ -608,7 +633,7 @@ function ReviewQueue() {
               >
                 <span className="text">{c.text}</span>
                 <span className="meta">
-                  {c.kind} in {c.scope}, {c.origin}
+                  {c.kind} in <LevelBadge fact={c} {...levels} />, {c.origin}
                   {c.metadata?.asked && (
                     <>
                       {" "}
@@ -622,6 +647,7 @@ function ReviewQueue() {
           <Evidence
             key={current.id}
             c={current}
+            levels={levels}
             editing={editing}
             setEditing={setEditing}
             submit={submitEdit}

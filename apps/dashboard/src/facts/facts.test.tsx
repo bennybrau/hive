@@ -37,6 +37,8 @@ const DETAIL = {
   superseded_by: [],
 };
 
+const TEAM = { key: "billing", name: "Billing", created_at: "2026-10-01T00:00:00Z", members: [], repos: [] };
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
@@ -47,6 +49,8 @@ let searchHits: Fact[];
 const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   const url = new URL(String(input), "http://hive");
   if (url.pathname === "/v1/repos") return json({ repos: [{ key: "acme/widgets" }] });
+  if (url.pathname === "/v1/teams") return json({ teams: [TEAM] });
+  if (url.pathname === "/v1/teams/mine") return json({ teams: [] });
   if (url.pathname === "/v1/search") return json({ mode: "hybrid", facts: searchHits, results: [] });
   if (url.pathname === "/v1/facts") return json(listPage(Number(url.searchParams.get("offset"))));
   if (url.pathname.startsWith("/v1/facts/")) {
@@ -85,7 +89,7 @@ describe("facts table", () => {
   });
 
   it.each([
-    ["Scope", "personal", { scope: "personal" }],
+    ["Level", "personal", { scope: "personal" }],
     ["Status", "candidate", { status: "candidate" }],
     ["Origin", "distilled", { origin: "distilled" }],
     ["Kind", "invariant", { kind: "invariant" }],
@@ -101,7 +105,7 @@ describe("facts table", () => {
   it("keeps the filters in the URL across a remount", async () => {
     const { unmount } = render(<Facts />);
     await screen.findByRole("option", { name: "acme/widgets" });
-    fireEvent.change(screen.getByLabelText("Scope"), { target: { value: "personal" } });
+    fireEvent.change(screen.getByLabelText("Level"), { target: { value: "personal" } });
     fireEvent.change(screen.getByLabelText("Origin"), { target: { value: "authored" } });
     unmount();
     fetchMock.mockClear();
@@ -109,8 +113,53 @@ describe("facts table", () => {
     render(<Facts />);
     await screen.findByText("fact f1");
     expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ scope: "personal", origin: "authored", limit: "50", offset: "0" });
-    expect((screen.getByLabelText("Scope") as HTMLSelectElement).value).toBe("personal");
+    expect((screen.getByLabelText("Level") as HTMLSelectElement).value).toBe("personal");
     expect((screen.getByLabelText("Origin") as HTMLSelectElement).value).toBe("authored");
+  });
+
+  it.each([
+    ["Organisation", "global"],
+    ["Team: Billing", "team:billing"],
+  ])("the %s level asks the server for scope=%s", async (name, scope) => {
+    render(<Facts />);
+    const level = screen.getByLabelText("Level") as HTMLSelectElement;
+    await screen.findByRole("option", { name: "Team: Billing" });
+    fireEvent.change(level, { target: { value: within(level).getByRole("option", { name }).getAttribute("value") } });
+    await waitFor(() => expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ scope, limit: "50", offset: "0" }));
+    expect(new URLSearchParams(location.search).get("level")).toBe(scope);
+  });
+
+  it("the Repository level filters the loaded page here, and a picked repo still wins", async () => {
+    listPage = () => ({
+      facts: [fact("r1", { text: "in a repo", scope: "repo:acme/widgets" }), fact("g1", { text: "org wide" })],
+      has_more: false,
+    });
+    render(<Facts />);
+    await screen.findByText("org wide");
+    fireEvent.change(screen.getByLabelText("Level"), { target: { value: "repository" } });
+    await waitFor(() => expect(screen.queryByText("org wide")).toBeNull());
+    expect(screen.getByText("in a repo")).toBeTruthy();
+    expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ limit: "50", offset: "0" });
+
+    await screen.findByRole("option", { name: "acme/widgets" });
+    fireEvent.change(screen.getByLabelText("Repo"), { target: { value: "acme/widgets" } });
+    await waitFor(() => expect(lastCall("/v1/facts").get("scope")).toBe("repo:acme/widgets"));
+  });
+
+  it("shows each fact's level as a badge in the Scope column", async () => {
+    listPage = () => ({
+      facts: [
+        fact("t1", { scope: "team:billing", level: "team", team: "billing", team_name: "Billing", own_team: true }),
+        fact("p1", { scope: "personal:u1", level: "personal" }),
+      ],
+      has_more: false,
+    });
+    render(<Facts />);
+    await screen.findByText("fact t1");
+    const [t1, p1] = rows();
+    expect(t1!.querySelector(".level")!.textContent).toBe("Team: Billingyour team");
+    expect(within(t1!).getByText("Team: Billing").getAttribute("class")).toMatch(/badge/);
+    expect(p1!.querySelector(".level")!.textContent).toBe("Personal");
   });
 
   it("pages by has_more", async () => {
@@ -167,7 +216,7 @@ describe("facts table", () => {
     ];
     render(<Facts />);
     await screen.findByRole("option", { name: "acme/widgets" });
-    fireEvent.change(screen.getByLabelText("Scope"), { target: { value: "personal" } });
+    fireEvent.change(screen.getByLabelText("Level"), { target: { value: "personal" } });
     fireEvent.change(screen.getByLabelText("Origin"), { target: { value: "authored" } });
     fireEvent.change(screen.getByLabelText("Kind"), { target: { value: "gotcha" } });
     fireEvent.change(screen.getByLabelText("Search"), { target: { value: "retry budget" } });
@@ -182,10 +231,10 @@ describe("facts table", () => {
 
 describe("fact detail", () => {
   it("opens in the path, keeps the query, and shows anchors, chain and reviews", async () => {
-    history.replaceState(null, "", "/facts?scope=global");
+    history.replaceState(null, "", "/facts?level=global");
     render(<Facts />);
     fireEvent.click(await screen.findByText("fact f1"));
-    expect(location.pathname + location.search).toBe("/facts/f1?scope=global");
+    expect(location.pathname + location.search).toBe("/facts/f1?level=global");
 
     const panel = await screen.findByRole("complementary", { name: "Fact detail" });
     await within(panel).findByText("the open fact");
@@ -199,7 +248,7 @@ describe("fact detail", () => {
     expect(within(panel).getByText("fix")).toBeTruthy();
 
     fireEvent.click(within(panel).getByRole("link", { name: "the older fact" }));
-    expect(location.pathname + location.search).toBe("/facts/f0?scope=global");
+    expect(location.pathname + location.search).toBe("/facts/f0?level=global");
     expect(await within(panel).findByText("detail f0")).toBeTruthy();
   });
 

@@ -116,6 +116,25 @@ describe("dashboard shell", () => {
     expect(screen.getByRole("link", { name: "Stale" }).getAttribute("aria-current")).toBe("page");
   });
 
+  it("shows the Teams nav link to curators only, and /teams opens it", async () => {
+    sessionStorage.setItem("hive.token", "good-token");
+    const { unmount } = render(<App />);
+    await screen.findByText("bennys-laptop");
+    expect(screen.queryByRole("link", { name: "Teams" })).toBeNull();
+    unmount();
+
+    fetchMock.mockImplementation(async (url) =>
+      String(url) === "/v1/status"
+        ? json(200, { ...STATUS, instance: { ...STATUS.instance, role: "curator" } })
+        : json(200, { teams: [] }),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole("link", { name: "Teams" }));
+    expect(location.pathname).toBe("/teams");
+    expect(await screen.findByText("No teams yet.")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Teams" }).getAttribute("aria-current")).toBe("page");
+  });
+
   it("uses a token already stored in this tab without asking again", async () => {
     sessionStorage.setItem("hive.token", "good-token");
     render(<App />);

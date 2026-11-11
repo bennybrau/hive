@@ -44,6 +44,9 @@ export function Shell({ status, path, children }: { status: Status; path: string
               <NavLink to="/stale" path={path}>
                 Stale
               </NavLink>
+              <NavLink to="/teams" path={path}>
+                Teams
+              </NavLink>
               <NavLink to="/stats" path={path}>
                 Stats
               </NavLink>

@@ -1,16 +1,16 @@
+import { matchesLevel, type Labelled } from "../levels/levels";
+
 export const PAGE_SIZE = 50;
 export const SEARCH_K = 100;
 
-export const SCOPES = ["global", "personal"] as const;
 export const STATUSES = ["candidate", "active", "superseded", "retracted"] as const;
 export const ORIGINS = ["authored", "distilled", "ingested"] as const;
 export const KINDS = ["decision", "invariant", "gotcha", "preference", "convention", "system"] as const;
 
-export interface Fact {
+export interface Fact extends Labelled {
   id: string;
   text: string;
   kind: string;
-  scope: string;
   locus: string[];
   origin: string;
   status: string;
@@ -22,7 +22,8 @@ export interface Fact {
 
 /** The table's filters; "" means any. All of it lives in the query string. */
 export interface Filters {
-  scope: string;
+  /** "", personal, repository, team:<key> or global (see matchesLevel). */
+  level: string;
   status: string;
   origin: string;
   kind: string;
@@ -31,7 +32,7 @@ export interface Filters {
   page: number;
 }
 
-const KEYS = ["scope", "status", "origin", "kind", "repo", "q"] as const;
+const KEYS = ["level", "status", "origin", "kind", "repo", "q"] as const;
 
 export function readFilters(search: string): Filters {
   const p = new URLSearchParams(search);
@@ -41,7 +42,7 @@ export function readFilters(search: string): Filters {
   return f;
 }
 
-/** "?scope=personal&page=2", or "" when nothing is set. */
+/** "?level=personal&page=2", or "" when nothing is set. */
 export function writeFilters(f: Filters): string {
   const p = new URLSearchParams();
   for (const k of KEYS) if (f[k]) p.set(k, f[k]);
@@ -50,9 +51,10 @@ export function writeFilters(f: Filters): string {
   return s ? `?${s}` : "";
 }
 
-/** A repo pick narrows to that repo's scope; otherwise the scope select. */
+/** A repo pick narrows to that repo's scope; otherwise the level, but the server has no scope for "any repo". */
 function scopeParam(f: Filters): string {
-  return f.repo ? `repo:${f.repo}` : f.scope;
+  if (f.repo) return `repo:${f.repo}`;
+  return f.level === "repository" ? "" : f.level;
 }
 
 export function listUrl(f: Filters): string {
@@ -73,10 +75,9 @@ export function searchUrl(f: Filters): string {
   return `/v1/search?${p}`;
 }
 
-/** Search can't filter server-side, so search results go through this. */
+/** Search can't filter server-side, so search results go through this; so does a list page for the Repository level. */
 export function matchesFilters(fact: Fact, f: Filters): boolean {
-  const scope = scopeParam(f);
-  if (scope === "personal" ? !fact.scope.startsWith("personal:") : scope && fact.scope !== scope) return false;
+  if (!matchesLevel(fact, f.repo ? `repo:${f.repo}` : f.level)) return false;
   if (f.status && fact.status !== f.status) return false;
   if (f.origin && fact.origin !== f.origin) return false;
   if (f.kind && fact.kind !== f.kind) return false;

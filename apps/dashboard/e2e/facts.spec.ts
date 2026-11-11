@@ -19,9 +19,9 @@ test("filter, search and open a fresh personal fact", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/facts$/);
 
-  await page.getByLabel("Scope").selectOption("personal");
+  await page.getByLabel("Level").selectOption("personal");
   await page.getByLabel("Origin").selectOption("authored");
-  await expect(page).toHaveURL(/scope=personal/);
+  await expect(page).toHaveURL(/level=personal/);
   await page.getByLabel("Search").fill(marker);
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByRole("note")).toContainText("no paging");

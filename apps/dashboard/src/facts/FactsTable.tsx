@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { apiFetch } from "../api";
+import { LevelBadge } from "../levels/LevelBadge";
+import { LevelFilter } from "../levels/LevelFilter";
+import { useTeams } from "../levels/levels";
 import {
   KINDS,
   listUrl,
   matchesFilters,
   ORIGINS,
-  SCOPES,
   SEARCH_K,
   searchUrl,
   STATUSES,
@@ -61,6 +63,7 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
   const [draft, setDraft] = useState(filters.q);
   const [active, setActive] = useState(0);
   const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const { teams, mine } = useTeams();
 
   useEffect(() => setDraft(filters.q), [filters.q]);
 
@@ -95,9 +98,11 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
     };
   }, [url]);
 
+  // The server can filter a list page by every level but Repository; that one narrows the loaded page here.
+  const narrow = searching || (filters.level === "repository" && !filters.repo);
   const shown = useMemo(
-    () => (rows && searching ? rows.filter((f) => matchesFilters(f, filters)) : rows),
-    [rows, searching, filters],
+    () => (rows && narrow ? rows.filter((f) => matchesFilters(f, filters)) : rows),
+    [rows, narrow, filters],
   );
 
   // Keep the roving row on the open fact when it's in view, else in range.
@@ -132,7 +137,7 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
   return (
     <section className="facts-list" aria-label="Facts list">
       <div className="filters">
-        <Select id="f-scope" label="Scope" value={filters.scope} options={SCOPES} onChange={(scope) => set({ scope })} />
+        <LevelFilter id="f-level" value={filters.level} teams={teams} onChange={(level) => set({ level })} />
         <Select
           id="f-repo"
           label="Repo"
@@ -198,7 +203,9 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
               >
                 <td className="text">{f.text}</td>
                 <td>{f.kind}</td>
-                <td>{f.scope}</td>
+                <td>
+                  <LevelBadge fact={f} teams={teams} mine={mine} />
+                </td>
                 <td>{f.status}</td>
                 <td>{f.origin}</td>
                 <td>

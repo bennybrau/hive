@@ -51,6 +51,8 @@ let curateStatus: number;
 const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
   const url = new URL(String(input), "http://hive");
   if (url.pathname === "/v1/review/queue") return json(queue);
+  if (url.pathname === "/v1/teams") return json({ teams: [{ key: "billing", name: "Billing", created_at: "", members: [], repos: [] }] });
+  if (url.pathname === "/v1/teams/mine") return json({ teams: [{ key: "billing", name: "Billing", role: "member" }] });
   if (/^\/v1\/facts\/[^/]+\/review$/.test(url.pathname)) {
     return reviewStatus === 200 ? json({ fact: {}, merged_into: null }) : json({ error: "fact is not a candidate" }, reviewStatus);
   }
@@ -153,7 +155,8 @@ describe("review queue", () => {
       similar: [{ id: "s1", text: "an active twin", scope: "global", similarity: 0.912 }],
     });
     await open();
-    expect(new URL(String(fetchMock.mock.calls[0]![0]), "http://hive").search).toBe("?limit=100");
+    const queueCall = fetchMock.mock.calls.map(([u]) => new URL(String(u), "http://hive")).find((u) => u.pathname === "/v1/review/queue");
+    expect(queueCall!.search).toBe("?limit=100");
     expect(rows().map((r) => r.dataset.id)).toEqual(["c1", "c2", "c3"]);
     expect(rows()[0]!.getAttribute("aria-current")).toBe("true");
     const panel = screen.getByRole("complementary", { name: "Evidence" });
@@ -402,6 +405,37 @@ describe("without a keyboard", () => {
   });
 });
 
+describe("levels", () => {
+  it("badges each candidate, its evidence and a flagged fact, working the level out from scope", async () => {
+    queue.candidates = [candidate("c1", { scope: "team:billing" }), candidate("c2", { scope: "repo:gh/o/a" })];
+    queue.flagged = [flaggedFact("f1", { scope: "personal:u1" })];
+    await open();
+    await within(rows()[0]!).findByText("your team");
+    expect(rows()[0]!.querySelector(".level")!.textContent).toBe("Team: Billingyour team");
+    expect(rows()[1]!.querySelector(".level")!.textContent).toBe("Repository");
+    const panel = screen.getByRole("complementary", { name: "Evidence" });
+    expect(panel.querySelector(".level")!.textContent).toBe("Team: Billingyour team");
+    const flagged = screen.getByRole("region", { name: "Corrected after citation" });
+    expect(flagged.querySelector(".level")!.textContent).toBe("Personal");
+  });
+
+  it("the Level filter narrows candidates and flagged facts here", async () => {
+    queue.candidates = [candidate("c1", { scope: "team:billing" }), candidate("c2"), candidate("c3", { scope: "team:billing" })];
+    queue.flagged = [flaggedFact("f1")];
+    await open();
+    await screen.findByRole("option", { name: "Team: Billing" });
+    fireEvent.change(screen.getByLabelText("Level"), { target: { value: "team:billing" } });
+    expect(rows().map((r) => r.dataset.id)).toEqual(["c1", "c3"]);
+    expect(screen.queryByRole("region", { name: "Corrected after citation" })).toBeNull();
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).startsWith("/v1/review/queue"))).toHaveLength(1);
+
+    fireEvent.change(screen.getByLabelText("Level"), { target: { value: "personal" } });
+    expect(screen.getByText("Nothing to review at this level.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Level"), { target: { value: "" } });
+    expect(rows()).toHaveLength(3);
+  });
+});
+
 describe("corrected after citation", () => {
   const C2 = "c2aaaaaa-0000-0000-0000-000000000002";
   const section = () => screen.getByRole("region", { name: "Corrected after citation" });
@@ -420,7 +454,7 @@ describe("corrected after citation", () => {
     const f1 = card("f1")!;
     expect(within(section()).getByRole("heading", { name: "Corrected after citation" })).toBeTruthy();
     expect(f1.querySelector(".fact-text")!.textContent).toBe("flagged f1");
-    expect(f1.querySelector(".meta")!.textContent).toBe("convention in global. Corrected 2 hours ago.");
+    expect(f1.querySelector(".meta")!.textContent).toBe("convention in Organisation. Corrected 2 hours ago.");
     expect(f1.querySelector("blockquote")!.textContent).toBe("no, f1 is wrong");
     expect(f1.querySelector(".help")!.textContent).toBe("Replaced by candidate c2aaaaaa");
     expect(within(f1).getByRole("link", { name: "c2aaaaaa" })).toBeTruthy();

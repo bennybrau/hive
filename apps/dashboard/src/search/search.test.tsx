@@ -23,7 +23,12 @@ function json(body: unknown, status = 200): Response {
 }
 
 let reply: () => Response;
-const fetchMock = vi.fn(async (_input: RequestInfo | URL) => reply());
+const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const path = new URL(String(input), "http://hive").pathname;
+  if (path === "/v1/teams") return json({ teams: [{ key: "billing", name: "Billing", created_at: "", members: [], repos: [] }] });
+  if (path === "/v1/teams/mine") return json({ teams: [] });
+  return reply();
+});
 
 function lastSearch(): Record<string, string> {
   const urls = fetchMock.mock.calls.map(([u]) => new URL(String(u), "http://hive")).filter((u) => u.pathname === "/v1/search");
@@ -50,7 +55,7 @@ describe("search view", () => {
   it("shows a hint and asks nothing until there's a query", () => {
     render(<Search />);
     expect(screen.getByText(/Type a question/)).toBeTruthy();
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.some(([u]) => String(u).startsWith("/v1/search"))).toBe(false);
   });
 
   it("searches every source, then the chips narrow source= and the page URL", async () => {
@@ -106,6 +111,29 @@ describe("search view", () => {
     expect(within(item("commit")).getByText(SHA.slice(0, 10))).toBeTruthy();
     expect(within(item("conversation")).getByText("s-42")).toBeTruthy();
     expect(within(item("history")).getByText("s-7")).toBeTruthy();
+  });
+
+  it("badges each fact's level, and the Level filter narrows facts only", async () => {
+    results(
+      [
+        { ...fact("f1", "a billing fact"), scope: "team:billing", level: "team", team: "billing", team_name: "Billing", own_team: false },
+        { ...fact("f2", "an org fact"), level: "organisation" },
+      ],
+      [DOC],
+    );
+    history.replaceState(null, "", "/search?q=gate");
+    render(<Search />);
+    const facts = await screen.findByRole("region", { name: "Facts" });
+    const item = (id: string) => facts.querySelector(`a[href="/facts/${id}"]`)!.closest("li")!;
+    expect(item("f1").querySelector(".level")!.textContent).toBe("Team: Billing");
+    expect(item("f2").querySelector(".level")!.textContent).toBe("Organisation");
+
+    await screen.findByRole("option", { name: "Team: Billing" });
+    fireEvent.change(screen.getByLabelText("Level"), { target: { value: "team:billing" } });
+    expect(within(facts).queryByText("an org fact")).toBeNull();
+    expect(within(facts).getByText("a billing fact")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Results" }).querySelector('li[data-source="doc"]')).toBeTruthy();
+    expect(fetchMock.mock.calls.filter(([u]) => String(u).startsWith("/v1/search"))).toHaveLength(1);
   });
 
   it("shows the doc path without a link when the remote isn't GitHub", async () => {

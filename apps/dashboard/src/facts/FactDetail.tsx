@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
+import { LevelBadge } from "../levels/LevelBadge";
 import { githubBlobUrl } from "./github";
 import type { Fact } from "./query";
 
@@ -117,7 +118,9 @@ export function FactDetail({ id, onClose, onOpen }: { id: string; onClose: () =>
             <dt>Kind</dt>
             <dd>{f.kind}</dd>
             <dt>Scope</dt>
-            <dd>{f.scope}</dd>
+            <dd>
+              <LevelBadge fact={f} />
+            </dd>
             <dt>Status</dt>
             <dd>
               {f.status}

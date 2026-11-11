@@ -3,6 +3,9 @@ import { apiFetch } from "../api";
 import { navigate } from "../App";
 import { githubBlobUrl } from "../facts/github";
 import type { Fact } from "../facts/query";
+import { LevelBadge } from "../levels/LevelBadge";
+import { LevelFilter } from "../levels/LevelFilter";
+import { matchesLevel, useTeams } from "../levels/levels";
 import { apiUrl, readSearch, SOURCES, writeSearch, type Hit, type SearchState, type Source } from "./query";
 
 const LABELS: Record<Source, string> = {
@@ -85,6 +88,10 @@ export function Search() {
 
   const [body, setBody] = useState<{ facts: Fact[]; results: Hit[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { teams, mine } = useTeams();
+  // Narrows fact results only; other sources have no level.
+  const [level, setLevel] = useState("");
+  const facts = useMemo(() => body?.facts.filter((f) => matchesLevel(f, level)) ?? [], [body, level]);
 
   const set = useCallback((s: SearchState) => {
     history.replaceState(null, "", location.pathname + writeSearch(s));
@@ -138,6 +145,7 @@ export function Search() {
             </button>
           ))}
         </div>
+        <LevelFilter id="s-level" value={level} teams={teams} onChange={setLevel} />
       </div>
 
       {!state.q && <p className="help">Type a question or a few words to search facts, conversations, history, commits and docs.</p>}
@@ -146,16 +154,16 @@ export function Search() {
           {error}
         </p>
       )}
-      {body && body.facts.length === 0 && body.results.length === 0 && <p className="help">No results.</p>}
+      {body && facts.length === 0 && body.results.length === 0 && <p className="help">No results.</p>}
 
-      {body && body.facts.length > 0 && (
+      {facts.length > 0 && (
         <section aria-label="Facts">
           <h2>Facts</h2>
           <ul className="hits">
-            {body.facts.map((f) => (
+            {facts.map((f) => (
               <li key={f.id} data-source="fact">
                 <div className="meta">
-                  <span className="badge">{f.kind}</span> {f.scope} · {f.status}
+                  <span className="badge">{f.kind}</span> <LevelBadge fact={f} teams={teams} mine={mine} /> · {f.status}
                 </div>
                 <a
                   href={`/facts/${encodeURIComponent(f.id)}`}

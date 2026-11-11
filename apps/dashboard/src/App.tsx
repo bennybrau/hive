@@ -9,6 +9,7 @@ import { Settings } from "./settings/Settings";
 import { Shell } from "./Shell";
 import { Stale } from "./stale/Stale";
 import { Stats } from "./stats/Stats";
+import { Teams } from "./teams/Teams";
 import { SignIn } from "./SignIn";
 
 export function navigate(path: string): void {
@@ -65,6 +66,8 @@ export function App() {
         <Stats role={status.instance.role} />
       ) : path === "/settings" ? (
         <Settings role={status.instance.role} />
+      ) : path === "/teams" ? (
+        <Teams role={status.instance.role} />
       ) : path === "/repos" ? (
         <Repos role={status.instance.role} />
       ) : path === "/playbooks" || path.startsWith("/playbooks/") ? (
