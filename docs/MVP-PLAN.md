@@ -24,10 +24,11 @@ Why TS for the service: same stack and ops patterns as ASF (compose, registry-ow
 6. Dashboard — web UI: facts by scope/status, review queue, provenance view, search.
 7. Multi-instance — N Hermes instances, each identified by user + instance, sharing one store with a review gate before anything reaches shared scope.
 8. **Token accounting** — every LLM call the hive makes is logged with cost; an experiment harness measures tokens-to-answer with vs. without the hive.
+9. Teams — named groups of people and repos (`team:<key>` scope), managed by a curator. An order of preference, not a wall: any token can read any team's facts. Team reviewers review their team's candidates.
 
 **Out (explicitly deferred):**
 - Code graph / impact analysis / dead-code (Entire Graph). MVP does file-level locus via `git ls-files` + ripgrep anchors. See §8 for the cheap path to add Graph later.
-- Teams, Entra SSO, RBAC beyond one shared bearer token per instance. Scope model is present; enforcement is "token can read everything, write only to its own personal scope + propose to shared."
+- Entra SSO, RBAC beyond one shared bearer token per instance. Scope model is present; enforcement is "token can read everything, write only to its own personal scope + propose to shared."
 - ASF deploy seam / auto-recording built things. ASF integration is one webhook in M5.
 - Nightly synthesis digest. Contradiction detection stays manual (review queue shows "similar existing fact").
 - Graph visualization. Dashboard is lists + detail pages.

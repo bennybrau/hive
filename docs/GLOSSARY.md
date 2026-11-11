@@ -26,7 +26,8 @@ Terms marked (EB) are borrowed from Entire Brain; (M0) from Mem0.
 ## Claim attributes
 
 - **Type** — what kind of fact: `system` (a service and how to use it), `capability` (a skill/tool assistants can use), `decision` (we chose X because Y), `glossary` (what a word means here), `lesson` (a gotcha learned the hard way).
-- **Scope / Shelf** — who it's true for and who can see it: **Personal** (your assistant's notes about you; never leaves without you), **Team** (true for one team, visible to that team), **Company** (everyone's assistant can rely on it).
+- **Scope / Shelf** — who it's true for and who can see it: **Personal** (your assistant's notes about you; never leaves without you), **Team** (true for one team, visible to that team), **Company** (everyone's assistant can rely on it). As built, see **Levels**.
+- **Levels** — the scopes as built, narrowest first: **personal** (`personal:<user>`) < **repository** (`repo:<key>`) < **team** (`team:<key>`) < **organisation** (stored as `global`). Teams are an order of preference, not a wall: any token can read any team's facts.
 - **Status** — lifecycle: `candidate` → `reviewed` → `promoted`, or sideways to `disputed` / `retracted`. Only promoted claims compile into pages.
 - **Provenance** — the evidence anchors a claim points back to (episode id, repo + commit, deploy record, chat permalink). What lets the assistant answer "why do you think that?" (EB: blameable.)
 - **Origin** — how the claim got in: `ingested` (read from a system of record), `distilled` (extracted from conversation by the background job), `authored` (a person typed "remember that…"). Origin decides whether a human reviews it.
@@ -56,6 +57,8 @@ Terms marked (EB) are borrowed from Entire Brain; (M0) from Mem0.
 
 - **Owner** — the named team responsible for a system or domain. Owners approve what the company shelf says about their stuff.
 - **Steward** — the person responsible for a team-shelf claim with no owning team. The requester by default. Caps the claim at team scope until an owner exists, which keeps shadow IT visible instead of hidden.
+- **Team** — a named group of people (members) and the repos it works on, with a short key (`billing`). A fact can live at team level as `team:<key>`. Teams are made and changed by a curator.
+- **Team reviewer** — a team member who reviews that team's candidate facts, in place of the curator.
 - **Curator** — Day-1 stand-in for all owners: one person reviews everything until an ownership map exists.
 - **Ownership map** — the lookup from system/domain → owning team. Needed before review can be routed; Phase 2.
 - **Entitlement filter** — applied at search time: a person only ever sees pages on shelves they're allowed to read. Same idea as Mem0's "always scope the search."

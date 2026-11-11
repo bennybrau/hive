@@ -119,6 +119,26 @@ A playbook is a short procedure for a class of task: when it applies, its steps 
   isn't `active`.
 - `DELETE /v1/playbooks/:id` → `{playbook}` now `retracted`. 404 no such playbook; 409 when it isn't `active`.
 
+## Teams
+
+A team is a group of people (each a `member` or a `reviewer`) and the repos it works on. Facts and playbooks may be
+stored in `team:<key>` scope (nothing writes there yet). Teams are an order of preference, not a wall: any token can
+read any team's facts. Everyone can list teams; only a curator changes them (members get 403).
+A team is `{key, name, created_at, members: [{user_id, role}], repos: [repo_key]}`, members and repos sorted.
+
+- `GET /v1/teams` → `{teams}`, by key.
+- `GET /v1/teams/mine` → `{teams: [{key, name, role}]}`: the teams the caller's user is in, by key.
+- `POST /v1/teams` `{key, name}` → 201 `{team}`. `key` is 1–64 of `a-z 0-9 -` (400 otherwise); 409 if it exists.
+- `DELETE /v1/teams/:key` → `{deleted: key}`. 409 while any fact or playbook (any status) has `scope = 'team:<key>'`,
+  with the counts in `error`.
+- `PUT /v1/teams/:key/members/:user_id` `{role: member|reviewer}` → `{team}`. Adds the member or changes their role.
+  `user_id` need not have a token yet.
+- `DELETE /v1/teams/:key/members/:user_id` → `{team}`. 404 if they aren't in the team.
+- `PUT /v1/teams/:key/repos/:repo_key` → `{team}` (URL-encode the `/` in the key). 404 `{error: "unknown repo"}` if
+  the repo isn't registered. Idempotent.
+- `DELETE /v1/teams/:key/repos/:repo_key` → `{team}`. 404 if the team doesn't list it.
+- An unknown team is a 404 on every team route.
+
 ## Stats (curator only)
 
 - `GET /v1/stats?days=30` — `days` 1–365 (400 otherwise); members get 403 `{error: "only a curator can see stats"}`.
