@@ -3,6 +3,7 @@ import type pg from "pg";
 import { exchangeFor } from "../distill.js";
 import { ConflictError, FACT_COLUMNS, reviewFact, type ReviewInput } from "../facts.js";
 import { loadReviewQueueItems } from "../review-queue.js";
+import { ScopeError, ScopeNotFound } from "../scope.js";
 
 /** Cosine floor for "a fact like this already exists" hints in the queue. */
 const SIMILAR_MIN = 0.85;
@@ -109,6 +110,7 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
             action: { type: "string", enum: ["approve", "fix", "reject"] },
             note: { type: "string", maxLength: 1000 },
             new_text: { type: "string", minLength: 3, maxLength: 2000 },
+            scope: { type: "string" },
           },
         },
       },
@@ -116,6 +118,7 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
     async (req, reply) => {
       if (!curatorOnly(req, reply)) return reply;
       if (req.body.action === "fix" && !req.body.new_text) return reply.code(400).send({ error: "fix needs new_text" });
+      if (req.body.action === "reject" && req.body.scope !== undefined) return reply.code(400).send({ error: "reject takes no scope" });
       try {
         const out = await reviewFact(pool, req.params.id, req.instance!, req.body);
         if (!out) return reply.code(404).send({ error: "no such fact" });
@@ -123,6 +126,8 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
         return out;
       } catch (err) {
         if (err instanceof ConflictError) return reply.code(409).send({ error: err.message });
+        if (err instanceof ScopeNotFound) return reply.code(404).send({ error: err.message });
+        if (err instanceof ScopeError) return reply.code(400).send({ error: err.message });
         throw err;
       }
     },

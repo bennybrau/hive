@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type pg from "pg";
 import type { Instance } from "./auth.js";
-import { readableScopes } from "./scope.js";
+import { readableScopes, ScopeError, ScopeNotFound } from "./scope.js";
 
 export const FACT_KINDS = ["decision", "invariant", "gotcha", "preference", "convention", "system"] as const;
 export type FactKind = (typeof FACT_KINDS)[number];
@@ -235,6 +235,20 @@ export interface ReviewInput {
   action: ReviewAction;
   note?: string;
   new_text?: string;
+  /** Approve or fix into this scope instead: global or team:<key> (or the candidate's own scope, no move). */
+  scope?: string;
+}
+
+/** Where a reviewed candidate goes: its own scope, global or an existing team. ScopeNotFound = no such team, ScopeError = anything else. */
+async function reviewTarget(client: pg.PoolClient, current: string, requested: string | undefined): Promise<string> {
+  if (requested === undefined || requested === current || requested === "global") return requested ?? current;
+  if (requested.startsWith("team:")) {
+    const key = requested.slice(5);
+    const { rowCount } = await client.query("select 1 from teams where key = $1", [key]);
+    if (!rowCount) throw new ScopeNotFound(`no such team ${JSON.stringify(key)}`);
+    return requested;
+  }
+  throw new ScopeError(`a candidate can only move to global or team:<key>, not ${JSON.stringify(requested)}`);
 }
 
 type Locked = Fact & { supersedes: string | null; content_hash: string };
@@ -242,8 +256,9 @@ const LOCKED_COLUMNS = `${FACT_COLUMNS}, supersedes, content_hash`;
 
 /**
  * A curator decides on a candidate. approve -> active; fix -> new text (re-embedded by the worker) and
- * active, or merged into the fact that already has that text; reject -> retracted. An approve or a fix that isn't
- * a merge also supersedes the fact in `metadata.replaces` (see adoptReplaces). Every decision is a reviews row. null = no such fact; ConflictError = not a candidate, or a fix whose text is a dead fact.
+ * active, or merged into the fact that already has that text; reject -> retracted. An approve or fix with `scope` also
+ * moves it (global or team:<key>; the note says so), merging the same way when that scope already has its text. An approve or a fix that isn't
+ * a merge also supersedes the fact in `metadata.replaces` (see adoptReplaces). Every decision is a reviews row. null = no such fact; ConflictError = not a candidate, or a fix or move whose text is a dead fact.
  */
 export async function reviewFact(
   pool: pg.Pool,
@@ -271,23 +286,26 @@ export async function reviewFact(
     let fact: Fact;
     let mergedInto: Fact | null = null;
     let newText: string | null = null;
-    if (input.action === "approve") {
-      fact = await updateFact(id, "status = 'active'");
-      await activateSupersede(client, cand);
-      await adoptReplaces(client, cand);
-    } else if (input.action === "reject") {
+    let note = input.note ?? null;
+    if (input.action === "reject") {
       fact = await updateFact(id, "status = 'retracted', status_note = $2, valid_to = now()", [
         input.note ? `rejected: ${input.note}` : "rejected",
       ]);
     } else {
-      newText = normalizeText(input.new_text ?? "");
-      const hash = contentHash(newText, cand.scope);
+      const target = await reviewTarget(client, cand.scope, input.scope);
+      if (target !== cand.scope) note = `${note ? `${note}; ` : ""}moved ${cand.scope} → ${target}`;
+      if (input.action === "fix") newText = normalizeText(input.new_text ?? "");
+      const hash = contentHash(newText ?? cand.text, target);
       const hit =
         hash === cand.content_hash
           ? undefined
           : (await client.query<Locked>(`select ${LOCKED_COLUMNS} from facts where content_hash = $1 for update`, [hash])).rows[0];
       if (!hit) {
-        fact = await updateFact(id, "text = $2, content_hash = $3, embedding = null, status = 'active'", [newText, hash]);
+        fact =
+          newText === null
+            ? await updateFact(id, "scope = $2, content_hash = $3, status = 'active'", [target, hash])
+            : await updateFact(id, "text = $4, scope = $2, content_hash = $3, embedding = null, status = 'active'", [target, hash, newText]);
+        // cand is the row as locked, so the fact it replaces is looked up in its old scope.
         await activateSupersede(client, cand);
         await adoptReplaces(client, cand);
       } else {
@@ -314,7 +332,7 @@ export async function reviewFact(
       id,
       curator.user_id,
       input.action,
-      input.note ?? null,
+      note,
       newText,
     ]);
     await client.query("commit");

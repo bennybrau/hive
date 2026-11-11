@@ -99,7 +99,7 @@ The queue only lists scopes the curator can read (never another user's personal 
     `null`. Approving that candidate supersedes the fact, so it leaves `flagged`; rejecting it leaves the flag. Curate
     the fact (`keep`, `fix`, `retire`) to clear it.
   - `last_distill_at`: when the last `done` distill job finished (ISO timestamp), or `null` if none has.
-- `POST /v1/facts/:id/review` `{action: approve|fix|reject, note?, new_text?}` → `{fact, merged_into}`. 404 no such fact,
+- `POST /v1/facts/:id/review` `{action: approve|fix|reject, note?, new_text?, scope?}` → `{fact, merged_into}`. 404 no such fact,
   409 when it isn't a `candidate`. Every decision writes a `reviews` row (`new_text` on fix).
   - `approve` → `active` (and supersedes its target, see above). A candidate with no `supersedes` whose
     `metadata.replaces` is still `active` in its scope gets it as `supersedes`, and that fact is superseded. The same
@@ -108,6 +108,11 @@ The queue only lists scopes the curator can read (never another user's personal 
     already another fact in that scope, the candidate is merged instead: its anchors move to that fact, it is
     `retracted` with `status_note: "merged into <id>"`, and `merged_into` is that fact (activated if it was a
     candidate). 409 if that fact is `retracted` or `superseded`.
+  - `scope` (approve or fix; 400 on reject) shares the candidate on approve: `global` or `team:<key>` moves it there,
+    its own scope is no move. 404 for a team that doesn't exist, 400 for any other scope (another `repo:`, a
+    `personal:`). If its text is already a fact in that scope, it is merged into that fact as on `fix` (409 if that
+    fact is `retracted` or `superseded`). The `replaces` and `supersedes` targets are still looked up in its old
+    scope. The review `note` is the caller's note plus `moved <old> → <new>`.
   - `reject` → `retracted`, `status_note: "rejected: <note>"` (or `"rejected"`), `valid_to = now()`.
 
 ## Playbooks
