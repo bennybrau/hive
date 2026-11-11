@@ -132,6 +132,27 @@ export async function ownTeams(pool: pg.Pool, who: Pick<Instance, "user_id">, re
   return rows.map((r) => r.team_key);
 }
 
+/**
+ * The caller's own teams (see ownTeams), for ranking reads in the order of preference; undefined when there is no team
+ * at all (or no teams table yet, before migration 0017), so reads rank exactly as before teams.
+ */
+export async function teamPreference(pool: pg.Pool, who: Pick<Instance, "user_id">, repoKey?: string): Promise<string[] | undefined> {
+  const any = await pool.query("select 1 from teams limit 1").then(
+    (r) => (r.rowCount ?? 0) > 0,
+    (err: { code?: string }) => {
+      if (err.code === "42P01") return false; // undefined_table
+      throw err;
+    },
+  );
+  return any ? ownTeams(pool, who, repoKey) : undefined;
+}
+
+/** How far a scope is down the order of preference: personal and repository 0, own team 1, organisation 2, other team 3. */
+export function preferenceSteps(scope: string, ownTeamKeys: string[]): number {
+  if (scope.startsWith("team:")) return ownTeamKeys.includes(scope.slice(5)) ? 1 : 3;
+  return scope.startsWith("personal:") || scope.startsWith("repo:") ? 0 : 2;
+}
+
 /** Every team's name, by key. */
 export async function teamNames(pool: pg.Pool): Promise<Map<string, string>> {
   const { rows } = await pool.query<{ key: string; name: string }>("select key, name from teams");

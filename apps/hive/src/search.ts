@@ -3,6 +3,7 @@ import type { Instance } from "./auth.js";
 import { toPgVector, type Embedder } from "./embed.js";
 import { FACT_COLUMNS, type Fact } from "./facts.js";
 import { readableScopes } from "./scope.js";
+import { preferenceSteps } from "./teams.js";
 
 export interface SearchDeps {
   pool: pg.Pool;
@@ -148,6 +149,11 @@ export async function searchFacts(
     q: string; repoKeys?: string[]; k: number; statuses: string[]; qvec: string | null; minSimilarity?: number;
     /** Repo-relative paths the caller is working on (git status); facts located there rank higher. */
     changedPaths?: string[];
+    /**
+     * The caller's own teams (teamPreference); when set, each step down the order of preference (own team, organisation,
+     * other team) costs TEAM_PREFERENCE. Undefined (no teams at all) ranks as before teams.
+     */
+    ownTeamKeys?: string[];
   },
 ): Promise<FactHit[]> {
   const repoKeys = opts.repoKeys?.length ? opts.repoKeys : undefined;
@@ -156,8 +162,9 @@ export async function searchFacts(
   const changed = (opts.changedPaths ?? []).filter(Boolean);
   const main = repoKeys && repoKeys.length > 1 ? `repo:${repoKeys[0]}` : null;
   // with changed paths, look deeper so a located fact ranked just below k can be lifted into it
-  // (and with extra repos, so a main-repo fact tied just below k wins the tie)
-  const depth = changed.length || main ? opts.k * 3 : opts.k;
+  // (and with extra repos, so a main-repo fact tied just below k wins the tie; and with teams, so a preferred one can)
+  const own = opts.ownTeamKeys;
+  const depth = changed.length || main || own ? opts.k * 3 : opts.k;
   const ranked = await hybridIds(deps, { table: "facts", tsv: "text_tsv", filter }, opts.q, opts.qvec, depth, opts.minSimilarity);
   if (ranked.length === 0) return [];
   const { rows } = await deps.pool.query<Fact & { anchors: number; verify: string | null; paths: string[] }>(
@@ -172,8 +179,12 @@ export async function searchFacts(
   );
   const near = new Set(rows.filter((r) => overlaps(r.paths, changed)).map((r) => r.id));
   const inMain = new Set(main ? rows.filter((r) => r.scope === main).map((r) => r.id) : []);
-  if (near.size || main) {
-    for (const r of ranked) if (near.has(r.id)) r.score += LOCUS_BOOST;
+  if (near.size || main || own) {
+    const scopeOf = new Map(rows.map((r) => [r.id, r.scope]));
+    for (const r of ranked) {
+      if (near.has(r.id)) r.score += LOCUS_BOOST;
+      if (own) r.score -= TEAM_PREFERENCE * preferenceSteps(scopeOf.get(r.id) ?? "", own);
+    }
     ranked.sort((a, b) => b.score - a.score || Number(inMain.has(b.id)) - Number(inMain.has(a.id)));
   }
   return byRank(ranked.slice(0, opts.k), rows).map(({ paths: _paths, ...r }) => (changed.length ? { ...r, near_changes: near.has(r.id) } : r));
@@ -181,6 +192,8 @@ export async function searchFacts(
 
 /** Same as being ranked first by one more signal in reciprocal rank fusion. */
 export const LOCUS_BOOST = 1 / (RRF_K + 1);
+/** One step down the order of preference: personal and repository > own team > organisation > other team. */
+export const TEAM_PREFERENCE = LOCUS_BOOST / 2;
 
 /** A locus entry matches a changed file if it is that file or a directory containing it. */
 export function overlaps(locus: string[], changed: string[]): boolean {

@@ -3,7 +3,7 @@ import type { Instance } from "../auth.js";
 import { recordUse } from "../facts.js";
 import { resolveAlsoRepos, ScopeError } from "../scope.js";
 import { embedQuery, searchDocs, searchEpisodes, searchFacts, type FactHit, type SearchDeps, type TextHit } from "../search.js";
-import { labelFor, type LevelLabel } from "../teams.js";
+import { labelFor, teamPreference, type LevelLabel } from "../teams.js";
 
 export const SOURCES = ["fact", "conversation", "history", "commit", "doc"] as const;
 export type Source = (typeof SOURCES)[number];
@@ -39,9 +39,10 @@ export async function recall(
   log: FastifyBaseLogger,
 ): Promise<RecallResult> {
   const repos = await repoKeysOf(deps, opts.repoKey, opts.alsoRepos);
-  const qvec = await embedQuery(deps.embedder, opts.q);
+  const [qvec, ownTeamKeys] = await Promise.all([embedQuery(deps.embedder, opts.q), teamPreference(deps.pool, who, opts.repoKey)]);
   const facts = await searchFacts(deps, who, {
     q: opts.q, repoKeys: repos.repoKeys, k: opts.k, statuses: ["active"], qvec, minSimilarity: opts.minSimilarity, changedPaths: opts.changedPaths,
+    ownTeamKeys,
   });
   await recordUse(deps.pool, facts.map((f) => f.id), log);
   return {
@@ -63,10 +64,10 @@ export async function search(
   const { q, sources, k } = opts;
   const repos = await repoKeysOf(deps, opts.repoKey, opts.alsoRepos);
   const { repoKeys } = repos;
-  const qvec = await embedQuery(deps.embedder, q);
+  const [qvec, ownTeamKeys] = await Promise.all([embedQuery(deps.embedder, q), teamPreference(deps.pool, who, opts.repoKey)]);
   const statuses = opts.includeCandidates ? ["active", "candidate"] : ["active"];
   const [facts, conversation, history, commit, doc] = await Promise.all([
-    sources.includes("fact") ? searchFacts(deps, who, { q, repoKeys, k, statuses, qvec }) : [],
+    sources.includes("fact") ? searchFacts(deps, who, { q, repoKeys, k, statuses, qvec, ownTeamKeys }) : [],
     sources.includes("conversation") ? searchEpisodes(deps, who, "conversation", { q, k, qvec }) : [],
     sources.includes("history") ? searchEpisodes(deps, who, "history", { q, k, qvec }) : [],
     sources.includes("commit") ? searchEpisodes(deps, who, "commit", { q, k, qvec, repoKeys }) : [],

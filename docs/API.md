@@ -153,6 +153,15 @@ A team is `{key, name, created_at, members: [{user_id, role}], repos: [repo_key]
 - `DELETE /v1/teams/:key/repos/:repo_key` → `{team}`. 404 if the team doesn't list it.
 - An unknown team is a 404 on every team route.
 
+Order of preference: at equal relevance, recall, search and the brief rank a fact by its level: personal and
+repository first, then the caller's own teams (those they're in, plus those that list the `repo_key` repo), then
+organisation (`global`), then other teams. Each step down costs half an RRF rank-1 boost off the fused `score` (so a
+`score` can be below 0), and the deeper list is re-sorted (ties: the `repo_key` repo's fact first). An other team's
+fact that matches both the words and the meaning still beats an organisation fact that matches only the meaning.
+The brief's `gotchas` stay newest first, with the level breaking only a tie; other teams' gotchas and facts are packed
+last, into what the rest of the brief leaves of the budget, so they are dropped first. With no team at all, every read
+ranks as it did before teams.
+
 ## Stats (curator only)
 
 - `GET /v1/stats?days=30` — `days` 1–365 (400 otherwise); members get 403 `{error: "only a curator can see stats"}`.
@@ -351,6 +360,7 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   `unknown_repos` and aren't read (an unregistered repo's facts included). On a score tie the `repo_key` repo's fact
   goes first. Only with `repo_key` (without it every repo is readable and `also_repos` is ignored). The answer has
   `unknown_repos: [...]` only when `also_repos` is sent.
+  With teams, facts are ranked in the order of preference (see Teams).
 - `GET /v1/search?q=&source=all|fact,conversation,history,commit,doc&repo_key=&also_repos=&k=20&include_candidates=false` —
   `{mode, facts:[...], results:[{source, id, snippet, score, matched, similarity, session_id | path+line_start+line_end+sha+remote_url | ref+subject | ref+title+pr_url+merged_at | ref+author, ...}]}`.
   Doc hits' `sha` is the commit the repo was last ingested at (usable in a blob link); commit hits' `subject` is the message's first line.
@@ -360,7 +370,7 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
   `pr_url` and `merged_at` (null when not sent); `asf_dialog` hits carry `ref` and `author` (`metadata.author`).
   `commit` and `doc` are shared: commit messages and document chunks of registered repos (`repo_key` narrows to one).
   `also_repos` works as for `/v1/recall` and widens `fact`, `commit` and `doc` to those repos too (not `history`,
-  which isn't narrowed by repo anyway); `unknown_repos` likewise.
+  which isn't narrowed by repo anyway); `unknown_repos` likewise. `facts` are ranked as for `/v1/recall`, teams included.
 
 ## Brief (hot path: SQL + one local query embedding, no LLM)
 
@@ -398,6 +408,7 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
     the main repo's leftovers followed by the extra repos' items share what's left. Each section lists the main repo's
     items first. Only when `also_repos` is sent, each location and run gets its
     `repo_key` and the answer gets `unknown_repos: [...]` (keys that aren't registered, so weren't read).
+  - With teams, `facts`, `gotchas` and the budget follow the order of preference (see Teams).
   - Each fact in the answer's `gotchas` and `facts` (after the budget) gets `use_count + 1` and `last_used_at = now()`,
     like `/v1/recall`.
 

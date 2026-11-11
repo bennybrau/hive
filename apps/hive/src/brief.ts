@@ -9,7 +9,7 @@ import { FACT_COLUMNS, type Fact } from "./facts.js";
 import { bestPlaybook, trimPlaybook, type BriefPlaybook } from "./playbooks.js";
 import { readableScopes, resolveAlsoRepos } from "./scope.js";
 import { embedQuery, HEADLINE, overlaps, searchDocs, searchFacts, TSQUERY, type SearchDeps } from "./search.js";
-import { labelFor, type LevelLabel } from "./teams.js";
+import { labelFor, preferenceSteps, teamPreference, type LevelLabel } from "./teams.js";
 
 /** Same strict gate the plugin's prefetch uses: a brief is injected, so only close facts. */
 export const BRIEF_MIN_SIMILARITY = 0.62;
@@ -144,8 +144,13 @@ export function nearbyTests(testPaths: string[], locations: string[], k = TESTS_
     .map(([path, v]) => ({ path, near: v.near, why: RANKS[v.rank - 1]! }));
 }
 
-/** Active gotchas the caller can read whose locus or anchor paths overlap the given paths. */
-async function overlappingGotchas(deps: SearchDeps, who: Instance, repoKeys: string[], paths: string[]): Promise<BriefFact[]> {
+/**
+ * Active gotchas the caller can read whose locus or anchor paths overlap the given paths, newest first; with own teams
+ * (teamPreference), the order of preference breaks a tie.
+ */
+async function overlappingGotchas(
+  deps: SearchDeps, who: Instance, repoKeys: string[], paths: string[], ownTeamKeys: string[] | undefined,
+): Promise<BriefFact[]> {
   if (!paths.length) return [];
   const [scopeSql, scopeParams] = readableScopes(who, repoKeys, 1, "f.scope");
   const { rows } = await deps.pool.query<Fact & { paths: string[] }>(
@@ -155,6 +160,10 @@ async function overlappingGotchas(deps: SearchDeps, who: Instance, repoKeys: str
      order by f.recorded_at desc`,
     scopeParams,
   );
+  if (ownTeamKeys) {
+    rows.sort((a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime()
+      || preferenceSteps(a.scope, ownTeamKeys) - preferenceSteps(b.scope, ownTeamKeys));
+  }
   return rows.filter((r) => overlaps(r.paths, paths)).map((r) => ({ id: r.id, text: r.text, kind: r.kind, scope: r.scope, locus: r.locus }));
 }
 
@@ -266,8 +275,8 @@ export async function buildBrief(
   const also = opts.alsoRepos ? await resolveAlsoRepos(deps.pool, repoKey, opts.alsoRepos) : null;
   const extra = also?.known ?? [];
   const repoKeys = [repoKey, ...extra];
-  const qvec = await embedQuery(deps.embedder, task);
-  const factOpts = { q: task, k: FACTS_K, statuses: ["active"], qvec, minSimilarity: BRIEF_MIN_SIMILARITY, changedPaths };
+  const [qvec, ownTeamKeys] = await Promise.all([embedQuery(deps.embedder, task), teamPreference(deps.pool, who, repoKey)]);
+  const factOpts = { q: task, k: FACTS_K, statuses: ["active"], qvec, minSimilarity: BRIEF_MIN_SIMILARITY, changedPaths, ownTeamKeys };
   const [terms, registered, factHits, mainFactHits, matched] = await Promise.all([
     taskTerms(deps, task),
     deps.pool.query("select 1 from repos where key = $1", [repoKey]).then((r) => (r.rowCount ?? 0) > 0),
@@ -301,7 +310,7 @@ export async function buildBrief(
   if (registered || extra.length) {
     const extraRuns = await Promise.all(extra.map((k, i) => relatedRuns(deps, k, task, extraLocations[i]!.map((l) => l.path))));
     const allPaths = [...locations, ...extraLocations.flat()].map((l) => l.path);
-    gotchas = await overlappingGotchas(deps, who, repoKeys, [...allPaths, ...changedPaths]);
+    gotchas = await overlappingGotchas(deps, who, repoKeys, [...allPaths, ...changedPaths], ownTeamKeys);
     extra.forEach((k, i) => {
       otherLocations.push(...tag(extraLocations[i]!, k));
       otherRuns.push(...tag(extraRuns[i]!, k));
@@ -317,26 +326,46 @@ export async function buildBrief(
         ...(f.near_changes !== undefined ? { near_changes: f.near_changes } : {}),
       }));
 
+  // other teams' gotchas and facts are held back and packed last, into what the rest leaves of the budget
+  const otherTeam = (f: BriefFact) => !!ownTeamKeys && preferenceSteps(f.scope, ownTeamKeys) === 3;
+  const later: Record<Section, BriefFact[]> = { playbook: [], gotchas: [], facts: [], locations: [], runs: [], tests: [] };
+  const holdBack = (sections: Record<Section, unknown[]>): Record<Section, unknown[]> => {
+    const keep = (s: "gotchas" | "facts") => {
+      later[s].push(...(sections[s] as BriefFact[]).filter(otherTeam));
+      return (sections[s] as BriefFact[]).filter((f) => !otherTeam(f));
+    };
+    return { ...sections, gotchas: keep("gotchas"), facts: keep("facts") };
+  };
+
   let packed: ReturnType<typeof packBudget>;
+  let all: Record<Section, unknown[]>;
   if (extra.length) {
     // the main repo's items get the first BRIEF_MAIN_SHARE of the budget; extra repos' compete for the rest
     const extraScopes = new Set(extra.map((k) => `repo:${k}`));
     const mainFactIds = new Set(mainFactHits.map((f) => f.id));
     const mainPlaybook = playbook.filter((p) => p.scope === `repo:${repoKey}` || p.scope === "global");
-    packed = packShared(
-      {
-        playbook: mainPlaybook, gotchas: gotchas.filter((g) => !extraScopes.has(g.scope)), facts: toFacts(mainFactHits),
-        locations, runs, tests,
-      },
-      {
-        playbook: playbook.filter((p) => !mainPlaybook.includes(p)), gotchas: gotchas.filter((g) => extraScopes.has(g.scope)),
-        facts: toFacts(factHits.filter((f) => !mainFactIds.has(f.id))), locations: otherLocations, runs: otherRuns, tests: [],
-      },
-      budgetTokens,
-      BRIEF_MAIN_SHARE,
-    );
+    const main: Record<Section, unknown[]> = {
+      playbook: mainPlaybook, gotchas: gotchas.filter((g) => !extraScopes.has(g.scope)), facts: toFacts(mainFactHits),
+      locations, runs, tests,
+    };
+    const rest: Record<Section, unknown[]> = {
+      playbook: playbook.filter((p) => !mainPlaybook.includes(p)), gotchas: gotchas.filter((g) => extraScopes.has(g.scope)),
+      facts: toFacts(factHits.filter((f) => !mainFactIds.has(f.id))), locations: otherLocations, runs: otherRuns, tests: [],
+    };
+    all = Object.fromEntries(SECTIONS.map((s) => [s, [...main[s], ...rest[s]]])) as Record<Section, unknown[]>;
+    packed = packShared(holdBack(main), holdBack(rest), budgetTokens, BRIEF_MAIN_SHARE);
   } else {
-    packed = packBudget({ playbook, gotchas, facts: toFacts(factHits), locations, runs, tests }, budgetTokens);
+    all = { playbook, gotchas, facts: toFacts(factHits), locations, runs, tests };
+    packed = packBudget(holdBack(all), budgetTokens);
+  }
+  if (later.gotchas.length || later.facts.length) {
+    const last = packBudget(later, budgetTokens - packed.tokens.total);
+    const taken = new Set([...SECTIONS.flatMap((s) => packed.out[s]), ...last.out.gotchas, ...last.out.facts]);
+    packed = {
+      out: Object.fromEntries(SECTIONS.map((s) => [s, all[s].filter((i) => taken.has(i))])) as Record<Section, unknown[]>,
+      tokens: Object.fromEntries([...SECTIONS, "total" as const].map((s) => [s, packed.tokens[s] + last.tokens[s]])) as Record<Section | "total", number>,
+      dropped: Object.fromEntries(SECTIONS.map((s) => [s, packed.dropped[s] + last.dropped[s]])) as Record<Section, number>,
+    };
   }
   const { out, tokens, dropped } = packed;
   const labelled = await labelFor(deps.pool, who, repoKey, [...(out.gotchas as BriefFact[]), ...(out.facts as BriefFact[])]);
