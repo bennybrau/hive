@@ -10,9 +10,12 @@
 # token and an `e2e-curator-<timestamp>` curator token each run (left in place). The browser shares the
 # hive container's network, so it reaches the hive at 127.0.0.1:8800 the same way on Mac and Linux.
 #
-# Every fact and team the specs make carries this run's marker (HIVE_E2E_RUN, `zr<timestamp>`). The specs
-# retire their own facts; on exit the script retracts any active fact with the marker, deletes the marker's
-# team-scoped facts and `e2e-` teams, and fails if an active fact with the marker is left.
+# Every fact and team the specs make carries this run's marker (HIVE_E2E_RUN, `zr<timestamp>`). The four
+# stale facts get their own `zs<timestamp>` marker instead and sit in a throwaway repo, `repo:e2e/stale-<marker>`,
+# so no brief or recall in the specs reads them and records a use. The specs retire their own facts; on exit the
+# script retracts any active or candidate fact with the run marker, or that is a stale fact or supersedes one,
+# deletes the marker's team-scoped facts and `e2e-` teams, and fails if an active or candidate fact by the same
+# rule is left.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PW_VERSION=1.64.1   # the image tag and @playwright/test must match
@@ -40,8 +43,12 @@ cleanup() {
   [ -n "$run" ] || { echo "cleanup: no run marker, refusing to touch the hive" >&2; exit 1; }
   echo "== cleanup ($run)"
   # The specs retire what they made; this catches the rest, e.g. a member's personal facts or a failed test.
-  psql_ -c "update facts set status = 'retracted', status_note = 'e2e cleanup'
-    where status = 'active' and text like '%${run}%'" || status=1
+  local mine="status in ('active', 'candidate') and (text like '%${run}%'"
+  [ -z "${HIVE_E2E_STALE_IDS:-}" ] \
+    || mine="$mine or id::text = any(string_to_array('$HIVE_E2E_STALE_IDS', ','))
+      or supersedes::text = any(string_to_array('$HIVE_E2E_STALE_IDS', ','))"
+  mine="$mine)"
+  psql_ -c "update facts set status = 'retracted', status_note = 'e2e cleanup' where $mine" || status=1
   # A team can't be deleted while a fact is in it, so the marker's team-scoped facts go first.
   psql_ <<SQL || status=1
 begin;
@@ -57,20 +64,23 @@ SQL
       || { echo "cleanup: couldn't delete team $key" >&2; status=1; }
   done
   local left
-  left=$(psql_ -c "select count(*) from facts where status = 'active' and text like '%${run}%'") || left="?"
+  left=$(psql_ -c "select count(*) from facts where $mine") || left="?"
+  echo "cleanup: $left active or candidate e2e fact(s) left"
   if [ "$left" != 0 ]; then
-    echo "cleanup: $left active fact(s) containing $run are left" >&2
+    echo "cleanup: $left active or candidate fact(s) containing $run, or stale or superseding a stale fact, are left" >&2
     exit 1
   fi
   exit "$status"
 }
 trap cleanup EXIT
 
-# Four global facts nobody has used for 400 days, for the Stale tab to keep, fix, retire and pin.
+# Four facts nobody has used for 400 days, for the Stale tab to keep, fix, retire and pin. Their marker isn't
+# built from $run and their repo is theirs alone (see the header).
+stale_marker="zs$(date +%s)"
 HIVE_E2E_STALE_IDS=$(psql_ -c "
   insert into facts (text, kind, scope, origin, status, content_hash, valid_from, recorded_at)
-  select t, 'decision', 'global', 'authored', 'active', md5(t), now() - interval '400 days', now() - interval '400 days'
-  from (select 'Dashboard e2e stale fact ${run}s #' || n as t from generate_series(1, 4) n) s
+  select t, 'decision', 'repo:e2e/stale-${stale_marker}', 'authored', 'active', md5(t), now() - interval '400 days', now() - interval '400 days'
+  from (select 'Dashboard e2e stale fact ${stale_marker} #' || n as t from generate_series(1, 4) n) s
   returning id" | paste -sd, -)
 export HIVE_E2E_STALE_IDS
 

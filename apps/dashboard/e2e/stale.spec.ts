@@ -4,7 +4,7 @@ import { expect, test } from "@playwright/test";
 const HIVE = process.env.HIVE_URL ?? "http://127.0.0.1:8800";
 const MEMBER = process.env.HIVE_E2E_TOKEN ?? "";
 const CURATOR = process.env.HIVE_E2E_CURATOR_TOKEN ?? "";
-// Four active global facts the script backdated 400 days.
+// Four active facts the script backdated 400 days, in a repo nothing else reads.
 const STALE = (process.env.HIVE_E2E_STALE_IDS ?? "").split(",").filter(Boolean);
 
 const RUN = process.env.HIVE_E2E_RUN ?? "";
@@ -46,7 +46,13 @@ test("a curator keeps, fixes, retires and pins stale facts", async ({ page }) =>
   const list = page.getByRole("list", { name: "Stale facts" });
   const panel = page.getByRole("complementary", { name: "Fact" });
   const row = (id: string) => list.locator(`li[data-id="${id}"]`);
-  for (const id of STALE) await expect(row(id)).toContainText("idle 400 days");
+  // If a stale fact has been used or touched since the script made it, it isn't in the list; say why.
+  const before = await Promise.all(STALE.map(async (id) => (await get(id)).fact));
+  for (const f of before) {
+    const { status, stale, use_count, cite_count, last_used_at, pinned } = f;
+    const state = JSON.stringify({ status, stale, use_count, cite_count, last_used_at, pinned });
+    await expect(row(f.id), `stale fact ${f.id} isn't listed: ${state}`).toContainText("idle 400 days");
+  }
 
   await row(keep).click();
   await expect(panel.getByText("never")).toBeVisible();

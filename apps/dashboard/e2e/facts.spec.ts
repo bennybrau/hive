@@ -49,5 +49,5 @@ test("filter, search and open a fresh personal fact", async ({ page }) => {
   await expect(page).toHaveURL(/\/facts\/[0-9a-f-]+\?.*q=/);
   const panel = page.getByRole("complementary", { name: "Fact detail" });
   await expect(panel.getByText(text)).toBeVisible();
-  await expect(panel.locator(".badge")).toHaveText("unverified");
+  await expect(panel.locator(".badge.verify-unverified")).toHaveText("unverified");
 });
