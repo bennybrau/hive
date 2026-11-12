@@ -174,7 +174,7 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
             <tr>
               <th scope="col">Text</th>
               <th scope="col">Kind</th>
-              <th scope="col">Scope</th>
+              <th scope="col">Level</th>
               <th scope="col">Status</th>
               <th scope="col">Origin</th>
               <th scope="col">Recorded</th>

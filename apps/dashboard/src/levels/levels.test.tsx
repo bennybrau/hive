@@ -1,7 +1,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { LevelBadge } from "./LevelBadge";
-import { levelOf, matchesLevel, type Labelled, type MyTeam, type Team } from "./levels";
+import { levelLabel, levelOf, matchesLevel, type Labelled, type MyTeam, type Team } from "./levels";
 
 const TEAMS: Team[] = [{ key: "billing", name: "Billing", created_at: "2026-10-01T00:00:00Z", members: [], repos: [] }];
 const MINE: MyTeam[] = [{ key: "billing", name: "Billing", role: "member" }];
@@ -15,10 +15,10 @@ afterEach(cleanup);
 
 describe("level badge", () => {
   it.each([
-    [{ scope: "personal:u1", level: "personal" }, "Personal"],
-    [{ scope: "repo:gh/acme/proj", level: "repository" }, "Repository"],
+    [{ scope: "personal:u1", level: "personal" }, "Just me"],
+    [{ scope: "repo:gh/acme/proj", level: "repository" }, "Repo: proj"],
     [{ scope: "team:billing", level: "team", team: "billing", team_name: "Billing", own_team: false }, "Team: Billing"],
-    [{ scope: "global", level: "organisation" }, "Organisation"],
+    [{ scope: "global", level: "organisation" }, "Everyone"],
   ] as [Labelled, string][])("labels %o as %s", (fact, text) => {
     const el = badge(fact);
     expect(el.textContent).toBe(text);
@@ -32,11 +32,11 @@ describe("level badge", () => {
   });
 
   it("works the level out from scope when the server didn't label it", () => {
-    expect(badge({ scope: "personal:u1" }).textContent).toBe("Personal");
+    expect(badge({ scope: "personal:u1" }).textContent).toBe("Just me");
     cleanup();
-    expect(badge({ scope: "repo:gh/acme/proj" }).textContent).toBe("Repository");
+    expect(badge({ scope: "repo:gh/acme/proj" }).textContent).toBe("Repo: proj");
     cleanup();
-    expect(badge({ scope: "global" }).textContent).toBe("Organisation");
+    expect(badge({ scope: "global" }).textContent).toBe("Everyone");
     cleanup();
     expect(badge({ scope: "team:billing" }, TEAMS, MINE).textContent).toBe("Team: Billingyour team");
     cleanup();
@@ -50,6 +50,22 @@ describe("level badge", () => {
       level: "team",
       team: { key: "billing", name: "Payments", own: false },
     });
+  });
+});
+
+describe("levelLabel", () => {
+  it.each([
+    [{ scope: "personal:u1" }, "Just me", "Only your own agents."],
+    [{ scope: "repo:gh/acme/proj" }, "Repo: proj", "Agents working in this repository."],
+    [{ scope: "repo:local" }, "Repo: local", "Agents working in this repository."],
+    [{ scope: "team:billing" }, "Team: Billing", "This team first; others can still find it."],
+    [{ scope: "global" }, "Everyone", "Agents in every repository, for every team."],
+  ] as [Labelled, string, string][])("labels %o as %s", (fact, label, hint) => {
+    expect(levelLabel(fact, TEAMS, MINE)).toEqual({ label, hint });
+  });
+
+  it("names a team it doesn't know by its key", () => {
+    expect(levelLabel({ scope: "team:ops" }, TEAMS, MINE).label).toBe("Team: ops");
   });
 });
 

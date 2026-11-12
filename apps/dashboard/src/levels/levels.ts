@@ -50,6 +50,18 @@ export function levelOf(fact: Labelled, teams: Team[] = [], mine: MyTeam[] = [])
   return { level, team: { key, name, own } };
 }
 
+/** What a level is called in the dashboard, and who it reaches. */
+export function levelLabel(fact: Labelled, teams: Team[] = [], mine: MyTeam[] = []): { label: string; hint: string } {
+  const l = levelOf(fact, teams, mine);
+  if (l.level === "personal") return { label: "Just me", hint: "Only your own agents." };
+  if (l.level === "repository") {
+    const key = fact.scope.slice("repo:".length);
+    return { label: `Repo: ${key.slice(key.lastIndexOf("/") + 1)}`, hint: "Agents working in this repository." };
+  }
+  if (l.team) return { label: `Team: ${l.team.name}`, hint: "This team first; others can still find it." };
+  return { label: "Everyone", hint: "Agents in every repository, for every team." };
+}
+
 /** value is "" (any), "personal", "repository", "team:<key>" or "global". */
 export function matchesLevel(fact: Labelled, value: string): boolean {
   if (!value) return true;

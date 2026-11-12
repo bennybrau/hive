@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Review, timeAgo, type Candidate, type Flagged } from "./Review";
 
@@ -48,6 +48,7 @@ let queue: { candidates: Candidate[]; flagged: Flagged[]; last_distill_at: strin
 let reviewStatus: number;
 let mergedInto: { id: string } | null;
 let curateStatus: number;
+let repoKeys: string[];
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
   const url = new URL(String(input), "http://hive");
@@ -60,6 +61,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) =>
       ],
     });
   }
+  if (url.pathname === "/v1/repo-keys") return json({ repo_keys: repoKeys });
   if (url.pathname === "/v1/teams/mine") return json({ teams: [{ key: "billing", name: "Billing", role: "member" }] });
   if (/^\/v1\/facts\/[^/]+\/review$/.test(url.pathname)) {
     return reviewStatus === 200 ? json({ fact: {}, merged_into: mergedInto }) : json({ error: "fact is not a candidate" }, reviewStatus);
@@ -88,6 +90,7 @@ beforeEach(() => {
   reviewStatus = 200;
   mergedInto = null;
   curateStatus = 200;
+  repoKeys = ["gh/acme/other", "gh/acme/proj", "local"];
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -357,7 +360,7 @@ describe("without a keyboard", () => {
 
   it("Approve approves the current candidate after the undo window", async () => {
     await open();
-    tap("Approve");
+    tap("Approve for Everyone");
     expect(screen.getByText("Candidate 1 of 2")).toBeTruthy();
     await tick(5000);
     expect(posts()).toEqual([["c1", { action: "approve" }]]);
@@ -421,11 +424,11 @@ describe("levels", () => {
     await open();
     await within(rows()[0]!).findByText("your team");
     expect(rows()[0]!.querySelector(".level")!.textContent).toBe("Team: Billingyour team");
-    expect(rows()[1]!.querySelector(".level")!.textContent).toBe("Repository");
+    expect(rows()[1]!.querySelector(".level")!.textContent).toBe("Repo: a");
     const panel = screen.getByRole("complementary", { name: "Evidence" });
     expect(panel.querySelector(".level")!.textContent).toBe("Team: Billingyour team");
     const flagged = screen.getByRole("region", { name: "Corrected after citation" });
-    expect(flagged.querySelector(".level")!.textContent).toBe("Personal");
+    expect(flagged.querySelector(".level")!.textContent).toBe("Just me");
   });
 
   it("the Level filter narrows candidates and flagged facts here", async () => {
@@ -445,69 +448,133 @@ describe("levels", () => {
   });
 });
 
-describe("share with", () => {
-  const share = () => screen.getByLabelText("Share with") as HTMLSelectElement;
-  const options = () => [...share().options].map((o) => [o.value, o.textContent]);
-  const teamsLoaded = () => screen.findByRole("option", { name: "Platform" });
+describe("who should get this", () => {
+  const anchor = (repo_key: string) => ({
+    id: "a1",
+    episode_id: null,
+    repo_key,
+    path: "README.md",
+    line_start: 1,
+    line_end: 1,
+    quote: null,
+    verify_status: "verified",
+    episode_snippet: null,
+    exchange: null,
+  });
+  const who = () => within(screen.getByRole("group", { name: "Who should get this?" }));
+  const radios = () =>
+    who()
+      .getAllByRole("radio")
+      .map((r) => [document.querySelector(`label[for="${r.id}"]`)!.textContent, (r as HTMLInputElement).checked]);
+  const hint = (name: string) => document.getElementById(who().getByRole("radio", { name }).getAttribute("aria-describedby")!)!.textContent;
+  const pick = (name: string) => fireEvent.click(who().getByRole("radio", { name }));
+  const other = () => who().getByLabelText("Another repo") as HTMLSelectElement;
+  const approveButton = () => within(screen.getByRole("group", { name: "Decide" })).getByRole("button", { name: /^Approve for / });
+  const loaded = async () => {
+    await who().findByRole("radio", { name: "Team: Platform" });
+    await who().findByRole("option", { name: "local" });
+  };
 
-  it("offers Keep, every team and Organisation, leaving out the candidate's own scope", async () => {
-    queue.candidates = [candidate("c1", { scope: "team:billing" }), candidate("c2")];
+  it("lists the current level first, then the anchor repo, another repo, the teams and Everyone; never Just me", async () => {
+    queue.candidates = [candidate("c1", { anchors: [anchor("gh/acme/proj")] }), candidate("c2", { scope: "team:billing" })];
     await open();
-    await teamsLoaded();
-    expect(options()).toEqual([
-      ["", "Keep"],
-      ["team:platform", "Platform"],
-      ["global", "Organisation"],
+    await loaded();
+    expect(radios()).toEqual([
+      ["Everyone (current)", true],
+      ["Repo: proj", false],
+      ["Another repo…", false],
+      ["Team: Billing", false],
+      ["Team: Platform", false],
     ]);
+    expect([...other().options].map((o) => [o.value, o.title])).toEqual([
+      ["gh/acme/other", "repo:gh/acme/other"],
+      ["local", "repo:local"],
+    ]);
+    expect(hint("Everyone (current)")).toBe("Agents in every repository, for every team.");
+    expect(hint("Repo: proj")).toBe("Agents working in this repository.");
+    expect(hint("Team: Billing")).toBe("This team first; others can still find it.");
+    expect(approveButton().textContent).toBe("Approve for Everyone");
     press("j");
-    expect(options()).toEqual([
-      ["", "Keep"],
-      ["team:billing", "Billing"],
-      ["team:platform", "Platform"],
+    await who().findByRole("option", { name: "local" });
+    expect(radios()).toEqual([
+      ["Team: Billing (current)", true],
+      ["Another repo…", false],
+      ["Team: Platform", false],
+      ["Everyone", false],
     ]);
+    expect(approveButton().textContent).toBe("Approve for Team: Billing");
   });
 
-  it("is hidden while fix or reject is open", async () => {
+  it("leaves the candidate's own repo out of Another repo…, and turns it off when no repo is left", async () => {
+    queue.candidates = [candidate("c1", { scope: "repo:local", anchors: [anchor("gh/acme/proj")] })];
+    repoKeys = ["gh/acme/proj", "local"];
     await open();
-    press("f");
-    expect(screen.queryByLabelText("Share with")).toBeNull();
-    press("Escape", screen.getByLabelText("Fixed text"));
-    press("r");
-    expect(screen.queryByLabelText("Share with")).toBeNull();
+    await who().findByRole("radio", { name: "Team: Platform" });
+    await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u) === "/v1/repo-keys")).toBe(true));
+    expect(radios().map(([l]) => l)).toEqual(["Repo: local (current)", "Repo: proj", "Another repo…", "Team: Billing", "Team: Platform", "Everyone"]);
+    expect(other().options).toHaveLength(0);
+    expect(other().disabled).toBe(true);
+    expect((who().getByRole("radio", { name: "Another repo…" }) as HTMLInputElement).disabled).toBe(true);
   });
 
-  it("Keep sends no scope", async () => {
+  it("names the choice on the Approve button", async () => {
+    queue.candidates = [candidate("c1", { anchors: [anchor("gh/acme/proj")] })];
     await open();
-    expect(share().value).toBe("");
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await loaded();
+    pick("Repo: proj");
+    expect(approveButton().textContent).toBe("Approve for Repo: proj");
+    pick("Team: Billing");
+    expect(approveButton().textContent).toBe("Approve for Team: Billing");
+    fireEvent.change(other(), { target: { value: "local" } });
+    expect((who().getByRole("radio", { name: "Another repo…" }) as HTMLInputElement).checked).toBe(true);
+    expect(approveButton().textContent).toBe("Approve for Repo: local");
+    pick("Everyone (current)");
+    expect(approveButton().textContent).toBe("Approve for Everyone");
+  });
+
+  it("the current level sends no scope", async () => {
+    await open();
+    await loaded();
+    pick("Team: Billing");
+    pick("Everyone (current)");
+    fireEvent.click(approveButton());
     await tick(5000);
     expect(posts()).toEqual([["c1", { action: "approve" }]]);
   });
 
   it("Approve sends the chosen scope, and so does a", async () => {
+    queue.candidates = [candidate("c1", { anchors: [anchor("gh/acme/proj")] }), candidate("c2"), candidate("c3")];
     await open();
-    await teamsLoaded();
-    fireEvent.change(share(), { target: { value: "team:billing" } });
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    fireEvent.change(share(), { target: { value: "team:billing" } });
+    await loaded();
+    pick("Repo: proj");
+    fireEvent.click(approveButton());
+    await loaded();
+    pick("Team: Billing");
+    press("a");
+    await loaded();
+    fireEvent.change(other(), { target: { value: "gh/acme/other" } });
     press("a");
     await tick(5000);
     expect(posts()).toEqual([
-      ["c1", { action: "approve", scope: "team:billing" }],
+      ["c1", { action: "approve", scope: "repo:gh/acme/proj" }],
       ["c2", { action: "approve", scope: "team:billing" }],
+      ["c3", { action: "approve", scope: "repo:gh/acme/other" }],
     ]);
   });
 
-  it("goes back to Keep on the next candidate, and fix never sends it", async () => {
+  it("goes back to the current level on the next candidate, is hidden while fixing, and fix never sends it", async () => {
     await open();
-    await teamsLoaded();
-    fireEvent.change(share(), { target: { value: "global" } });
+    await loaded();
+    pick("Team: Billing");
     press("j");
-    expect(share().value).toBe("");
+    await loaded();
+    expect(radios()[0]).toEqual(["Everyone (current)", true]);
     press("k");
-    expect(share().value).toBe("");
-    fireEvent.change(share(), { target: { value: "team:billing" } });
+    await loaded();
+    expect(radios()[0]).toEqual(["Everyone (current)", true]);
+    pick("Team: Billing");
     press("f");
+    expect(screen.queryByRole("group", { name: "Who should get this?" })).toBeNull();
     const box = screen.getByLabelText("Fixed text");
     fireEvent.change(box, { target: { value: "candidate c1, tightened" } });
     press("Enter", box);
@@ -519,8 +586,8 @@ describe("share with", () => {
     const into = "7a8b9c0d-aaaa-bbbb-cccc-000000000001";
     mergedInto = { id: into };
     await open();
-    await teamsLoaded();
-    fireEvent.change(share(), { target: { value: "team:billing" } });
+    await loaded();
+    pick("Team: Billing");
     press("a");
     await tick(5000);
     const link = await screen.findByRole("link", { name: "7a8b9c0d" });
@@ -562,7 +629,7 @@ describe("corrected after citation", () => {
     const f1 = card("f1")!;
     expect(within(section()).getByRole("heading", { name: "Corrected after citation" })).toBeTruthy();
     expect(f1.querySelector(".fact-text")!.textContent).toBe("flagged f1");
-    expect(f1.querySelector(".meta")!.textContent).toBe("convention in Organisation. Corrected 2 hours ago.");
+    expect(f1.querySelector(".meta")!.textContent).toBe("convention in Everyone. Corrected 2 hours ago.");
     expect(f1.querySelector("blockquote")!.textContent).toBe("no, f1 is wrong");
     expect(f1.querySelector(".help")!.textContent).toBe("Replaced by candidate c2aaaaaa");
     expect(within(f1).getByRole("link", { name: "c2aaaaaa" })).toBeTruthy();

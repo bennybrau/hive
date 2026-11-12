@@ -1,6 +1,9 @@
 import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { apiFetch, type Role } from "../api";
 import type { Fact } from "../facts/query";
+import { LevelBadge } from "../levels/LevelBadge";
+import { levelLabel, useTeams } from "../levels/levels";
+import { WhoGetsThis } from "../levels/WhoGetsThis";
 import { timeAgo } from "../review/Review";
 
 export interface StaleFact extends Fact {
@@ -17,9 +20,18 @@ interface StalePage {
   stale_days: number;
 }
 
-export type Curate = { action: "keep" | "pin" } | { action: "fix"; new_text: string } | { action: "retire"; note?: string };
+export type Curate =
+  | { action: "keep" | "pin" }
+  | { action: "fix"; new_text: string }
+  | { action: "retire"; note?: string }
+  | { action: "move"; scope: string };
 
-type Editing = { kind: "fix"; text: string } | { kind: "retire"; note: string } | null;
+/** For a move: which fact, its first anchor's repo once loaded, and the chosen level (null while the current one is). */
+type Editing =
+  | { kind: "fix"; text: string }
+  | { kind: "retire"; note: string }
+  | { kind: "move"; id: string; anchorRepo: string | null; to: { scope: string; label: string } | null }
+  | null;
 
 function days(n: number): string {
   return n === 1 ? "1 day" : `${n} days`;
@@ -47,6 +59,7 @@ function StaleList() {
   const [editing, setEditing] = useState<Editing>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mergedInto, setMergedInto] = useState<{ id: string; text: string } | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -62,6 +75,8 @@ function StaleList() {
     };
   }, []);
 
+  const levels = useTeams();
+
   const shown = page?.facts ?? [];
   const index = Math.min(active, Math.max(shown.length - 1, 0));
   const current = shown[index];
@@ -74,6 +89,7 @@ function StaleList() {
     const id = current.id;
     setBusy(true);
     setError(null);
+    setMergedInto(null);
     try {
       const res = await apiFetch(`/v1/facts/${encodeURIComponent(id)}/curate`, {
         method: "POST",
@@ -81,6 +97,10 @@ function StaleList() {
         body: JSON.stringify(body),
       });
       if (res.ok) {
+        if (body.action === "move") {
+          const out = (await res.json().catch(() => ({}))) as { merged_into?: { id: string; text: string } | null };
+          if (out.merged_into) setMergedInto(out.merged_into);
+        }
         setPage((p) => p && { ...p, facts: p.facts.filter((f) => f.id !== id) });
         setEditing(null);
       } else {
@@ -97,9 +117,25 @@ function StaleList() {
     }
   }
 
+  /** Open the move choice; the fact's first anchor repo comes from its detail. */
+  function startMove() {
+    if (!current) return;
+    const id = current.id;
+    setEditing({ kind: "move", id, anchorRepo: null, to: null });
+    apiFetch(`/v1/facts/${encodeURIComponent(id)}`)
+      .then(async (res) => (res.ok ? ((await res.json()) as { anchors?: { repo_key: string | null }[] }) : {}))
+      .then((d) => {
+        const repo = d.anchors?.[0]?.repo_key ?? null;
+        if (repo) setEditing((e) => (e?.kind === "move" && e.id === id ? { ...e, anchorRepo: repo } : e));
+      })
+      .catch(() => {});
+  }
+
   function submitEdit() {
     if (!editing) return;
-    if (editing.kind === "fix") {
+    if (editing.kind === "move") {
+      if (editing.to) void curate({ action: "move", scope: editing.to.scope });
+    } else if (editing.kind === "fix") {
       const text = editing.text.trim();
       if (text.length < 3) return;
       void curate({ action: "fix", new_text: text });
@@ -140,6 +176,11 @@ function StaleList() {
           {error}
         </p>
       )}
+      {mergedInto && (
+        <p className="help merged" role="status">
+          Moved, merged into fact {mergedInto.id.slice(0, 8)}: {mergedInto.text}
+        </p>
+      )}
       {!page && !loadError && <p className="help">Loading…</p>}
 
       {page && shown.length === 0 && <p className="review-empty">No facts unused for {days(page.stale_days)}.</p>}
@@ -158,7 +199,7 @@ function StaleList() {
               >
                 <span className="text">{f.text}</span>
                 <span className="meta">
-                  {f.kind} in {f.scope}, idle {days(f.idle_days)}
+                  {f.kind} in <LevelBadge fact={f} {...levels} />, idle {days(f.idle_days)}
                 </span>
               </li>
             ))}
@@ -186,8 +227,10 @@ function StaleList() {
             <dl>
               <dt>Kind</dt>
               <dd>{current.kind}</dd>
-              <dt>Scope</dt>
-              <dd>{current.scope}</dd>
+              <dt>Level</dt>
+              <dd>
+                <LevelBadge fact={current} {...levels} />
+              </dd>
               <dt>Idle</dt>
               <dd>{days(current.idle_days)}</dd>
               <dt>Uses</dt>
@@ -198,7 +241,28 @@ function StaleList() {
               <dd>{current.last_used_at ? timeAgo(current.last_used_at) : "never"}</dd>
             </dl>
 
-            {editing?.kind === "retire" ? (
+            {editing?.kind === "move" ? (
+              <div className="stale-confirm">
+                <WhoGetsThis
+                  fact={current}
+                  anchorRepo={editing.anchorRepo}
+                  {...levels}
+                  allowPersonal
+                  value={editing.to?.scope ?? current.scope}
+                  onChange={(scope, label) =>
+                    setEditing({ ...editing, to: scope === current.scope ? null : { scope, label } })
+                  }
+                />
+                <div className="stale-actions">
+                  <button type="button" disabled={busy || !editing.to} onClick={submitEdit}>
+                    Move to {editing.to?.label ?? levelLabel(current, levels.teams, levels.mine).label}
+                  </button>
+                  <button type="button" disabled={busy} onClick={() => setEditing(null)}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : editing?.kind === "retire" ? (
               <div className="stale-confirm">
                 <div className="field">
                   <label htmlFor="s-note">Why retire it? (optional)</label>
@@ -243,6 +307,9 @@ function StaleList() {
                 </button>
                 <button type="button" disabled={busy} onClick={() => void curate({ action: "pin" })}>
                   Pin
+                </button>
+                <button type="button" disabled={busy} onClick={startMove}>
+                  Move…
                 </button>
               </div>
             )}

@@ -105,9 +105,8 @@ test("a curator shares a member's global candidate with a team on approve", asyn
   const row = page.getByRole("list", { name: "Candidates" }).locator(`li[data-id="${id}"]`);
   await row.click();
   await expect(row).toHaveAttribute("aria-current", "true");
-  const decide = page.getByRole("group", { name: "Decide" });
-  await decide.getByLabel("Share with").selectOption(`team:${key}`);
-  await decide.getByRole("button", { name: "Approve" }).click();
+  await page.getByRole("group", { name: "Who should get this?" }).getByRole("radio", { name: `Team: E2E ${marker}` }).check();
+  await page.getByRole("group", { name: "Decide" }).getByRole("button", { name: `Approve for Team: E2E ${marker}` }).click();
   await expect(row).toHaveCount(0);
   await expect(page.getByRole("status")).toContainText("Approved");
   await expect(page.getByRole("status")).toHaveCount(0, { timeout: 10_000 });

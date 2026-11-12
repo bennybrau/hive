@@ -17,14 +17,14 @@ export function LevelFilter({
       <label htmlFor={id}>Level</label>
       <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="">All</option>
-        <option value="personal">Personal</option>
-        <option value="repository">Repository</option>
+        <option value="personal">Just me</option>
+        <option value="repository">Repo</option>
         {teams.map((t) => (
           <option key={t.key} value={`team:${t.key}`}>
             Team: {t.name}
           </option>
         ))}
-        <option value="global">Organisation</option>
+        <option value="global">Everyone</option>
       </select>
     </div>
   );

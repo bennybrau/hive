@@ -126,7 +126,7 @@ describe("search view", () => {
     const facts = await screen.findByRole("region", { name: "Facts" });
     const item = (id: string) => facts.querySelector(`a[href="/facts/${id}"]`)!.closest("li")!;
     expect(item("f1").querySelector(".level")!.textContent).toBe("Team: Billing");
-    expect(item("f2").querySelector(".level")!.textContent).toBe("Organisation");
+    expect(item("f2").querySelector(".level")!.textContent).toBe("Everyone");
 
     await screen.findByRole("option", { name: "Team: Billing" });
     fireEvent.change(screen.getByLabelText("Level"), { target: { value: "team:billing" } });

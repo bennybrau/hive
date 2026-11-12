@@ -205,7 +205,14 @@ kbd {
 .review-evidence .replaces .old { color: var(--muted); text-decoration: line-through; margin: 0 0 4px; }
 .review-card-meta { font-size: 12px; color: var(--muted); margin: 0 0 8px; overflow-wrap: anywhere; }
 .review-actions { display: flex; gap: 8px; margin: 0 0 16px; }
-.review-actions .share-with { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.who-gets-this { display: grid; gap: 6px; min-width: 0; margin: 0 0 16px; padding: 0; border: 0; }
+.who-gets-this legend { padding: 0; margin-bottom: 4px; font-size: 13px; font-weight: 600; }
+.who-option { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; column-gap: 8px; min-width: 0; }
+.who-option label { min-width: 0; overflow-wrap: anywhere; }
+.who-option select, .who-option .hint { grid-column: 2; min-width: 0; max-width: 100%; }
+.who-option .hint { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.who-option option { overflow-wrap: anywhere; }
+.who-gets-this .help { margin: 4px 0 0; overflow-wrap: anywhere; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 500; }
 button.link { padding: 0; border: 0; background: none; color: var(--accent); font-weight: 500; }
 .review-stepper { display: none; }
@@ -410,7 +417,7 @@ table.stats .num { text-align: right; font-variant-numeric: tabular-nums; }
     border-radius: 0 0 var(--radius) var(--radius);
     box-shadow: 0 -6px 18px rgb(28 25 23 / 0.08);
   }
-  .review-panes.queue .review-actions button { flex: 1; min-height: 48px; font-size: 16px; }
+  .review-panes.queue .review-actions button { flex: 1; min-width: 0; min-height: 48px; font-size: 16px; overflow-wrap: anywhere; }
   /* Flagged facts have their own buttons, so they go below the card rather than between it and its decisions. */
   .review-page { display: flex; flex-direction: column; }
   .review-page > .flagged { order: 5; margin: 24px 0 0; }
@@ -447,7 +454,8 @@ table.stats .num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (hover: none) and (pointer: coarse), (max-width: 640px) {
   .keys-hint { display: none; }
 }
-.level { display: inline-flex; align-items: baseline; gap: 4px; white-space: nowrap; }
+.level { display: inline-flex; align-items: baseline; gap: 4px; max-width: 100%; white-space: nowrap; }
+.level .badge { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .badge.level-team { border-color: var(--accent); color: var(--accent); }
 .own-team { font-size: 12px; color: var(--muted); }
 .teams-create { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 16px; }

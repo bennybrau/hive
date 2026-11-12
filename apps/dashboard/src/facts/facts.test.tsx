@@ -118,7 +118,7 @@ describe("facts table", () => {
   });
 
   it.each([
-    ["Organisation", "global"],
+    ["Everyone", "global"],
     ["Team: Billing", "team:billing"],
   ])("the %s level asks the server for scope=%s", async (name, scope) => {
     render(<Facts />);
@@ -129,7 +129,7 @@ describe("facts table", () => {
     expect(new URLSearchParams(location.search).get("level")).toBe(scope);
   });
 
-  it("the Repository level filters the loaded page here, and a picked repo still wins", async () => {
+  it("the Repo level filters the loaded page here, and a picked repo still wins", async () => {
     listPage = () => ({
       facts: [fact("r1", { text: "in a repo", scope: "repo:acme/widgets" }), fact("g1", { text: "org wide" })],
       has_more: false,
@@ -146,7 +146,7 @@ describe("facts table", () => {
     await waitFor(() => expect(lastCall("/v1/facts").get("scope")).toBe("repo:acme/widgets"));
   });
 
-  it("shows each fact's level as a badge in the Scope column", async () => {
+  it("shows each fact's level as a badge in the Level column", async () => {
     listPage = () => ({
       facts: [
         fact("t1", { scope: "team:billing", level: "team", team: "billing", team_name: "Billing", own_team: true }),
@@ -159,7 +159,7 @@ describe("facts table", () => {
     const [t1, p1] = rows();
     expect(t1!.querySelector(".level")!.textContent).toBe("Team: Billingyour team");
     expect(within(t1!).getByText("Team: Billing").getAttribute("class")).toMatch(/badge/);
-    expect(p1!.querySelector(".level")!.textContent).toBe("Personal");
+    expect(p1!.querySelector(".level")!.textContent).toBe("Just me");
   });
 
   it("pages by has_more", async () => {

@@ -4,7 +4,8 @@ import { navigate } from "../App";
 import type { Fact } from "../facts/query";
 import { LevelBadge } from "../levels/LevelBadge";
 import { LevelFilter } from "../levels/LevelFilter";
-import { matchesLevel, useTeams, type MyTeam, type Team } from "../levels/levels";
+import { levelLabel, matchesLevel, useTeams, type MyTeam, type Team } from "../levels/levels";
+import { WhoGetsThis } from "../levels/WhoGetsThis";
 import { usePendingDecision, type Decision } from "./usePendingDecision";
 
 interface Anchor {
@@ -93,30 +94,25 @@ type Editing = { kind: "fix"; text: string } | { kind: "reject"; note: string } 
 /** For the badge: the queue isn't labelled, so levels are worked out from scope and these. */
 type Teams = { teams: Team[]; mine: MyTeam[] };
 
+/** Where an approve sends the candidate; null keeps its level. */
+type Choice = { scope: string; label: string } | null;
+
 /** The decision buttons for the current candidate; on a phone they are the card's footer, pinned to the bottom of the screen. */
 function Actions({
   c,
-  teams,
+  approveLabel,
   editing,
   setEditing,
-  shareWith,
-  setShareWith,
   submit,
   approve,
 }: {
   c: Candidate;
-  teams: Team[];
+  approveLabel: string;
   editing: Editing;
   setEditing: (e: Editing) => void;
-  shareWith: string;
-  setShareWith: (s: string) => void;
   submit: () => void;
   approve: () => void;
 }) {
-  // Where an approve can move the candidate: "" keeps its scope; its own scope isn't offered.
-  const share = [...teams.map((t) => ({ value: `team:${t.key}`, label: t.name })), { value: "global", label: "Organisation" }].filter(
-    (o) => o.value !== c.scope,
-  );
   const fixOk = editing?.kind !== "fix" || editing.text.trim().length >= 3;
   return (
     <div className="review-actions" role="group" aria-label="Decide">
@@ -143,19 +139,8 @@ function Actions({
           <button type="button" onClick={() => setEditing({ kind: "fix", text: c.text })}>
             Fix…
           </button>
-          <label className="share-with">
-            Share with
-            <select value={shareWith} onChange={(e) => setShareWith(e.target.value)}>
-              <option value="">Keep</option>
-              {share.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
           <button type="button" className="primary" onClick={approve}>
-            Approve
+            Approve for {approveLabel}
           </button>
         </>
       )}
@@ -168,8 +153,8 @@ function Evidence({
   levels,
   editing,
   setEditing,
-  shareWith,
-  setShareWith,
+  choice,
+  setChoice,
   submit,
   approve,
 }: {
@@ -177,8 +162,8 @@ function Evidence({
   levels: Teams;
   editing: Editing;
   setEditing: (e: Editing) => void;
-  shareWith: string;
-  setShareWith: (s: string) => void;
+  choice: Choice;
+  setChoice: (c: Choice) => void;
   submit: () => void;
   approve: () => void;
 }) {
@@ -253,13 +238,20 @@ function Evidence({
           <p className="help keys-hint">Enter rejects, Esc cancels.</p>
         </div>
       )}
+      {!editing && (
+        <WhoGetsThis
+          fact={c}
+          anchorRepo={c.anchors[0]?.repo_key}
+          {...levels}
+          value={choice?.scope ?? c.scope}
+          onChange={(scope, label) => setChoice(scope === c.scope ? null : { scope, label })}
+        />
+      )}
       <Actions
         c={c}
-        teams={levels.teams}
+        approveLabel={choice?.label ?? levelLabel(c, levels.teams, levels.mine).label}
         editing={editing}
         setEditing={setEditing}
-        shareWith={shareWith}
-        setShareWith={setShareWith}
         submit={submit}
         approve={approve}
       />
@@ -480,7 +472,7 @@ function ReviewQueue() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const [editing, setEditing] = useState<Editing>(null);
-  const [shareWith, setShareWith] = useState("");
+  const [choice, setChoice] = useState<Choice>(null);
   const { hidden, pending, error, merged, decide, undo } = usePendingDecision();
   const rowRefs = useRef<(HTMLLIElement | null)[]>([]);
   const listRef = useRef<HTMLOListElement>(null);
@@ -512,10 +504,10 @@ function ReviewQueue() {
   const index = Math.min(active, Math.max(shown.length - 1, 0));
   const current = shown[index];
 
-  // A different row (moved to, or decided away) drops any half-made edit and goes back to Keep.
+  // A different row (moved to, or decided away) drops any half-made edit and goes back to its current level.
   useEffect(() => {
     setEditing(null);
-    setShareWith("");
+    setChoice(null);
   }, [current?.id]);
 
   // On a phone the list is hidden and the card is the page, so a new card starts at its top.
@@ -543,7 +535,7 @@ function ReviewQueue() {
   }
 
   function approve(c: Candidate) {
-    decide({ id: c.id, via: "review", action: "approve", ...(shareWith ? { scope: shareWith } : {}) });
+    decide({ id: c.id, via: "review", action: "approve", ...(choice ? { scope: choice.scope } : {}) });
   }
 
   function submitEdit() {
@@ -706,8 +698,8 @@ function ReviewQueue() {
             levels={levels}
             editing={editing}
             setEditing={setEditing}
-            shareWith={shareWith}
-            setShareWith={setShareWith}
+            choice={choice}
+            setChoice={setChoice}
             submit={submitEdit}
             approve={() => approve(current)}
           />

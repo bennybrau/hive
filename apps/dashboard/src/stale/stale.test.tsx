@@ -30,13 +30,20 @@ function json(body: unknown, status = 200): Response {
 
 let page: { facts: StaleFact[]; has_more: boolean; stale_days: number };
 let curateStatus: number;
+let curateBody: unknown;
+let repoKeys: string[];
+let anchors: { repo_key: string | null }[];
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
   const url = new URL(String(input), "http://hive");
   if (url.pathname === "/v1/facts/stale") return json(page);
+  if (url.pathname === "/v1/repo-keys") return json({ repo_keys: repoKeys });
+  if (url.pathname === "/v1/teams") return json({ teams: [{ key: "billing", name: "Billing", created_at: "", members: [], repos: [] }] });
+  if (url.pathname === "/v1/teams/mine") return json({ teams: [] });
   if (/^\/v1\/facts\/[^/]+\/curate$/.test(url.pathname)) {
-    return curateStatus === 200 ? json({ fact: {}, new_fact: null }) : json({ error: "fact is not active" }, curateStatus);
+    return curateStatus === 200 ? json(curateBody) : json({ error: "fact is not active" }, curateStatus);
   }
+  if (/^\/v1\/facts\/[^/]+$/.test(url.pathname)) return json({ fact: {}, anchors, reviews: [] });
   return json({ error: "not found" }, 404);
 });
 
@@ -55,6 +62,9 @@ const click = (name: string) => fireEvent.click(within(panel()).getByRole("butto
 beforeEach(() => {
   page = { facts: [fact("f1"), fact("f2"), fact("f3")], has_more: false, stale_days: 60 };
   curateStatus = 200;
+  curateBody = { fact: {}, new_fact: null };
+  repoKeys = ["gh/o/a", "gh/o/b", "local"];
+  anchors = [];
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -75,11 +85,11 @@ describe("stale facts", () => {
     expect(new URL(String(fetchMock.mock.calls[0]![0]), "http://hive").search).toBe("?limit=100");
     expect(screen.getByText(/unused for over/).textContent).toBe("3 unused for over 60 days.");
     expect(ids()).toEqual(["f1", "f2", "f3"]);
-    expect(rows()[0]!.querySelector(".meta")!.textContent).toBe("gotcha in repo:gh/o/a, idle 400 days");
+    expect(rows()[0]!.querySelector(".meta")!.textContent).toBe("gotcha in Repo: a, idle 400 days");
     const dl = [...panel().querySelectorAll("dt")].map((dt) => [dt.textContent, dt.nextElementSibling!.textContent]);
     expect(dl).toEqual([
       ["Kind", "gotcha"],
-      ["Scope", "repo:gh/o/a"],
+      ["Level", "Repo: a"],
       ["Idle", "400 days"],
       ["Uses", "3"],
       ["Cites", "1"],
@@ -140,6 +150,48 @@ describe("stale facts", () => {
     expect(posts()).toEqual([
       ["f1", { action: "retire" }],
       ["f2", { action: "retire", note: "moved to v2" }],
+    ]);
+  });
+
+  it("Move… offers every level, Just me included, and sends the pick from Another repo…", async () => {
+    anchors = [{ repo_key: "gh/o/a" }];
+    await open();
+    click("Move…");
+    const who = within(within(panel()).getByRole("group", { name: "Who should get this?" }));
+    await who.findByRole("radio", { name: "Repo: a" });
+    await who.findByRole("option", { name: "local" });
+    expect(who.getAllByRole("radio").map((r) => panel().querySelector(`label[for="${r.id}"]`)!.textContent)).toEqual([
+      "Everyone (current)",
+      "Repo: a",
+      "Another repo…",
+      "Team: Billing",
+      "Just me",
+    ]);
+    expect(within(panel()).getByRole("button", { name: "Move to Everyone" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(who.getByLabelText("Another repo"), { target: { value: "local" } });
+    click("Move to Repo: local");
+    await waitFor(() => expect(ids()).toEqual(["f2", "f3"]));
+    expect(posts()).toEqual([["f1", { action: "move", scope: "repo:local" }]]);
+  });
+
+  it("Just me sends personal, and a merge is reported", async () => {
+    curateBody = { fact: {}, new_fact: null, merged_into: { id: "7a8b9c0d-aaaa-bbbb-cccc-000000000001", text: "the same, said before" } };
+    await open();
+    click("Move…");
+    fireEvent.click(await within(panel()).findByRole("radio", { name: "Just me" }));
+    click("Move to Just me");
+    expect((await screen.findByRole("status")).textContent).toBe("Moved, merged into fact 7a8b9c0d: the same, said before");
+    expect(posts()).toEqual([["f1", { action: "move", scope: "personal" }]]);
+    expect(ids()).toEqual(["f2", "f3"]);
+  });
+
+  it("a personal fact isn't offered Just me again", async () => {
+    page.facts[0] = fact("f1", { scope: "personal:u1" });
+    await open();
+    click("Move…");
+    await within(panel()).findByRole("radio", { name: "Team: Billing" });
+    expect(within(panel()).getAllByRole("radio", { name: /Just me/ }).map((r) => panel().querySelector(`label[for="${r.id}"]`)!.textContent)).toEqual([
+      "Just me (current)",
     ]);
   });
 

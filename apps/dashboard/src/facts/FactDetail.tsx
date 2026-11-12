@@ -117,7 +117,7 @@ export function FactDetail({ id, onClose, onOpen }: { id: string; onClose: () =>
           <dl>
             <dt>Kind</dt>
             <dd>{f.kind}</dd>
-            <dt>Scope</dt>
+            <dt>Level</dt>
             <dd>
               <LevelBadge fact={f} />
             </dd>
