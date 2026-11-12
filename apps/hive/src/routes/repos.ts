@@ -86,6 +86,18 @@ export function repoRoutes(app: FastifyInstance, pool: pg.Pool, deps: RepoDeps):
     };
   });
 
+  /** Every repo key there is: registered repos and the repo scopes of active or candidate facts. */
+  app.get("/v1/repo-keys", async () => {
+    const { rows } = await pool.query<{ key: string }>(
+      `select key from (
+         select key from repos
+         union
+         select substr(scope, 6) from facts where scope like 'repo:%' and status in ('active', 'candidate')
+       ) k order by key collate "C"`,
+    );
+    return { repo_keys: rows.map((r) => r.key) };
+  });
+
   /** Files that were not indexed, and why (scanned PDFs, too big, unreadable). */
   app.get<{ Querystring: { key: string } }>(
     "/v1/repos/files",

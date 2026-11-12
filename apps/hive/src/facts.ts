@@ -235,20 +235,39 @@ export interface ReviewInput {
   action: ReviewAction;
   note?: string;
   new_text?: string;
-  /** Approve or fix into this scope instead: global or team:<key> (or the candidate's own scope, no move). */
+  /** Approve or fix into this scope instead: global, team:<key> or repo:<key> (the candidate's own scope is no move). */
   scope?: string;
 }
 
-/** Where a reviewed candidate goes: its own scope, global or an existing team. ScopeNotFound = no such team, ScopeError = anything else. */
-async function reviewTarget(client: pg.PoolClient, current: string, requested: string | undefined): Promise<string> {
-  if (requested === undefined || requested === current || requested === "global") return requested ?? current;
+/** A repo level: any repo key, registered or not. */
+const REPO_LEVEL = /^repo:\S{1,200}$/;
+
+/**
+ * Where a curator puts a fact: `current` when none is asked for, global, an existing team:<key>, any repo:<key> or,
+ * with opts.personal, their own personal scope ("personal" or "personal:<own id>"). ScopeNotFound = no such team,
+ * ScopeError = anything else.
+ */
+async function levelTarget(
+  client: pg.PoolClient,
+  curator: Instance,
+  current: string,
+  requested: string | undefined,
+  opts: { personal: boolean },
+): Promise<string> {
+  if (requested === undefined) return current;
+  if (requested === "global") return requested;
   if (requested.startsWith("team:")) {
     const key = requested.slice(5);
     const { rowCount } = await client.query("select 1 from teams where key = $1", [key]);
     if (!rowCount) throw new ScopeNotFound(`no such team ${JSON.stringify(key)}`);
     return requested;
   }
-  throw new ScopeError(`a candidate can only move to global or team:<key>, not ${JSON.stringify(requested)}`);
+  if (REPO_LEVEL.test(requested)) return requested;
+  const own = `personal:${curator.user_id}`;
+  if (opts.personal && (requested === "personal" || requested === own)) return own;
+  throw new ScopeError(
+    `cannot move to ${JSON.stringify(requested)} (use global, team:<key>, repo:<key>${opts.personal ? " or personal" : ""})`,
+  );
 }
 
 type Locked = Fact & { supersedes: string | null; content_hash: string };
@@ -257,7 +276,7 @@ const LOCKED_COLUMNS = `${FACT_COLUMNS}, supersedes, content_hash`;
 /**
  * A curator decides on a candidate. approve -> active; fix -> new text (re-embedded by the worker) and
  * active, or merged into the fact that already has that text; reject -> retracted. An approve or fix with `scope` also
- * moves it (global or team:<key>; the note says so), merging the same way when that scope already has its text. An approve or a fix that isn't
+ * moves it (global, team:<key> or repo:<key>; the note says so), merging the same way when that scope already has its text. An approve or a fix that isn't
  * a merge also supersedes the fact in `metadata.replaces` (see adoptReplaces). Every decision is a reviews row. null = no such fact; ConflictError = not a candidate, or a fix or move whose text is a dead fact.
  */
 export async function reviewFact(
@@ -292,7 +311,7 @@ export async function reviewFact(
         input.note ? `rejected: ${input.note}` : "rejected",
       ]);
     } else {
-      const target = await reviewTarget(client, cand.scope, input.scope);
+      const target = await levelTarget(client, curator, cand.scope, input.scope, { personal: false });
       if (target !== cand.scope) note = `${note ? `${note}; ` : ""}moved ${cand.scope} → ${target}`;
       if (input.action === "fix") newText = normalizeText(input.new_text ?? "");
       const hash = contentHash(newText ?? cand.text, target);
@@ -357,19 +376,23 @@ export function staleSql(days: number): string {
 /** A curate answer also shows the curation state. */
 const CURATED_COLUMNS = `${FACT_COLUMNS}, pinned, kept_at`;
 
-export type CurateAction = "keep" | "fix" | "retire" | "pin" | "unpin";
+export type CurateAction = "keep" | "fix" | "retire" | "pin" | "unpin" | "move";
 
 export interface CurateInput {
   action: CurateAction;
   note?: string;
   new_text?: string;
+  /** move: the level it goes to (global, team:<key>, repo:<key> or personal). */
+  scope?: string;
 }
+
+type Curated = Fact & { pinned: boolean; kept_at: string | null };
 
 /**
  * A curator decides on an active fact. keep -> still true: kept_at = now() (its idle time restarts) and
  * metadata.correction cleared; pin/unpin -> pinned facts are never stale; fix -> a new active fact with the new text
  * (same kind, scope and locus; no anchors) supersedes it; retire -> retracted with `retired: <note>` (or `retired: stale`).
- * fix and retire clear metadata.correction too.
+ * fix and retire clear metadata.correction too. move -> into `scope` (see moveFact).
  * Every decision is a reviews row on this fact. null = no such fact; ConflictError = not active, or a fix whose text
  * is already a fact (this one is left alone).
  */
@@ -378,7 +401,8 @@ export async function curateFact(
   id: string,
   curator: Instance,
   input: CurateInput,
-): Promise<{ fact: Fact & { pinned: boolean; kept_at: string | null }; new_fact: Fact | null } | null> {
+): Promise<{ fact: Curated; new_fact: Fact | null; merged_into?: Fact | null } | null> {
+  if (input.action === "move") return moveFact(pool, id, curator, input);
   const [scopeSql, scopeParams] = readableScopes(curator, undefined, 2);
   const review = (db: pg.Pool | pg.PoolClient, newText: string | null = null) =>
     db.query(`insert into reviews (fact_id, reviewer_user_id, action, note, new_text) values ($1, $2, $3, $4, $5)`, [
@@ -442,6 +466,91 @@ export async function curateFact(
     await review(client);
     await client.query("commit");
     return { fact: upd.rows[0]!, new_fact: null };
+  } catch (err) {
+    await client.query("rollback").catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Move an active fact to another level (levelTarget, personal allowed). If its text is already a fact there, it is
+ * merged into that one as on review: its anchors move, it is retracted with `merged into <id>`, and a candidate twin is
+ * activated. null = no such fact; ConflictError = not active, or the twin is retracted or superseded; ScopeError = no
+ * scope, its own scope, or one it can't go to.
+ */
+async function moveFact(
+  pool: pg.Pool,
+  id: string,
+  curator: Instance,
+  input: CurateInput,
+): Promise<{ fact: Curated; new_fact: null; merged_into: Fact | null } | null> {
+  const client = await pool.connect();
+  try {
+    await client.query("begin");
+    const [scopeSql, scopeParams] = readableScopes(curator, undefined, 2);
+    const sel = await client.query<Locked>(`select ${LOCKED_COLUMNS} from facts where id = $1 and ${scopeSql} for update`, [
+      id,
+      ...scopeParams,
+    ]);
+    const old = sel.rows[0];
+    if (!old) {
+      await client.query("rollback");
+      return null;
+    }
+    if (old.status !== "active") throw new ConflictError(`fact is ${old.status}, not active`);
+    if (input.scope === undefined) throw new ScopeError("move needs scope");
+    const target = await levelTarget(client, curator, old.scope, input.scope, { personal: true });
+    if (target === old.scope) throw new ScopeError(`fact is already in ${target}`);
+
+    const hash = contentHash(old.text, target);
+    const hit = (
+      await client.query<Locked>(`select ${LOCKED_COLUMNS} from facts where content_hash = $1 and id <> $2 for update`, [hash, id])
+    ).rows[0];
+    let fact: Curated;
+    let mergedInto: Fact | null = null;
+    if (!hit) {
+      fact = (
+        await client.query<Curated>(`update facts set scope = $2, content_hash = $3 where id = $1 returning ${CURATED_COLUMNS}`, [
+          id,
+          target,
+          hash,
+        ])
+      ).rows[0]!;
+    } else {
+      if (hit.status !== "active" && hit.status !== "candidate") {
+        throw new ConflictError(`that text is already fact ${hit.id}, which is ${hit.status}`);
+      }
+      await client.query("update anchors set fact_id = $2 where fact_id = $1", [id, hit.id]);
+      fact = (
+        await client.query<Curated>(
+          `update facts set status = 'retracted', status_note = $2, valid_to = now() where id = $1 returning ${CURATED_COLUMNS}`,
+          [id, `merged into ${hit.id}`],
+        )
+      ).rows[0]!;
+      if (hit.status === "candidate") {
+        mergedInto = (
+          await client.query<Fact>(`update facts set status = 'active' where id = $1 returning ${FACT_COLUMNS}`, [hit.id])
+        ).rows[0]!;
+        await activateSupersede(client, hit);
+        await client.query(`insert into reviews (fact_id, reviewer_user_id, action, note) values ($1, $2, 'approve', $3)`, [
+          hit.id,
+          curator.user_id,
+          `merged from ${id}`,
+        ]);
+      } else {
+        const { supersedes: _s, content_hash: _h, ...rest } = hit;
+        mergedInto = rest;
+      }
+    }
+    await client.query(`insert into reviews (fact_id, reviewer_user_id, action, note) values ($1, $2, 'move', $3)`, [
+      id,
+      curator.user_id,
+      `${input.note ? `${input.note}; ` : ""}moved ${old.scope} → ${target}`,
+    ]);
+    await client.query("commit");
+    return { fact, new_fact: null, merged_into: mergedInto };
   } catch (err) {
     await client.query("rollback").catch(() => {});
     throw err;

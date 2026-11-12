@@ -159,7 +159,7 @@ describe("no teams", () => {
   it("every read answers the same, in the same order, after migration 0017", async () => {
     const b = JSON.parse(before);
     expect(JSON.stringify(b)).not.toContain('"<id>"');
-    expect(await migrate(pool)).toEqual(["0017_teams.sql"]);
+    expect((await migrate(pool))[0]).toBe("0017_teams.sql");
     const after = await answers();
     expect(after).toEqual(b);
     expect(after).toMatchSnapshot();

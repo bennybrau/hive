@@ -55,8 +55,8 @@ A fact is **stale** when it is `active`, not `pinned`, and its idle time — sin
 - `GET /v1/facts/stale?repo_key=&limit=50&offset=0` — `{facts, has_more, stale_days}`, longest idle first (readable
   scopes as below; `limit` ≤ 200). Each fact also carries `use_count`, `cite_count`, `last_used_at`, `pinned` and
   `idle_days` (whole days).
-- `POST /v1/facts/:id/curate` `{action: keep|fix|retire|pin|unpin, note?, new_text?}` → `{fact, new_fact}`; `fact`
-  also carries `pinned` and `kept_at`. 404 no such fact, 409 when it isn't `active`. Every decision writes a `reviews`
+- `POST /v1/facts/:id/curate` `{action: keep|fix|retire|pin|unpin|move, note?, new_text?, scope?}` → `{fact, new_fact}`
+  (`move` also returns `merged_into`); `fact` also carries `pinned` and `kept_at`. 404 no such fact, 409 when it isn't `active`. Every decision writes a `reviews`
   row on the fact (`new_text` on fix).
   - `keep` → still true: `kept_at = now()` (its idle time restarts) and `metadata.correction` is removed.
   - `pin` / `unpin` → `pinned = true / false`. A pinned fact is never stale.
@@ -65,6 +65,12 @@ A fact is **stale** when it is `active`, not `pinned`, and its idle time — sin
     fact is left alone).
   - `retire` → `retracted` with `status_note: "retired: <note>"` (or `"retired: stale"`).
   - `fix` and `retire` also remove `metadata.correction` from the old fact.
+  - `move` (needs `scope`) → the fact moves to that level: `global`, `team:<key>` (404 if no such team), any
+    `repo:<key>` (registered or not) or `personal` / `personal:<you>`. 400 with no `scope`, its own scope or any other
+    scope. If its text is already a fact there, it is merged into that fact as on review `fix` (anchors move, it is
+    `retracted` with `status_note: "merged into <id>"`, `merged_into` is that fact, activated if it was a candidate;
+    409 if that fact is `retracted` or `superseded`); otherwise `merged_into` is `null`. The review `note` is the
+    caller's note plus `moved <old> → <new>`.
 
 Every fact carries `metadata` (`{}` by default). `metadata.asked: true` = a person asked for it to be remembered
 (a flagged turn; see Worker). `metadata.correction: {text, episode_id, candidate_id, at}` = a person corrected an
@@ -108,9 +114,9 @@ The queue only lists scopes the curator can read (never another user's personal 
     already another fact in that scope, the candidate is merged instead: its anchors move to that fact, it is
     `retracted` with `status_note: "merged into <id>"`, and `merged_into` is that fact (activated if it was a
     candidate). 409 if that fact is `retracted` or `superseded`.
-  - `scope` (approve or fix; 400 on reject) shares the candidate on approve: `global` or `team:<key>` moves it there,
-    its own scope is no move. 404 for a team that doesn't exist, 400 for any other scope (another `repo:`, a
-    `personal:`). If its text is already a fact in that scope, it is merged into that fact as on `fix` (409 if that
+  - `scope` (approve or fix; 400 on reject) shares the candidate on approve: `global`, `team:<key>` or any `repo:<key>`
+    (registered or not) moves it there, its own scope is no move. 404 for a team that doesn't exist, 400 for any other
+    scope (a `personal:` one included). If its text is already a fact in that scope, it is merged into that fact as on `fix` (409 if that
     fact is `retracted` or `superseded`). The `replaces` and `supersedes` targets are still looked up in its old
     scope. The review `note` is the caller's note plus `moved <old> → <new>`.
   - `reject` → `retracted`, `status_note: "rejected: <note>"` (or `"rejected"`), `valid_to = now()`.
@@ -444,6 +450,8 @@ The hive reads repos through a read-only mount (`HIVE_REPOS_HOST_ROOT`, default 
 - `GET /v1/repos` — every repo with `host_path`, last ingested sha/time, `ingest_summary`, `ingest_error`, and
   counts of indexed docs, chunks and commits, and `anchors: {verified, drifted, missing, unverifiable_here, unverified}`:
   the anchors of active + candidate facts in that repo (by the anchor's `repo_key`, else the fact's `repo:` scope), by verify status.
+- `GET /v1/repo-keys` — members and curators. `{repo_keys}`: the keys of registered repos plus every `repo:<key>` scope of an
+  `active` or `candidate` fact (retracted and superseded facts don't count), once each, in byte order.
 - `GET /v1/repos/files?key=` — every document considered, with `status` (`indexed | empty | skipped | error`)
   and why (`no text layer (scanned PDF?)`, `too large`, ...).
 - `POST /v1/repos/ingest` `{key}` — curator. Ingest now, then verify that repo; returns both summaries. `409` if

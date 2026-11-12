@@ -123,16 +123,24 @@ describe("share-with on approve", () => {
     expect(await row(cand)).toMatchObject({ status: "candidate", scope: `repo:${X}` });
   });
 
-  it("404 for an unknown team, 400 for another scope or a reject with a scope", async () => {
+  it("404 for an unknown team, 400 for a personal or unknown scope or a reject with a scope", async () => {
     const cand = await fact("Billing exports CSV", `repo:${X}`);
     const nope = await review(curator, cand, { action: "approve", scope: "team:nope" });
     expect(nope.statusCode, nope.body).toBe(404);
     expect(nope.json().error).toMatch(/no such team/);
-    for (const scope of ["repo:gh/acme/other", "personal:jon", "nonsense"]) {
+    for (const scope of ["personal:jon", "nonsense"]) {
       expect((await review(curator, cand, { action: "approve", scope })).statusCode).toBe(400);
     }
     expect((await review(curator, cand, { action: "reject", scope: "global" })).statusCode).toBe(400);
     expect(await row(cand)).toMatchObject({ status: "candidate", scope: `repo:${X}` });
     expect(await reviewsOf(cand)).toEqual([]);
+  });
+
+  it("another repo, registered or not, is a target", async () => {
+    const cand = await fact("Billing exports TSV", `repo:${X}`);
+    const res = await review(curator, cand, { action: "approve", scope: "repo:gh/acme/other" });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(await row(cand)).toMatchObject({ status: "active", scope: "repo:gh/acme/other" });
+    expect(await reviewsOf(cand)).toEqual([{ action: "approve", note: `moved repo:${X} → repo:gh/acme/other` }]);
   });
 });

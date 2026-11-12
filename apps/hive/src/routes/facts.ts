@@ -240,9 +240,10 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
           required: ["action"],
           additionalProperties: false,
           properties: {
-            action: { type: "string", enum: ["keep", "fix", "retire", "pin", "unpin"] },
+            action: { type: "string", enum: ["keep", "fix", "retire", "pin", "unpin", "move"] },
             note: { type: "string", maxLength: 1000 },
             new_text: { type: "string", minLength: 3, maxLength: 2000 },
+            scope: { type: "string", minLength: 1, maxLength: 210 },
           },
         },
       },
@@ -253,10 +254,12 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
       try {
         const out = await curateFact(pool, req.params.id, req.instance!, req.body);
         if (!out) return reply.code(404).send({ error: "no such fact" });
-        if (req.body.action === "fix") onWrite();
+        if (req.body.action === "fix" || req.body.action === "move") onWrite();
         return out;
       } catch (err) {
         if (err instanceof ConflictError) return reply.code(409).send({ error: err.message });
+        if (err instanceof ScopeNotFound) return reply.code(404).send({ error: err.message });
+        if (err instanceof ScopeError) return reply.code(400).send({ error: err.message });
         throw err;
       }
     },
