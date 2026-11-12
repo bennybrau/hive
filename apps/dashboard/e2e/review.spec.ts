@@ -4,11 +4,28 @@ import { expect, test } from "@playwright/test";
 const HIVE = process.env.HIVE_URL ?? "http://127.0.0.1:8800";
 const MEMBER = process.env.HIVE_E2E_TOKEN ?? "";
 const CURATOR = process.env.HIVE_E2E_CURATOR_TOKEN ?? "";
+const RUN = process.env.HIVE_E2E_RUN ?? "";
+
+// Ids this spec made; afterAll retires the ones still active (scripts/test-dashboard-e2e.sh's trap is the backstop).
+const created: string[] = [];
+test.afterAll(async ({ request }) => {
+  const auth = { authorization: `Bearer ${CURATOR}` };
+  for (const id of created) {
+    try {
+      const got = await request.get(`${HIVE}/v1/facts/${id}`, { headers: auth });
+      if (!got.ok() || (await got.json()).fact.status !== "active") continue;
+      await request.post(`${HIVE}/v1/facts/${id}/curate`, { headers: auth, data: { action: "retire", note: "e2e cleanup" } });
+    } catch {
+      // Ignored: the script's trap retracts whatever is left.
+    }
+  }
+});
 
 test("a curator reviews a member's candidate from the keyboard, with undo", async ({ page }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   expect(CURATOR, "HIVE_E2E_CURATOR_TOKEN is not set").not.toBe("");
-  const marker = `zq${Date.now()}`;
+  expect(RUN, "HIVE_E2E_RUN is not set").not.toBe("");
+  const marker = `${RUN}q${Date.now()}`;
   const text = `Dashboard e2e candidate ${marker}: reviewed from the keyboard.`;
   // A member's global fact waits for review.
   const res = await page.request.post(`${HIVE}/v1/facts`, {
@@ -17,6 +34,7 @@ test("a curator reviews a member's candidate from the keyboard, with undo", asyn
   });
   expect(res.status()).toBe(201);
   const id = (await res.json()).fact.id as string;
+  created.push(id);
   expect((await res.json()).fact.status).toBe("candidate");
 
   await page.goto(`${HIVE}/`);
@@ -60,9 +78,9 @@ test("a curator reviews a member's candidate from the keyboard, with undo", asyn
 test("a curator shares a member's global candidate with a team on approve", async ({ page }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   expect(CURATOR, "HIVE_E2E_CURATOR_TOKEN is not set").not.toBe("");
-  const marker = `zs${Date.now()}`;
+  expect(RUN, "HIVE_E2E_RUN is not set").not.toBe("");
+  const marker = `${RUN}s${Date.now()}`;
   const key = `e2e-${marker}`;
-  // No cleanup: a team can't be deleted while a fact is in it.
   const team = await page.request.post(`${HIVE}/v1/teams`, {
     headers: { authorization: `Bearer ${CURATOR}` },
     data: { key, name: `E2E ${marker}` },
@@ -75,6 +93,7 @@ test("a curator shares a member's global candidate with a team on approve", asyn
   });
   expect(res.status()).toBe(201);
   const id = (await res.json()).fact.id as string;
+  created.push(id);
 
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(CURATOR);
@@ -105,9 +124,10 @@ test("a curator shares a member's global candidate with a team on approve", asyn
 test("a curator reviews a member's candidate on a phone, by tapping", async ({ browser }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   expect(CURATOR, "HIVE_E2E_CURATOR_TOKEN is not set").not.toBe("");
+  expect(RUN, "HIVE_E2E_RUN is not set").not.toBe("");
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const page = await context.newPage();
-  const marker = `zm${Date.now()}`;
+  const marker = `${RUN}m${Date.now()}`;
   const text = `Dashboard e2e candidate ${marker}: reviewed on a phone.`;
   const res = await page.request.post(`${HIVE}/v1/facts`, {
     headers: { authorization: `Bearer ${MEMBER}` },
@@ -115,6 +135,7 @@ test("a curator reviews a member's candidate on a phone, by tapping", async ({ b
   });
   expect(res.status()).toBe(201);
   const id = (await res.json()).fact.id as string;
+  created.push(id);
 
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(CURATOR);
@@ -150,19 +171,14 @@ test("a curator reviews a member's candidate on a phone, by tapping", async ({ b
       return `${f.status} ${f.text}`;
     })
     .toBe(`active ${text} Fixed.`);
-  // It is active and global now, so retire it before an assistant recalls it.
-  const retire = await page.request.post(`${HIVE}/v1/facts/${id}/curate`, {
-    headers: { authorization: `Bearer ${CURATOR}` },
-    data: { action: "retire", note: "e2e" },
-  });
-  expect(retire.status()).toBe(200);
   await context.close();
 });
 
 test("a curator keeps a fact the member corrected after an answer cited it", async ({ page }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   expect(CURATOR, "HIVE_E2E_CURATOR_TOKEN is not set").not.toBe("");
-  const marker = `zc${Date.now()}`;
+  expect(RUN, "HIVE_E2E_RUN is not set").not.toBe("");
+  const marker = `${RUN}c${Date.now()}`;
   // The curator's global fact is active at once.
   const res = await page.request.post(`${HIVE}/v1/facts`, {
     headers: { authorization: `Bearer ${CURATOR}` },
@@ -170,6 +186,7 @@ test("a curator keeps a fact the member corrected after an answer cited it", asy
   });
   expect(res.status()).toBe(201);
   const id = (await res.json()).fact.id as string;
+  created.push(id);
   expect((await res.json()).fact.status).toBe("active");
 
   // The member's answer cites it, and the next turn of the session corrects that answer.
