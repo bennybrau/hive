@@ -95,6 +95,10 @@ The queue only lists scopes the curator can read (never another user's personal 
     `user: ` removed) and the `assistant:` text turns between the previous user turn and it (tool calls and output
     skipped, prefixes removed, last 600 chars; `null` when there are none). `exchange` is `null` when the quote is in no
     user turn, and on anchors without an episode.
+    And `source: {kind, author, where, at}` (`null` without an episode): the episode's `kind` and `created_at` (`at`),
+    `author` its `metadata.author`, else its `user_id`, `null` when that is `asf-factory` or `operator` (the factory's name for a message sent through its API without one) or missing, and `where`:
+    `factory_plan_note` (an `asf_dialog` whose `ref` has `:gate:`), `factory_chat` (`asf_dialog` with `:msg:`),
+    `factory_run` (`asf_run`), `conversation` (`turn`, `session`), `commit`, else `other`.
   - `similar[]`: up to 3 `active` facts in the candidate's scope or `global` with cosine similarity ≥ 0.85, with
     `similarity`. Empty until the candidate is embedded.
   - `replaces`: the fact a distilled candidate says it corrects (its `metadata.replaces`, see Worker) as

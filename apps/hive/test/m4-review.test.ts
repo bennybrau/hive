@@ -370,6 +370,49 @@ describe("queue", () => {
     expect((await queue()).find((c) => c.id === r.id).anchors[0].exchange).toBeNull();
   });
 
+  it("an episode anchor carries its source: kind, who said it (never the factory), where, when", async () => {
+    const episode = async (kind: string, ref: string, userId: string, metadata: Record<string, unknown> = {}) => {
+      const { rows } = await pool.query<{ id: string; created_at: Date }>(
+        `insert into episodes (kind, ref, user_id, repo_key, content, metadata) values ($1, $2, $3, 'gh/o/a', 'user: ok', $4)
+         returning id, created_at`,
+        [kind, ref, userId, metadata],
+      );
+      return rows[0]!;
+    };
+    const sourceFor = async (ep: { id: string }, text: string) => {
+      const f = await remember(alice.token, { text, anchors: [{ episode_id: ep.id, quote: "ok" }] });
+      return (await queue()).find((c) => c.id === f.id).anchors[0];
+    };
+    const gate = await episode("asf_dialog", "run_1:gate:after_plan", "asf-factory", { author: "jon" });
+    expect((await sourceFor(gate, "Plans need a test section")).source).toEqual({
+      kind: "asf_dialog",
+      author: "jon",
+      where: "factory_plan_note",
+      at: gate.created_at.toISOString(),
+    });
+    const msg = await episode("asf_dialog", "run_1:msg:42", "asf-factory", { author: "jon" });
+    expect((await sourceFor(msg, "Runs ask before pushing")).source).toMatchObject({ where: "factory_chat", author: "jon" });
+    const turn = await episode("turn", "t1", "alice");
+    expect((await sourceFor(turn, "Alice owns billing")).source).toMatchObject({ kind: "turn", where: "conversation", author: "alice" });
+    const session = await episode("session", "s1", "alice");
+    expect((await sourceFor(session, "Alice reviews billing PRs")).source).toMatchObject({ kind: "session", where: "conversation" });
+    const run = await episode("asf_run", "run_3", "asf-factory");
+    expect((await sourceFor(run, "Runs merge with squash")).source).toMatchObject({ where: "factory_run", author: null });
+    const bot = await episode("asf_dialog", "run_2:gate:after_plan", "asf-factory");
+    expect((await sourceFor(bot, "Factory notes have no author")).source).toMatchObject({ where: "factory_plan_note", author: null });
+    const api = await episode("asf_dialog", "run_4:msg:7", "asf-factory", { author: "operator" });
+    expect((await sourceFor(api, "Sent through the factory API")).source).toMatchObject({ where: "factory_chat", author: null });
+    const commit = await episode("commit", "abc123", "alice");
+    expect((await sourceFor(commit, "Payments retried three times")).source).toMatchObject({ where: "commit" });
+    const other = await episode("asf_dialog", "run_1:other:1", "bob");
+    expect((await sourceFor(other, "Some unmarked note")).source).toMatchObject({ where: "other" });
+
+    const r = await remember(alice.token, { text: "Readme says billing", anchors: [{ path: "README.md", quote: "billing" }] });
+    const pathAnchor = (await queue()).find((c) => c.id === r.id).anchors[0];
+    expect(pathAnchor.source).toBeNull();
+    for (const c of await queue()) for (const a of c.anchors) expect(Object.keys(a).filter((k) => k.startsWith("ep_"))).toEqual([]);
+  });
+
   it("lists asked candidates first, then oldest", async () => {
     const old = await remember(alice.token, { text: "Payments retry three times" });
     const asked = await remember(alice.token, { text: "We deploy to Cloud Run from main only" });

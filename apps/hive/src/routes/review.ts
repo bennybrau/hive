@@ -9,6 +9,33 @@ import { ScopeError, ScopeNotFound } from "../scope.js";
 const SIMILAR_MIN = 0.85;
 const SNIPPET_CHARS = 300;
 
+interface SourceColumns {
+  ep_kind: string | null;
+  ep_ref: string | null;
+  ep_user_id: string | null;
+  ep_author: string | null;
+  ep_at: Date | null;
+}
+
+/** Not people: the factory's own user id, and the name the factory records for a message sent through its API
+ *  without one. Never shown as who said something. */
+const NOT_A_PERSON = new Set(["asf-factory", "operator"]);
+
+/** Where an anchor's episode came from, in words the dashboard maps to a label; null without an episode. */
+function sourceOf(row: SourceColumns): { kind: string; author: string | null; where: string; at: string } | null {
+  if (row.ep_kind === null || row.ep_at === null) return null;
+  const author = row.ep_author ?? row.ep_user_id ?? null;
+  const ref = row.ep_ref ?? "";
+  const where =
+    row.ep_kind === "asf_dialog" && ref.includes(":gate:") ? "factory_plan_note"
+    : row.ep_kind === "asf_dialog" && ref.includes(":msg:") ? "factory_chat"
+    : row.ep_kind === "asf_run" ? "factory_run"
+    : row.ep_kind === "turn" || row.ep_kind === "session" ? "conversation"
+    : row.ep_kind === "commit" ? "commit"
+    : "other";
+  return { kind: row.ep_kind, author: author !== null && NOT_A_PERSON.has(author) ? null : author, where, at: row.ep_at.toISOString() };
+}
+
 function curatorOnly(req: FastifyRequest, reply: FastifyReply): boolean {
   if (req.instance!.role === "curator") return true;
   reply.code(403).send({ error: "only a curator can review facts" });
@@ -41,14 +68,16 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
       const ids = candidates.map((c) => c.id);
       // Anchors, and for conversation anchors ~300 chars of the episode around the quote (start of it when not found)
       // plus the exchange the quote came from; `content` is only read here, never sent.
-      const anchors = await pool.query<{ fact_id: string; quote: string | null; content: string | null }>(
+      const anchors = await pool.query<{ fact_id: string; quote: string | null; content: string | null } & SourceColumns>(
         `select a.fact_id, a.id, a.episode_id, a.repo_key, a.commit_sha, a.path, a.line_start, a.line_end, a.quote,
                 a.verify_status, a.verified_at, a.verify_note,
                 case when e.id is null then null
                      else substr(e.content, greatest(1,
                        coalesce(nullif(strpos(lower(e.content), lower(coalesce(a.quote, ''))), 0), 1)
                        + length(coalesce(a.quote, '')) / 2 - ${SNIPPET_CHARS / 2}), ${SNIPPET_CHARS})
-                end as episode_snippet, e.content
+                end as episode_snippet, e.content,
+                e.kind as ep_kind, e.ref as ep_ref, e.user_id as ep_user_id, e.metadata->>'author' as ep_author,
+                e.created_at as ep_at
          from anchors a left join episodes e on e.id = a.episode_id
          where a.fact_id = any($1::uuid[])`,
         [ids],
@@ -83,9 +112,10 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
           ...c,
           anchors: anchors.rows
             .filter((a) => a.fact_id === c.id)
-            .map(({ fact_id: _, content, ...a }) => ({
+            .map(({ fact_id: _, content, ep_kind, ep_ref, ep_user_id, ep_author, ep_at, ...a }) => ({
               ...a,
               exchange: content === null ? null : exchangeFor(content, a.quote ?? ""),
+              source: sourceOf({ ep_kind, ep_ref, ep_user_id, ep_author, ep_at }),
             })),
           similar: similar.rows
             .filter((s) => s.candidate_id === c.id)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KIND, ORIGIN, RAW_VALUES, STATUS, VERIFY, levelLabel, when, word } from "./words";
+import { KIND, ORIGIN, RAW_VALUES, STATUS, VERIFY, WHERE, levelLabel, when, word } from "./words";
 
 const NOW = Date.parse("2026-11-12T18:00:00Z");
 const ago = (secs: number) => new Date(NOW - secs * 1000).toISOString();
@@ -17,6 +17,19 @@ describe("words", () => {
 
   it("an unknown value shows as itself instead of blank", () => {
     expect(word(STATUS, "archived")).toEqual({ label: "archived", hint: "" });
+  });
+
+  it("says where a review anchor's words were said; other says nothing", () => {
+    expect(Object.fromEntries(Object.entries(WHERE).map(([k, v]) => [k, v.label]))).toEqual({
+      factory_plan_note: "in a factory plan approval",
+      factory_chat: "in a factory run's chat",
+      factory_run: "in a factory run",
+      conversation: "in a conversation with Hermes",
+      commit: "in a commit",
+      other: "",
+    });
+    expect(WHERE.other!.label).toBe("");
+    expect(word(WHERE, "x").label).toBe("x");
   });
 
   it("re-exports the who-gets-it labels", () => {

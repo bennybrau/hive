@@ -54,6 +54,16 @@ export const ROLE: Record<string, Word> = {
   worker: w("Worker", "A background job's token"),
 };
 
+/** Where a review anchor's words were said (`anchors[].source.where`); `other` adds nothing. */
+export const WHERE: Record<string, Word> = {
+  factory_plan_note: w("in a factory plan approval"),
+  factory_chat: w("in a factory run's chat"),
+  factory_run: w("in a factory run"),
+  conversation: w("in a conversation with Hermes"),
+  commit: w("in a commit"),
+  other: w(""),
+};
+
 /** Fixed phrases that replace internal words on screen. */
 export const PHRASE = {
   anchors: "Where this comes from",
