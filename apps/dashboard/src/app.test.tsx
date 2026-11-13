@@ -112,7 +112,7 @@ describe("dashboard shell", () => {
     );
     history.replaceState(null, "", "/stale");
     render(<App />);
-    expect(await screen.findByText(/No facts unused/)).toBeTruthy();
+    expect(await screen.findByText("Nothing is out of date")).toBeTruthy();
     const tabs = screen.getByRole("navigation", { name: "Review pages" });
     expect(within(tabs).getByRole("link", { name: "Out of date" }).getAttribute("aria-current")).toBe("page");
     expect(within(tabs).getByRole("link", { name: "New" }).getAttribute("aria-current")).toBeNull();

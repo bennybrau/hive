@@ -226,6 +226,30 @@ The buttons at the bottom of the card:
   conversations. If that was long ago and people have been working, check the worker on [Stats](#stats-curators).
 - If a decision can't be saved, the fact comes back with the error.
 
+## Out of date (curators)
+
+**Review › Out of date** shows live facts no agent has used for a while (60 days unless the hive is set up
+differently; the line under the title says how long and how many). Pinned facts never show here. It uses the same
+card as [Review](#review-curators), **one fact at a time**, with **Fact n of N** and **‹ ›**, the fact, **Who gets
+it** and **Change…**.
+
+**Why Hive thinks so** says how long nobody has used it and when it was last used ("Nobody has used it in 60 days.
+Last used Mar 3."), or, if no agent ever used it, when it was added. Hover the time for the full date. **Details**
+(folded) has how many times agents were given it (**Uses**) and cited it (**Cites**), and its id.
+
+The buttons at the bottom of the card:
+
+- **Keep**: it is still right; it leaves the list until nobody uses it for that long again.
+- **Move…**: **Who should get this?**, **Just me** included, then **Move to** *level*. Picking a level from
+  **Change…** does the same.
+- **Retire**: an optional reason, then **Retire fact** (or `Enter`; `Esc` cancels). Agents stop getting it.
+- **Edit…**: change the text, then **Save fix** (or `Enter`; `Esc` cancels). The new text replaces the old fact.
+- **Pin**: keep it and never show it here again.
+
+Each one is saved at once (there is no Undo here) and the next fact shows. When nothing is out of date, the page
+says **Nothing is out of date**. Moving a fact to a level that already has the same text merges it into that fact,
+and the page says so.
+
 ## Stats (curators)
 
 ![Stats page](img/stats.png)

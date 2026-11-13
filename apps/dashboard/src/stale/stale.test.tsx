@@ -54,10 +54,13 @@ function posts(): [string, unknown][] {
     .map(([u, init]) => [/\/v1\/facts\/([^/]+)\/curate/.exec(String(u))![1]!, JSON.parse(String(init!.body))]);
 }
 
-const rows = () => within(screen.getByRole("list", { name: "Stale facts" })).getAllByRole("listitem");
-const ids = () => rows().map((r) => r.dataset.id);
-const panel = () => screen.getByRole("complementary", { name: "Fact" });
-const click = (name: string) => fireEvent.click(within(panel()).getByRole("button", { name }));
+const card = () => screen.getByRole("article", { name: "Fact" });
+/** The card's fact id and its "Fact n of N" line. */
+const at = () => [card().dataset.id, card().querySelector(".pos .label")!.textContent];
+const decide = () => within(card()).getByRole("group", { name: "Decide" });
+const click = (name: string) => fireEvent.click(within(card()).getByRole("button", { name }));
+const buttons = () => within(decide()).getAllByRole("button").map((b) => [b.textContent, b.classList.contains("primary")]);
+const primaries = () => document.querySelectorAll("button.primary").length;
 
 beforeEach(() => {
   page = { facts: [fact("f1"), fact("f2"), fact("f3")], has_more: false, stale_days: 60 };
@@ -75,59 +78,120 @@ afterEach(() => {
 
 async function open() {
   render(<Stale role="curator" />);
-  await screen.findByText("stale f1", { selector: ".text" });
+  await screen.findByText("stale f1", { selector: ".proposed" });
 }
 
-describe("stale facts", () => {
-  it("lists stale facts with their use, idle time and last use", async () => {
-    page.facts[0] = fact("f1", { kind: "gotcha", scope: "repo:gh/o/a", idle_days: 400, use_count: 3, cite_count: 1, last_used_at: new Date(Date.now() - 3 * 86400_000).toISOString() });
+describe("out of date facts", () => {
+  it("shows one card at a time, with the count and stale_days in the lede, and ‹ › to move", async () => {
     await open();
     expect(new URL(String(fetchMock.mock.calls[0]![0]), "http://hive").search).toBe("?limit=100");
-    expect(screen.getByText(/unused for over/).textContent).toBe("3 unused for over 60 days.");
-    expect(ids()).toEqual(["f1", "f2", "f3"]);
-    expect(rows()[0]!.querySelector(".meta")!.textContent).toBe("gotcha in Repo: a, idle 400 days");
-    const dl = [...panel().querySelectorAll("dt")].map((dt) => [dt.textContent, dt.nextElementSibling!.textContent]);
-    expect(dl).toEqual([
-      ["Kind", "gotcha"],
-      ["Level", "Repo: a"],
-      ["Idle", "400 days"],
-      ["Uses", "3"],
-      ["Cites", "1"],
-      ["Last used", "3 days ago"],
-    ]);
-    fireEvent.click(rows()[1]!);
-    expect(panel().querySelector(".fact-text")!.textContent).toBe("stale f2");
-    expect(within(panel()).getByText("never")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Out of date");
+    expect(document.querySelector(".lede")!.textContent).toBe("3 facts nobody has used in 60 days.");
+    expect(screen.queryByRole("list")).toBeNull();
+    expect(at()).toEqual(["f1", "Fact 1 of 3"]);
+    expect((within(card()).getByRole("button", { name: "Previous fact" }) as HTMLButtonElement).disabled).toBe(true);
+    click("Next fact");
+    click("Next fact");
+    expect(at()).toEqual(["f3", "Fact 3 of 3"]);
+    expect((within(card()).getByRole("button", { name: "Next fact" }) as HTMLButtonElement).disabled).toBe(true);
+    click("Previous fact");
+    expect(at()).toEqual(["f2", "Fact 2 of 3"]);
+    expect(within(card()).getByText("stale f2", { selector: ".proposed" })).toBeTruthy();
   });
 
-  it("Keep and Pin post at once and the row goes, selecting the next", async () => {
+  it("says why: when it was last used, or that it never was since it was added", async () => {
+    const used = new Date(Date.now() - 3 * 86400_000).toISOString();
+    page = { facts: [fact("f1", { last_used_at: used }), fact("f2")], has_more: false, stale_days: 45 };
+    await open();
+    const why = () => within(card()).getByRole("region", { name: "Why Hive thinks so" });
+    expect(why().querySelector("p")!.textContent).toBe("Nobody has used it in 45 days. Last used 3 days ago.");
+    expect(why().querySelector("time")!.getAttribute("dateTime")).toBe(used);
+    expect(why().querySelector("time")!.getAttribute("title")).toMatch(/\d{4}/);
+    click("Next fact");
+    expect(why().querySelector("p")!.textContent).toBe("Never used since it was added Jan 1, 2025.");
+    expect(why().querySelector("time")!.getAttribute("dateTime")).toBe("2025-01-01T12:00:00Z");
+    expect(why().querySelector("time")!.getAttribute("title")).toMatch(/January 1, 2025/);
+  });
+
+  it("keeps uses, cites and the id under Details", async () => {
+    page.facts[0] = fact("f1", { use_count: 3, cite_count: 1 });
+    await open();
+    const details = within(card()).getByText("Details").closest("details")!;
+    expect(details.open).toBe(false);
+    const dl = [...details.querySelectorAll("dt")].map((dt) => [dt.textContent, dt.nextElementSibling!.textContent]);
+    expect(dl).toEqual([
+      ["Uses", "3"],
+      ["Cites", "1"],
+      ["Id", "f1"],
+    ]);
+  });
+
+  it("has one primary button in each state: Keep, Move to, Save fix", async () => {
+    await open();
+    expect(buttons()).toEqual([
+      ["Keep", true],
+      ["Move…", false],
+      ["Retire", false],
+      ["Edit…", false],
+      ["Pin", false],
+    ]);
+    expect(decide().querySelectorAll("button.big").length).toBe(3);
+    expect(within(decide()).getByRole("button", { name: "Edit…" }).classList.contains("quiet")).toBe(true);
+    expect(within(decide()).getByRole("button", { name: "Pin" }).classList.contains("quiet")).toBe(true);
+    expect(primaries()).toBe(1);
+
+    click("Move…");
+    expect(buttons()).toEqual([
+      ["Move to Everyone", true],
+      ["Cancel", false],
+    ]);
+    expect(primaries()).toBe(1);
+    click("Cancel");
+
+    click("Edit…");
+    expect(buttons()).toEqual([
+      ["Save fix", true],
+      ["Cancel", false],
+    ]);
+    expect(primaries()).toBe(1);
+    click("Cancel");
+
+    click("Retire");
+    expect(buttons()).toEqual([
+      ["Retire fact", false],
+      ["Cancel", false],
+    ]);
+    expect(within(decide()).getByRole("button", { name: "Retire fact" }).classList.contains("danger")).toBe(true);
+  });
+
+  it("Keep and Pin post at once and the card goes, showing the next", async () => {
     await open();
     click("Keep");
-    await waitFor(() => expect(ids()).toEqual(["f2", "f3"]));
-    expect(rows()[0]!.getAttribute("aria-current")).toBe("true");
+    await waitFor(() => expect(at()).toEqual(["f2", "Fact 1 of 2"]));
     click("Pin");
-    await waitFor(() => expect(ids()).toEqual(["f3"]));
+    await waitFor(() => expect(at()).toEqual(["f3", "Fact 1 of 1"]));
     expect(posts()).toEqual([
       ["f1", { action: "keep" }],
       ["f2", { action: "pin" }],
     ]);
   });
 
-  it("Fix edits the text; Enter saves, Esc cancels, and short text isn't sent", async () => {
+  it("Edit… edits the text; Enter saves, Esc cancels, and short text isn't sent", async () => {
     await open();
-    click("Fix");
-    const box = screen.getByLabelText("Fixed text") as HTMLTextAreaElement;
-    expect(box.value).toBe("stale f1");
-    fireEvent.keyDown(box, { key: "Escape" });
-    expect(screen.queryByLabelText("Fixed text")).toBeNull();
+    click("Edit…");
+    const box = () => screen.getByLabelText("Edit the fact") as HTMLTextAreaElement;
+    expect(box().value).toBe("stale f1");
+    fireEvent.keyDown(box(), { key: "Escape" });
+    expect(screen.queryByLabelText("Edit the fact")).toBeNull();
 
-    click("Fix");
-    fireEvent.change(screen.getByLabelText("Fixed text"), { target: { value: " ab " } });
-    fireEvent.keyDown(screen.getByLabelText("Fixed text"), { key: "Enter" });
+    click("Edit…");
+    fireEvent.change(box(), { target: { value: " ab " } });
+    fireEvent.keyDown(box(), { key: "Enter" });
     expect(posts()).toEqual([]);
-    fireEvent.change(screen.getByLabelText("Fixed text"), { target: { value: "  stale f1, fixed  " } });
-    fireEvent.keyDown(screen.getByLabelText("Fixed text"), { key: "Enter" });
-    await waitFor(() => expect(ids()).toEqual(["f2", "f3"]));
+    expect((within(decide()).getByRole("button", { name: "Save fix" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(box(), { target: { value: "  stale f1, fixed  " } });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    await waitFor(() => expect(at()).toEqual(["f2", "Fact 1 of 2"]));
     expect(posts()).toEqual([["f1", { action: "fix", new_text: "stale f1, fixed" }]]);
   });
 
@@ -138,15 +202,15 @@ describe("stale facts", () => {
     expect(screen.getByLabelText("Why retire it? (optional)")).toBeTruthy();
     click("Cancel");
     expect(screen.queryByLabelText(/Why retire it/)).toBeNull();
-    expect(ids()).toEqual(["f1", "f2", "f3"]);
+    expect(at()).toEqual(["f1", "Fact 1 of 3"]);
 
     click("Retire");
     click("Retire fact");
-    await waitFor(() => expect(ids()).toEqual(["f2", "f3"]));
+    await waitFor(() => expect(at()).toEqual(["f2", "Fact 1 of 2"]));
     click("Retire");
     fireEvent.change(screen.getByLabelText(/Why retire it/), { target: { value: " moved to v2 " } });
-    click("Retire fact");
-    await waitFor(() => expect(ids()).toEqual(["f3"]));
+    fireEvent.keyDown(screen.getByLabelText(/Why retire it/), { key: "Enter" });
+    await waitFor(() => expect(at()).toEqual(["f3", "Fact 1 of 1"]));
     expect(posts()).toEqual([
       ["f1", { action: "retire" }],
       ["f2", { action: "retire", note: "moved to v2" }],
@@ -157,40 +221,57 @@ describe("stale facts", () => {
     anchors = [{ repo_key: "gh/o/a" }];
     await open();
     click("Move…");
-    const who = within(within(panel()).getByRole("group", { name: "Who should get this?" }));
+    const who = within(within(card()).getByRole("group", { name: "Who should get this?" }));
     await who.findByRole("radio", { name: "Repo: a" });
     await who.findByRole("option", { name: "local" });
-    expect(who.getAllByRole("radio").map((r) => panel().querySelector(`label[for="${r.id}"]`)!.textContent)).toEqual([
+    expect(who.getAllByRole("radio").map((r) => card().querySelector(`label[for="${r.id}"]`)!.textContent)).toEqual([
       "Everyone (current)",
       "Repo: a",
       "Another repo…",
       "Team: Billing",
       "Just me",
     ]);
-    expect(within(panel()).getByRole("button", { name: "Move to Everyone" }).hasAttribute("disabled")).toBe(true);
+    expect(within(decide()).getByRole("button", { name: "Move to Everyone" }).hasAttribute("disabled")).toBe(true);
     fireEvent.change(who.getByLabelText("Another repo"), { target: { value: "local" } });
     click("Move to Repo: local");
-    await waitFor(() => expect(ids()).toEqual(["f2", "f3"]));
+    await waitFor(() => expect(at()).toEqual(["f2", "Fact 1 of 2"]));
     expect(posts()).toEqual([["f1", { action: "move", scope: "repo:local" }]]);
+  });
+
+  it("a level picked from Change… turns the footer into Move to, with this repo offered", async () => {
+    anchors = [{ repo_key: "gh/o/a" }];
+    await open();
+    click("Change…");
+    fireEvent.click(await within(card()).findByRole("radio", { name: "Repo: a" }));
+    expect(buttons()).toEqual([
+      ["Move to Repo: a", true],
+      ["Cancel", false],
+    ]);
+    click("Cancel");
+    expect(buttons()[0]).toEqual(["Keep", true]);
+    fireEvent.click(within(card()).getByRole("radio", { name: "Repo: a" }));
+    click("Move to Repo: a");
+    await waitFor(() => expect(at()).toEqual(["f2", "Fact 1 of 2"]));
+    expect(posts()).toEqual([["f1", { action: "move", scope: "repo:gh/o/a" }]]);
   });
 
   it("Just me sends personal, and a merge is reported", async () => {
     curateBody = { fact: {}, new_fact: null, merged_into: { id: "7a8b9c0d-aaaa-bbbb-cccc-000000000001", text: "the same, said before" } };
     await open();
     click("Move…");
-    fireEvent.click(await within(panel()).findByRole("radio", { name: "Just me" }));
+    fireEvent.click(await within(card()).findByRole("radio", { name: "Just me" }));
     click("Move to Just me");
     expect((await screen.findByRole("status")).textContent).toBe("Moved, merged into fact 7a8b9c0d: the same, said before");
     expect(posts()).toEqual([["f1", { action: "move", scope: "personal" }]]);
-    expect(ids()).toEqual(["f2", "f3"]);
+    expect(at()).toEqual(["f2", "Fact 1 of 2"]);
   });
 
   it("a personal fact isn't offered Just me again", async () => {
     page.facts[0] = fact("f1", { scope: "personal:u1" });
     await open();
     click("Move…");
-    await within(panel()).findByRole("radio", { name: "Team: Billing" });
-    expect(within(panel()).getAllByRole("radio", { name: /Just me/ }).map((r) => panel().querySelector(`label[for="${r.id}"]`)!.textContent)).toEqual([
+    await within(card()).findByRole("radio", { name: "Team: Billing" });
+    expect(within(card()).getAllByRole("radio", { name: /Just me/ }).map((r) => card().querySelector(`label[for="${r.id}"]`)!.textContent)).toEqual([
       "Just me (current)",
     ]);
   });
@@ -200,30 +281,31 @@ describe("stale facts", () => {
     await open();
     fetchMock.mockImplementationOnce(() => new Promise<Response>((r) => (answer = r)));
     click("Keep");
-    for (const name of ["Keep", "Fix", "Retire", "Pin"]) {
-      expect((within(panel()).getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+    for (const name of ["Keep", "Move…", "Retire", "Edit…", "Pin"]) {
+      expect((within(decide()).getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
     }
     answer(json({ fact: {}, new_fact: null }));
-    await waitFor(() => expect(ids()).toEqual(["f2", "f3"]));
-    expect((within(panel()).getByRole("button", { name: "Keep" }) as HTMLButtonElement).disabled).toBe(false);
+    await waitFor(() => expect(at()).toEqual(["f2", "Fact 1 of 2"]));
+    expect((within(decide()).getByRole("button", { name: "Keep" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("a failed curate keeps the row and shows the hive's error", async () => {
+  it("a failed curate keeps the card and shows the hive's error", async () => {
     curateStatus = 409;
     await open();
     click("Keep");
     expect((await screen.findByRole("alert")).textContent).toBe("Couldn't save that: fact is not active (409).");
-    expect(ids()).toEqual(["f1", "f2", "f3"]);
-    expect((within(panel()).getByRole("button", { name: "Keep" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(at()).toEqual(["f1", "Fact 1 of 3"]);
+    expect((within(decide()).getByRole("button", { name: "Keep" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
-  it("says when nothing is stale, using stale_days", async () => {
+  it("says when nothing is out of date, using stale_days", async () => {
     page = { facts: [], has_more: false, stale_days: 30 };
     render(<Stale role="curator" />);
-    expect((await screen.findByText(/No facts unused/)).textContent).toBe("No facts unused for 30 days.");
-    expect(screen.queryByRole("list", { name: "Stale facts" })).toBeNull();
+    expect((await screen.findByRole("heading", { name: "Nothing is out of date" })).tagName).toBe("H2");
+    expect(screen.getByText(/A fact shows here/).textContent).toBe("A fact shows here when no agent has used it for 30 days.");
+    expect(screen.queryByRole("article")).toBeNull();
+    expect(document.querySelector(".lede")).toBeNull();
   });
-
   it("notes when only the first 100 are shown", async () => {
     page.has_more = true;
     await open();

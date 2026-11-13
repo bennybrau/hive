@@ -44,38 +44,47 @@ test("a curator keeps, fixes, retires and pins stale facts", async ({ page }) =>
   await page.getByRole("navigation", { name: "Review pages" }).getByRole("link", { name: "Out of date" }).click();
   await expect(page).toHaveURL(/\/stale$/);
 
-  const list = page.getByRole("list", { name: "Stale facts" });
-  const panel = page.getByRole("complementary", { name: "Fact" });
-  const row = (id: string) => list.locator(`li[data-id="${id}"]`);
-  // If a stale fact has been used or touched since the script made it, it isn't in the list; say why.
-  const before = await Promise.all(STALE.map(async (id) => (await get(id)).fact));
-  for (const f of before) {
-    const { status, stale, use_count, cite_count, last_used_at, pinned } = f;
-    const state = JSON.stringify({ status, stale, use_count, cite_count, last_used_at, pinned });
-    await expect(row(f.id), `stale fact ${f.id} isn't listed: ${state}`).toContainText("idle 400 days");
-  }
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Out of date");
+  const card = page.getByRole("article", { name: "Fact" });
+  const decide = card.getByRole("group", { name: "Decide" });
+  // One card at a time: step › until the card is this fact. If it was used or touched since the script made it, it
+  // isn't out of date any more; say why.
+  const prev = card.getByRole("button", { name: "Previous fact" });
+  const next = card.getByRole("button", { name: "Next fact" });
+  const show = async (id: string) => {
+    await expect(card).toBeVisible();
+    while (await prev.isEnabled()) await prev.click();
+    const of = Number((await card.locator(".pos .label").textContent())!.replace(/.* of /, ""));
+    for (let i = 0; i < of && (await card.getAttribute("data-id")) !== id && (await next.isEnabled()); i++) await next.click();
+    if ((await card.getAttribute("data-id")) !== id) {
+      const { status, stale, use_count, cite_count, last_used_at, pinned } = (await get(id)).fact;
+      const state = JSON.stringify({ status, stale, use_count, cite_count, last_used_at, pinned });
+      throw new Error(`stale fact ${id} isn't shown: ${state}`);
+    }
+  };
+  const gone = async (id: string) => expect(page.locator(`article[data-id="${id}"]`)).toHaveCount(0);
 
-  await row(keep).click();
-  await expect(panel.getByText("never")).toBeVisible();
-  await panel.getByRole("button", { name: "Keep" }).click();
-  await expect(row(keep)).toHaveCount(0);
+  await show(keep);
+  await expect(card.getByText(/^Never used since it was added/)).toBeVisible();
+  await decide.getByRole("button", { name: "Keep" }).click();
+  await gone(keep);
 
-  await row(fix).click();
-  await panel.getByRole("button", { name: "Fix" }).click();
+  await show(fix);
+  await decide.getByRole("button", { name: "Edit…" }).click();
   const fixed = `Dashboard e2e stale fact fixed ${marker}`;
-  await panel.getByLabel("Fixed text").fill(fixed);
+  await card.getByLabel("Edit the fact").fill(fixed);
   await page.keyboard.press("Enter");
-  await expect(row(fix)).toHaveCount(0);
+  await gone(fix);
 
-  await row(retire).click();
-  await panel.getByRole("button", { name: "Retire" }).click();
-  await panel.getByLabel("Why retire it? (optional)").fill(`e2e ${marker}`);
-  await panel.getByRole("button", { name: "Retire fact" }).click();
-  await expect(row(retire)).toHaveCount(0);
+  await show(retire);
+  await decide.getByRole("button", { name: "Retire" }).click();
+  await card.getByLabel("Why retire it? (optional)").fill(`e2e ${marker}`);
+  await decide.getByRole("button", { name: "Retire fact" }).click();
+  await gone(retire);
 
-  await row(pin).click();
-  await panel.getByRole("button", { name: "Pin" }).click();
-  await expect(row(pin)).toHaveCount(0);
+  await show(pin);
+  await decide.getByRole("button", { name: "Pin" }).click();
+  await gone(pin);
 
   const k = (await get(keep)).fact;
   expect([k.status, k.stale]).toEqual(["active", false]);
@@ -89,7 +98,7 @@ test("a curator keeps, fixes, retires and pins stale facts", async ({ page }) =>
   expect([p.status, p.pinned, p.stale]).toEqual(["active", true, false]);
 });
 
-test("a member sees no Stale link and a curators-only note at /stale", async ({ page }) => {
+test("a member sees no Out of date link and a curators-only note at /stale", async ({ page }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(MEMBER);

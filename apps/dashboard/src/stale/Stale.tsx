@@ -1,10 +1,11 @@
 import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { apiFetch, type Role } from "../api";
 import type { Fact } from "../facts/query";
-import { LevelBadge } from "../levels/LevelBadge";
 import { levelLabel, useTeams } from "../levels/levels";
 import { WhoGetsThis } from "../levels/WhoGetsThis";
-import { timeAgo } from "../review/Review";
+import { FactCard, type Choice } from "../review/FactCard";
+import { Button, EmptyState, Field, PageHeader } from "../ui";
+import { PHRASE, when } from "../words";
 
 export interface StaleFact extends Fact {
   use_count: number;
@@ -26,23 +27,19 @@ export type Curate =
   | { action: "retire"; note?: string }
   | { action: "move"; scope: string };
 
-/** For a move: which fact, its first anchor's repo once loaded, and the chosen level (null while the current one is). */
-type Editing =
-  | { kind: "fix"; text: string }
-  | { kind: "retire"; note: string }
-  | { kind: "move"; id: string; anchorRepo: string | null; to: { scope: string; label: string } | null }
-  | null;
+/** What the footer is asking for; the level a move goes to is the card's choice. */
+type Editing = { kind: "fix"; text: string } | { kind: "retire"; note: string } | { kind: "move" } | null;
 
 function days(n: number): string {
   return n === 1 ? "1 day" : `${n} days`;
 }
 
-/** Facts nobody has used for a while, to keep, fix, retire or pin one at a time. */
+/** Facts nobody has used for a while, one card at a time, to keep, move, retire, edit or pin. */
 export function Stale({ role }: { role: Role }) {
   if (role !== "curator") {
     return (
       <main className="page">
-        <h1>Stale</h1>
+        <h1>Out of date</h1>
         <p className="help" role="note">
           Curating stale facts is for curators only.
         </p>
@@ -52,11 +49,37 @@ export function Stale({ role }: { role: Role }) {
   return <StaleList />;
 }
 
+
+/** A date as words, with the full date on hover. */
+function When({ iso }: { iso: string }) {
+  const w = when(iso);
+  return (
+    <time dateTime={iso} title={w.title}>
+      {w.text}
+    </time>
+  );
+}
+
+/** Why the fact is here: how long nobody has used it, and when it was last used or added. */
+function why(f: StaleFact, staleDays: number) {
+  return f.last_used_at ? (
+    <p>
+      Nobody has used it in {days(staleDays)}. Last used <When iso={f.last_used_at} />.
+    </p>
+  ) : (
+    <p>
+      Never used since it was added <When iso={f.recorded_at} />.
+    </p>
+  );
+}
+
 function StaleList() {
   const [page, setPage] = useState<StalePage | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const [editing, setEditing] = useState<Editing>(null);
+  const [choice, setChoice] = useState<Choice>(null);
+  const [anchor, setAnchor] = useState<{ id: string; repo: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mergedInto, setMergedInto] = useState<{ id: string; text: string } | null>(null);
@@ -81,8 +104,32 @@ function StaleList() {
   const index = Math.min(active, Math.max(shown.length - 1, 0));
   const current = shown[index];
 
-  // A different row drops any half-made edit.
-  useEffect(() => setEditing(null), [current?.id]);
+  // A different fact drops any half-made edit and goes back to its current level.
+  const [cardId, setCardId] = useState(current?.id);
+  if (cardId !== current?.id) {
+    setCardId(current?.id);
+    setEditing(null);
+    setChoice(null);
+  }
+
+  // The fact's first anchor repo, from its detail, so both Change… and Move… can offer "this repo".
+  useEffect(() => {
+    if (!current) return;
+    const id = current.id;
+    let live = true;
+    apiFetch(`/v1/facts/${encodeURIComponent(id)}`)
+      .then(async (res) => (res.ok ? ((await res.json()) as { anchors?: { repo_key: string | null }[] }) : {}))
+      .then((d) => live && setAnchor({ id, repo: d.anchors?.[0]?.repo_key ?? null }))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [current?.id]);
+  const anchorRepo = anchor && anchor.id === current?.id ? anchor.repo : null;
+
+  function move(to: number) {
+    setActive(Math.max(0, Math.min(to, shown.length - 1)));
+  }
 
   async function curate(body: Curate) {
     if (!current || busy) return;
@@ -117,24 +164,15 @@ function StaleList() {
     }
   }
 
-  /** Open the move choice; the fact's first anchor repo comes from its detail. */
-  function startMove() {
-    if (!current) return;
-    const id = current.id;
-    setEditing({ kind: "move", id, anchorRepo: null, to: null });
-    apiFetch(`/v1/facts/${encodeURIComponent(id)}`)
-      .then(async (res) => (res.ok ? ((await res.json()) as { anchors?: { repo_key: string | null }[] }) : {}))
-      .then((d) => {
-        const repo = d.anchors?.[0]?.repo_key ?? null;
-        if (repo) setEditing((e) => (e?.kind === "move" && e.id === id ? { ...e, anchorRepo: repo } : e));
-      })
-      .catch(() => {});
+  function cancel() {
+    setEditing(null);
+    setChoice(null);
   }
 
   function submitEdit() {
     if (!editing) return;
     if (editing.kind === "move") {
-      if (editing.to) void curate({ action: "move", scope: editing.to.scope });
+      if (choice) void curate({ action: "move", scope: choice.scope });
     } else if (editing.kind === "fix") {
       const text = editing.text.trim();
       if (text.length < 3) return;
@@ -155,16 +193,19 @@ function StaleList() {
     }
   };
 
+  // A level picked from Change… is a move too.
+  const moving = editing?.kind === "move" || (!editing && choice !== null);
+
   return (
-    <main className="page review-page">
-      <header className="review-head">
-        <h1>Stale</h1>
-        {page && shown.length > 0 && (
-          <p className="help">
-            {shown.length} unused for over {days(page.stale_days)}.
-          </p>
-        )}
-      </header>
+    <main className="page review-queue">
+      <PageHeader
+        title="Out of date"
+        lede={
+          page &&
+          shown.length > 0 &&
+          `${shown.length} ${shown.length === 1 ? "fact" : "facts"} nobody has used in ${days(page.stale_days)}.`
+        }
+      />
 
       {loadError && (
         <p className="error" role="alert">
@@ -183,138 +224,135 @@ function StaleList() {
       )}
       {!page && !loadError && <p className="help">Loading…</p>}
 
-      {page && shown.length === 0 && <p className="review-empty">No facts unused for {days(page.stale_days)}.</p>}
+      {page && shown.length === 0 && (
+        <EmptyState title="Nothing is out of date">
+          A fact shows here when no agent has used it for {days(page.stale_days)}.
+        </EmptyState>
+      )}
 
-      {current && (
-        <div className="review-panes">
-          <ol className="review-list" aria-label="Stale facts">
-            {shown.map((f, i) => (
-              <li
-                key={f.id}
-                data-id={f.id}
-                tabIndex={i === index ? 0 : -1}
-                aria-current={i === index ? "true" : undefined}
-                onFocus={() => setActive(i)}
-                onClick={() => setActive(i)}
-              >
-                <span className="text">{f.text}</span>
-                <span className="meta">
-                  {f.kind} in <LevelBadge fact={f} {...levels} />, idle {days(f.idle_days)}
-                </span>
-              </li>
-            ))}
-          </ol>
-
-          <aside className="review-evidence" aria-label="Fact">
-            {editing?.kind === "fix" ? (
-              <div className="field">
-                <label htmlFor="s-fix">Fixed text</label>
-                <textarea
-                  id="s-fix"
-                  autoFocus
-                  rows={4}
-                  value={editing.text}
-                  disabled={busy}
-                  onChange={(e) => setEditing({ kind: "fix", text: e.target.value })}
-                  onKeyDown={onKey}
+      {page && current && (
+        <FactCard
+          key={current.id}
+          fact={current}
+          n={index + 1}
+          of={shown.length}
+          onMove={move}
+          levels={levels}
+          anchorRepo={anchorRepo}
+          choice={choice}
+          onChoose={setChoice}
+          editor={
+            editing?.kind === "fix" ? (
+              <Field label="Edit the fact" help="Enter saves, Shift+Enter adds a line, Esc cancels.">
+                {(p) => (
+                  <textarea
+                    {...p}
+                    autoFocus
+                    rows={4}
+                    value={editing.text}
+                    disabled={busy}
+                    onChange={(e) => setEditing({ kind: "fix", text: e.target.value })}
+                    onKeyDown={onKey}
+                  />
+                )}
+              </Field>
+            ) : undefined
+          }
+          why={why(current, page.stale_days)}
+          footer={
+            <>
+              {editing?.kind === "retire" && (
+                <Field label="Why retire it? (optional)" help="Enter retires, Esc cancels.">
+                  {(p) => (
+                    <input
+                      {...p}
+                      type="text"
+                      autoFocus
+                      value={editing.note}
+                      disabled={busy}
+                      onChange={(e) => setEditing({ kind: "retire", note: e.target.value })}
+                      onKeyDown={onKey}
+                    />
+                  )}
+                </Field>
+              )}
+              {editing?.kind === "move" && (
+                <WhoGetsThis
+                  fact={current}
+                  anchorRepo={anchorRepo}
+                  {...levels}
+                  allowPersonal
+                  value={choice?.scope ?? current.scope}
+                  onChange={(scope, label) => setChoice(scope === current.scope ? null : { scope, label })}
                 />
-                <p className="help">Enter saves, Esc cancels.</p>
+              )}
+              <div className="actions" role="group" aria-label="Decide">
+                {moving ? (
+                  <>
+                    <Button
+                      variant="primary"
+                      big
+                      disabled={busy || !choice}
+                      onClick={() => choice && void curate({ action: "move", scope: choice.scope })}
+                    >
+                      Move to {choice?.label ?? levelLabel(current, levels.teams, levels.mine).label}
+                    </Button>
+                    <Button big disabled={busy} onClick={cancel}>
+                      Cancel
+                    </Button>
+                  </>
+                ) : editing ? (
+                  <>
+                    {editing.kind === "fix" ? (
+                      <Button variant="primary" big disabled={busy || editing.text.trim().length < 3} onClick={submitEdit}>
+                        Save fix
+                      </Button>
+                    ) : (
+                      <Button big className="danger" disabled={busy} onClick={submitEdit}>
+                        Retire fact
+                      </Button>
+                    )}
+                    <Button big disabled={busy} onClick={cancel}>
+                      Cancel
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="primary" big disabled={busy} onClick={() => void curate({ action: "keep" })}>
+                      Keep
+                    </Button>
+                    <Button big disabled={busy} onClick={() => setEditing({ kind: "move" })}>
+                      Move…
+                    </Button>
+                    <Button big disabled={busy} onClick={() => setEditing({ kind: "retire", note: "" })}>
+                      Retire
+                    </Button>
+                    <Button variant="quiet" disabled={busy} onClick={() => setEditing({ kind: "fix", text: current.text })}>
+                      {PHRASE.edit}
+                    </Button>
+                    <Button variant="quiet" disabled={busy} onClick={() => void curate({ action: "pin" })}>
+                      Pin
+                    </Button>
+                  </>
+                )}
               </div>
-            ) : (
-              <p className="fact-text">{current.text}</p>
-            )}
-
-            <dl>
-              <dt>Kind</dt>
-              <dd>{current.kind}</dd>
-              <dt>Level</dt>
-              <dd>
-                <LevelBadge fact={current} {...levels} />
-              </dd>
-              <dt>Idle</dt>
-              <dd>{days(current.idle_days)}</dd>
+            </>
+          }
+        >
+          <details className="more">
+            <summary>{PHRASE.provenance}</summary>
+            <dl className="details">
               <dt>Uses</dt>
               <dd>{current.use_count}</dd>
               <dt>Cites</dt>
               <dd>{current.cite_count}</dd>
-              <dt>Last used</dt>
-              <dd>{current.last_used_at ? timeAgo(current.last_used_at) : "never"}</dd>
+              <dt>Id</dt>
+              <dd>
+                <code>{current.id}</code>
+              </dd>
             </dl>
-
-            {editing?.kind === "move" ? (
-              <div className="stale-confirm">
-                <WhoGetsThis
-                  fact={current}
-                  anchorRepo={editing.anchorRepo}
-                  {...levels}
-                  allowPersonal
-                  value={editing.to?.scope ?? current.scope}
-                  onChange={(scope, label) =>
-                    setEditing({ ...editing, to: scope === current.scope ? null : { scope, label } })
-                  }
-                />
-                <div className="stale-actions">
-                  <button type="button" disabled={busy || !editing.to} onClick={submitEdit}>
-                    Move to {editing.to?.label ?? levelLabel(current, levels.teams, levels.mine).label}
-                  </button>
-                  <button type="button" disabled={busy} onClick={() => setEditing(null)}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : editing?.kind === "retire" ? (
-              <div className="stale-confirm">
-                <div className="field">
-                  <label htmlFor="s-note">Why retire it? (optional)</label>
-                  <input
-                    id="s-note"
-                    type="text"
-                    autoFocus
-                    value={editing.note}
-                    disabled={busy}
-                    onChange={(e) => setEditing({ kind: "retire", note: e.target.value })}
-                    onKeyDown={onKey}
-                  />
-                </div>
-                <div className="stale-actions">
-                  <button type="button" className="danger" disabled={busy} onClick={submitEdit}>
-                    Retire fact
-                  </button>
-                  <button type="button" disabled={busy} onClick={() => setEditing(null)}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : editing?.kind === "fix" ? (
-              <div className="stale-actions">
-                <button type="button" disabled={busy || editing.text.trim().length < 3} onClick={submitEdit}>
-                  Save fix
-                </button>
-                <button type="button" disabled={busy} onClick={() => setEditing(null)}>
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <div className="stale-actions">
-                <button type="button" disabled={busy} onClick={() => void curate({ action: "keep" })}>
-                  Keep
-                </button>
-                <button type="button" disabled={busy} onClick={() => setEditing({ kind: "fix", text: current.text })}>
-                  Fix
-                </button>
-                <button type="button" disabled={busy} onClick={() => setEditing({ kind: "retire", note: "" })}>
-                  Retire
-                </button>
-                <button type="button" disabled={busy} onClick={() => void curate({ action: "pin" })}>
-                  Pin
-                </button>
-                <button type="button" disabled={busy} onClick={startMove}>
-                  Move…
-                </button>
-              </div>
-            )}
-          </aside>
-        </div>
+          </details>
+        </FactCard>
       )}
 
       {page?.has_more && <p className="help">Showing the first 100 stale facts only.</p>}
