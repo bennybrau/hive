@@ -11,6 +11,7 @@ import { Stale } from "./stale/Stale";
 import { Stats } from "./stats/Stats";
 import { Teams } from "./teams/Teams";
 import { SignIn } from "./SignIn";
+import { Link, PageHeader } from "./ui";
 
 export function navigate(path: string): void {
   history.pushState(null, "", path);
@@ -74,19 +75,14 @@ export function App() {
         <Playbooks role={status.instance.role} path={path} />
       ) : (
         <main className="page">
-          <h1>Not found</h1>
-          <p className="help">
-            Nothing lives at <code>{path}</code>.{" "}
-            <a
-              href="/facts"
-              onClick={(e) => {
-                e.preventDefault();
-                navigate("/facts");
-              }}
-            >
-              Go to Facts
-            </a>
-          </p>
+          <PageHeader
+            title="Not found"
+            lede={
+              <>
+                There's no page at <code>{path}</code>. <Link to="/facts">Go to Facts</Link>
+              </>
+            }
+          />
         </main>
       )}
     </Shell>

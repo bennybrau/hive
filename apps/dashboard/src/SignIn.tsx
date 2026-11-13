@@ -29,7 +29,8 @@ export function SignIn({ onSignedIn }: { onSignedIn: (status: Status) => void })
   return (
     <main className="signin">
       <form onSubmit={submit}>
-        <h1>hive</h1>
+        <h1>Hive</h1>
+        <p>Paste your Hive token. Ask whoever runs Hive for one.</p>
         <label htmlFor="token">Token</label>
         <input
           id="token"
@@ -47,12 +48,15 @@ export function SignIn({ onSignedIn }: { onSignedIn: (status: Status) => void })
           </p>
         ) : (
           <p id="token-help" className="help">
-            Paste a token from <code>mint-token</code>. It's kept for this tab only.
+            It's kept for this tab only.
           </p>
         )}
         <button type="submit" disabled={busy || !token.trim()}>
           {busy ? "Checking…" : "Sign in"}
         </button>
+        <p className="help">
+          Running Hive yourself? Make a token with <code>mint-token</code>.
+        </p>
       </form>
     </main>
   );

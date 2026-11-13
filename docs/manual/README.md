@@ -11,10 +11,10 @@ automatically. The dashboard is where a person looks in and decides.
 - [Words you'll see](#words-youll-see)
 - [Facts](#facts): browse everything the hive knows
 - [Search](#search): ask across facts, conversations, commits and docs
-- [Repos](#repos): the code and docs the hive has read
+- [Sources](#sources): the code and docs the hive has read
 - [Review](#review-curators): approve, fix or reject what's new (curators)
-- [Stats](#stats-curators): cost, growth and health (curators)
-- [Settings](#settings-curators): the daily review digest (curators)
+- [Usage and cost](#usage-and-cost-curators): cost, growth and health (curators)
+- [Notifications](#notifications-curators): the daily review digest (curators)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 
 ## Who sees what
@@ -22,7 +22,7 @@ automatically. The dashboard is where a person looks in and decides.
 | | Member | Curator |
 |---|---|---|
 | Knowledge (Facts, Search), Admin › Sources (Repos) | ✓ | ✓ |
-| **Ingest now** on Repos | | ✓ |
+| **Read again now** on Sources | | ✓ |
 | Review (New, Out of date), Playbooks, Teams, Admin › Usage and cost (Stats), Admin › Notifications (Settings) | | ✓ |
 
 Everyone sees shared facts (`global` and every `repo:…`) plus **their own** personal facts. Nobody, curators
@@ -33,7 +33,8 @@ included, ever sees another person's personal facts.
 ![Sign-in page](img/signin.png)
 
 Open the hive's address in a browser, for example `http://hive.example.internal:8800/`, and paste
-your token. Whoever runs the hive gives you one:
+your token. Whoever runs the hive gives you one. If that's you, the sign-in page's **Running Hive yourself?** line
+names the command:
 
 ```sh
 docker compose exec hive node dist/cli/mint-token.js --name <you>-laptop --user <you>              # member
@@ -56,7 +57,7 @@ The menu runs down the left side. On a phone it sits behind the **Menu** button 
 | **Review** | New ([Review](#review-curators)), Out of date (facts nobody has used in a while) | curators |
 | **Playbooks** | step-by-step instructions agents follow for a kind of task | curators |
 | **Teams** | teams, their people and repos | curators |
-| **Admin** | Sources ([Repos](#repos)), Usage and cost ([Stats](#stats-curators)), Notifications ([Settings](#settings-curators)) | everyone sees Sources; the rest is curators only |
+| **Admin** | [Sources](#sources), [Usage and cost](#usage-and-cost-curators), [Notifications](#notifications-curators) | everyone sees Sources; the rest is curators only |
 
 A number next to **Review** is how many facts are waiting for a curator. The page addresses haven't changed
 (`/facts`, `/review`, `/stale`, `/repos`, `/stats`, `/settings`), so old links and the daily digest's link still
@@ -143,40 +144,43 @@ Each source returns its best 20 results. Results mix meaning (embeddings) with k
 error message works as well as a plain-English question. Facts show their status, so facts waiting for review are
 easy to spot. Click a fact to open it on the Facts page.
 
-## Repos
+## Sources
 
-![Repos page](img/repos.png)
+![Sources page](img/repos.png)
 
-The repositories the hive reads. For each one:
+The repos Hive reads, and whether what it learned from them still matches. For each one:
 
-- **Key and path**: e.g. `gh/bennybrau/agentic-software-factory` and where it's checked out on the hive's host.
-- **Ingested … at `abc1234`**: when the hive last read it and at which commit. The hive always reads the
+- **Key**: e.g. `gh/bennybrau/agentic-software-factory`. **Where it is on disk** (closed until you click it) shows
+  where it's checked out on the hive's host.
+- **Read 3 hours ago at `abc1234`**: when the hive last read it and at which commit. The hive always reads the
   repo's **default branch** as last fetched from origin, not whatever branch happens to be checked out. It
-  re-reads every 15 minutes by default.
+  re-reads every 15 minutes by default. Hover the time for the full date.
 - **Counts**: documents, chunks (searchable pieces of documents) and commits indexed.
-- **Last ingest failed: …**: appears only when the last read went wrong.
+- **Last read failed: …**: appears only when the last read went wrong.
 
 ### Anchor health
 
-The badges show how the hive's evidence in this repo holds up against the files as they are now:
+The badges count how the quotes behind this repo's facts hold up against the files as they are now (hover a badge
+for a one-line explanation):
 
-- **verified**: the quote is still there (it may have moved; the fact panel says where).
-- **drifted**: the quote isn't there word for word, but a close match is. The source was edited, and the
-  fact may need updating.
-- **missing**: the file is gone, or nothing like the quote is left. A fact read from docs is retracted
-  automatically if this persists. A fact someone wrote is never retracted; it's left for a person to look at.
-- **unverifiable here**: nothing this hive can check.
-- **unverified**: not checked yet.
+- **Still matches** (verified): the quote is still there (it may have moved; the fact panel says where).
+- **Source changed** (drifted): the quote isn't there word for word, but a close match is. The source was edited,
+  and the fact may need updating.
+- **Source gone** (missing): the file is gone, or nothing like the quote is left. A fact read from docs is retired
+  automatically if this persists. A fact someone wrote is never retired; it's left for a person to look at.
+- **Can't check from here** (unverifiable_here): nothing this hive can check.
+- **Not checked yet** (unverified).
 
 ### Buttons
 
 - **Files not indexed**: lists documents the hive considered but didn't index (empty, skipped or failed) and
   why. Use it when a doc you expected doesn't show up in Search.
-- **Ingest now** (curators): read the repo right away instead of waiting for the next sync. It's disabled while a
-  read is running. When done it shows a summary: docs indexed, unchanged and removed, new commits, and the result of
-  re-checking every anchor.
+- **Read again now** (curators): read the repo right away instead of waiting for the next sync. It reads
+  **Reading…** while a read is running. When done it shows a summary: docs indexed, unchanged and removed, new
+  commits, and how many quotes still match after re-checking them all.
 
-Registering a new repo is done through the API (`POST /v1/repos`) for now, not in the dashboard.
+A curator adds a repo by pointing Hive at its checkout; for now that's done through the API (`POST /v1/repos`), not
+in the dashboard. With no repos yet, the page says so.
 
 ## Review (curators)
 
@@ -223,7 +227,7 @@ The buttons at the bottom of the card:
 - **Editing into an existing fact**: if your edited text is word for word an existing fact at that level, the
   fact is **merged** into it. Its evidence moves to that fact and this one is closed.
 - When nothing is waiting, the page says **Nothing waiting for review** and when Hive last learned from
-  conversations. If that was long ago and people have been working, check the worker on [Stats](#stats-curators).
+  conversations. If that was long ago and people have been working, check the worker on [Usage and cost](#usage-and-cost-curators).
 - If a decision can't be saved, the fact comes back with the error.
 
 ## Out of date (curators)
@@ -250,22 +254,27 @@ Each one is saved at once (there is no Undo here) and the next fact shows. When 
 says **Nothing is out of date**. Moving a fact to a level that already has the same text merges it into that fact,
 and the page says so.
 
-## Stats (curators)
+## Usage and cost (curators)
 
-![Stats page](img/stats.png)
+![Usage and cost page](img/stats.png)
 
-Pick a window of **7, 30 or 90 days**.
+What Hive spent, what it learned, and whether its background jobs are keeping up. Pick a window of **7, 30 or 90
+days**. Members who open the page see a note that only a Curator can see it.
 
-- **Cost**: model calls per job (`distill` = turning conversations into candidates, `embed` = making text
-  searchable), with input/output tokens and estimated cost, in total and per day. With local embeddings (Ollama)
-  `embed` is $0.
-- **Facts**: how many facts there are by status, origin and scope, and how many were recorded each day.
-- **Workers**: each hive-worker and when it last checked in. **stale** means it hasn't been seen for 10
-  minutes, so conversations aren't being distilled.
-- **Backlog**: candidates waiting for review and conversations waiting to be distilled, each with the age of the
-  oldest. A growing distill backlog with a stale worker means the worker is down.
+- **Cost**: model calls per job, **Learning from conversations** (distill: reading what people said and proposing
+  facts) and **Indexing for search** (embed: making text searchable), with input/output tokens and estimated cost,
+  in total and per day (days read as "Nov 1"). With local embeddings (Ollama) indexing is $0.
+- **Facts**: how many facts there are by status, origin and who gets it, in the [same words](#words-youll-see)
+  as the Facts page, and how many were recorded each day.
+- **Workers**: each hive-worker and when it last checked in. **Not running?** means it hasn't been seen for 10
+  minutes, so conversations aren't being read.
+- **Backlog**: **Facts waiting for review** and **Conversations waiting to be read**, each with the age of the
+  oldest. A growing pile of conversations with a worker marked **Not running?** means the worker is down.
 
-## Settings (curators)
+## Notifications (curators)
+
+Who hears about facts waiting for review, and when. Members who open the page see a note that only a Curator can
+change it.
 
 **Daily review digest** is a short message, once a day, saying what is waiting in [Review](#review-curators),
 with a link to it. It goes by email, Telegram or both, and it is built for the curator who last saved the settings.

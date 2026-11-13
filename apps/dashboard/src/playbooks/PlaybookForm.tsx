@@ -169,8 +169,8 @@ export function PlaybookForm({
         <div className="field">
           <label htmlFor="pb-scope">Scope</label>
           <select id="pb-scope" value={scopeKind} onChange={(e) => setScopeKind(e.target.value as "global" | "repo")}>
-            <option value="global">global</option>
-            <option value="repo">repo</option>
+            <option value="global">Everyone</option>
+            <option value="repo">One repo</option>
           </select>
         </div>
         {scopeKind === "repo" && (

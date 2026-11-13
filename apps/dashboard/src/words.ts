@@ -52,6 +52,8 @@ export const ROLE: Record<string, Word> = {
   curator: w("Curator", "Approves what Hive learns before agents get it"),
   member: w("Member"),
   worker: w("Worker", "A background job's token"),
+  /** A team role (members and reviewers); the others are token roles. */
+  reviewer: w("Reviewer"),
 };
 
 /** Where a review anchor's words were said (`anchors[].source.where`); `other` adds nothing. */
@@ -119,4 +121,5 @@ export const RAW_VALUES: readonly string[] = [
   "gotcha",
   ...Object.keys(VERIFY),
   "global",
+  ...Object.keys(JOB),
 ];

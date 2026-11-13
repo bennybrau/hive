@@ -54,7 +54,8 @@ async function open() {
 describe("teams page", () => {
   it("is for curators only", () => {
     render(<Teams role="member" />);
-    expect(screen.getByRole("note").textContent).toMatch(/curators only/);
+    expect(screen.getByRole("note").textContent).toBe("Only a Curator can manage teams.");
+    expect(screen.getByRole("note").title).toBe("Approves what Hive learns before agents get it");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -62,7 +63,8 @@ describe("teams page", () => {
     teams = [];
     render(<Teams role="curator" />);
     expect(screen.getByText("Loading teams…")).toBeTruthy();
-    expect(await screen.findByText("No teams yet.")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "No teams yet" })).toBeTruthy();
+    expect(screen.getByText("Create one to give its members' agents their own conventions first.")).toBeTruthy();
   });
 
   it("shows a load error", async () => {
@@ -106,7 +108,7 @@ describe("teams page", () => {
   it("shows a reviewer's role as text, with no role select anywhere", async () => {
     await open();
     const bo = within(section("billing")).getByText("bo").closest("li")!;
-    expect(within(bo).getByText("reviewer").tagName).toBe("SPAN");
+    expect(within(bo).getByText("Reviewer").tagName).toBe("SPAN");
     expect(screen.queryAllByRole("combobox").map((s) => s.id)).toEqual(["team-billing-repo", "team-ops-repo"]);
     expect(screen.queryByRole("option", { name: "reviewer" })).toBeNull();
   });

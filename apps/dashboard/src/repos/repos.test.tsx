@@ -55,17 +55,19 @@ describe("repos view", () => {
     render(<Repos role="member" />);
     await screen.findByRole("heading", { name: "gh/acme/proj" });
     const proj = item("gh/acme/proj");
-    expect(within(proj).getByText("/Users/jon/dev/proj")).toBeTruthy();
+    expect(within(proj).getByText("/Users/jon/dev/proj").closest("details")).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Sources");
     expect(within(proj).getByText("3 hours ago")).toBeTruthy();
     expect(within(proj).getByText(SHA.slice(0, 7))).toBeTruthy();
     expect(within(proj).getByText("12 docs, 80 chunks, 300 commits")).toBeTruthy();
     const health = within(proj).getByLabelText("Anchor health");
-    expect(within(health).getByText("4 verified").className).toBe("badge verify-verified");
-    expect(within(health).getByText("1 drifted").className).toBe("badge verify-drifted");
-    expect(within(health).getByText("2 missing")).toBeTruthy();
-    expect(within(health).getByText("3 unverified")).toBeTruthy();
+    expect(within(health).getByText("4 Still matches").className).toBe("badge verify-verified");
+    expect(within(health).getByText("1 Source changed").className).toBe("badge verify-drifted");
+    expect(within(health).getByText("1 Source changed").title).toBe("The lines this fact quotes have changed since");
+    expect(within(health).getByText("2 Source gone")).toBeTruthy();
+    expect(within(health).getByText("3 Not checked yet")).toBeTruthy();
     expect(within(proj).getByText(/git failed: bad object/).className).toBe("error");
-    expect(within(item("local/notes")).getByText("Not ingested yet")).toBeTruthy();
+    expect(within(item("local/notes")).getByText("Not read yet")).toBeTruthy();
   });
 
   it("expands to the files that weren't indexed, fetching them once", async () => {
@@ -95,14 +97,14 @@ describe("repos view", () => {
     expect(await within(notes).findByText("All files indexed.")).toBeTruthy();
   });
 
-  it("a curator ingests now: busy while running, then the summaries, then a refetch", async () => {
+  it("a curator reads a repo again now: busy while running, then the summaries, then a refetch", async () => {
     let finish!: (r: Response) => void;
     ingest = () => new Promise<Response>((r) => (finish = r)) as unknown as Response;
     render(<Repos role="curator" />);
     await screen.findByRole("heading", { name: "gh/acme/proj" });
     const proj = item("gh/acme/proj");
-    fireEvent.click(within(proj).getByRole("button", { name: "Ingest now" }));
-    const busy = await within(proj).findByRole("button", { name: "Ingesting…" });
+    fireEvent.click(within(proj).getByRole("button", { name: "Read again now" }));
+    const busy = await within(proj).findByRole("button", { name: "Reading…" });
     expect((busy as HTMLButtonElement).disabled).toBe(true);
     expect(JSON.parse(String(calls("/v1/repos/ingest")[0]![1]!.body))).toEqual({ key: "gh/acme/proj" });
 
@@ -110,8 +112,8 @@ describe("repos view", () => {
     finish(json(SYNC));
     const status = await within(proj).findByRole("status");
     expect(status.textContent).toContain("2 docs indexed");
-    expect(status.textContent).toContain("Verified 10 anchors: 7 verified, 1 drifted, 2 missing");
-    expect((within(proj).getByRole("button", { name: "Ingest now" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(status.textContent).toContain("Checked 10 quotes: 7 Still matches, 1 Source changed, 2 Source gone");
+    expect((within(proj).getByRole("button", { name: "Read again now" }) as HTMLButtonElement).disabled).toBe(false);
     await waitFor(() => expect(within(item("gh/acme/proj")).getByText("13 docs, 80 chunks, 300 commits")).toBeTruthy());
     expect(calls("/v1/repos")).toHaveLength(2);
   });
@@ -121,18 +123,24 @@ describe("repos view", () => {
     render(<Repos role="curator" />);
     await screen.findByRole("heading", { name: "gh/acme/proj" });
     const proj = item("gh/acme/proj");
-    fireEvent.click(within(proj).getByRole("button", { name: "Ingest now" }));
-    expect((await within(proj).findByRole("alert")).textContent).toMatch(/already running/);
+    fireEvent.click(within(proj).getByRole("button", { name: "Read again now" }));
+    expect((await within(proj).findByRole("alert")).textContent).toMatch(/already reading/);
 
     ingest = () => json({ error: "repo path is gone" }, 400);
-    fireEvent.click(within(proj).getByRole("button", { name: "Ingest now" }));
+    fireEvent.click(within(proj).getByRole("button", { name: "Read again now" }));
     await waitFor(() => expect(within(proj).getByRole("alert").textContent).toBe("repo path is gone"));
     expect(calls("/v1/repos")).toHaveLength(1);
   });
 
-  it("members don't get an Ingest now button", async () => {
+  it("says how a repo gets added when there are none", async () => {
+    repos = [];
+    render(<Repos role="member" />);
+    expect((await screen.findByRole("heading", { name: "No repos yet" })).parentElement!.textContent).toContain("pointing Hive at its checkout");
+  });
+
+  it("members don't get a Read again now button", async () => {
     render(<Repos role="member" />);
     await screen.findByRole("heading", { name: "gh/acme/proj" });
-    expect(screen.queryByRole("button", { name: "Ingest now" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Read again now" })).toBeNull();
   });
 });

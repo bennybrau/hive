@@ -38,7 +38,7 @@ beforeEach(() => {
     facts: {
       by_status: { active: 5, candidate: 2 },
       by_origin: { authored: 4, distilled: 3 },
-      by_scope: { global: 3, personal: 4 },
+      by_scope: { global: 3, personal: 4, "repo:gh/a/b": 1 },
       per_day: [{ day: "2026-11-01", count: 7 }],
     },
     cost: [
@@ -70,15 +70,27 @@ describe("stats page", () => {
     await screen.findByRole("table", { name: "Cost by job" });
     expect(statsCalls()).toEqual(["/v1/stats?days=30"]);
     expect(cells("Cost by job")).toEqual([
-      ["distill", "2", "12,000", "800", "$0.46"],
-      ["embed", "9", "300", "0", "$0.00"],
+      ["Learning from conversations", "2", "12,000", "800", "$0.46"],
+      ["Indexing for search", "9", "300", "0", "$0.00"],
     ]);
-    expect(cells("Cost by day")[1]).toEqual(["2026-11-01", "embed", "9", "300", "0", "$0.00"]);
-    expect(cells("Scope")).toEqual([
-      ["global", "3"],
-      ["personal", "4"],
+    expect(cells("Cost by day")[1]).toEqual(["Nov 1", "Indexing for search", "9", "300", "0", "$0.00"]);
+    expect(cells("Status")).toEqual([
+      ["Live", "5"],
+      ["Waiting for review", "2"],
     ]);
-    expect(cells("Facts by day")).toEqual([["2026-11-01", "7"]]);
+    expect(cells("Origin")).toEqual([
+      ["Written by a person", "4"],
+      ["Learned from a conversation", "3"],
+    ]);
+    expect(cells("Who gets it")).toEqual([
+      ["Everyone", "3"],
+      ["Just me", "4"],
+      ["Repo: b", "1"],
+    ]);
+    expect(cells("Facts by day")).toEqual([["Nov 1", "7"]]);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Usage and cost");
+    expect(screen.getByText("Facts waiting for review")).toBeTruthy();
+    expect(screen.getByText("Conversations waiting to be read")).toBeTruthy();
     expect(cells("Backlog")).toEqual([
       ["2", "oldest 2 hours ago"],
       ["1", "oldest 5 minutes ago"],
@@ -90,10 +102,10 @@ describe("stats page", () => {
     const table = await screen.findByRole("table", { name: "Workers" });
     const stale = within(table)
       .getAllByRole("row")
-      .filter((r) => within(r).queryByText("stale"))
+      .filter((r) => within(r).queryByText("Not running?"))
       .map((r) => within(r).getAllByRole("cell")[0]!.textContent);
     expect(stale).toEqual(["worker-old", "worker-never"]);
-    expect(cells("Workers").map((c) => c[1])).toEqual(["2 minutes ago ", "30 minutes ago stale", "never stale"]);
+    expect(cells("Workers").map((c) => c[1])).toEqual(["2 minutes ago ", "30 minutes ago Not running?", "Never Not running?"]);
   });
 
   it("switching the window refetches", async () => {
@@ -133,9 +145,10 @@ describe("stats page", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("The hive answered 500.");
   });
 
-  it("tells a member it's for curators and doesn't fetch", () => {
+  it("tells a member it's for a Curator and doesn't fetch", () => {
     render(<Stats role="member" />);
-    expect(screen.getByRole("note").textContent).toContain("curators only");
+    expect(screen.getByRole("note").textContent).toBe("Only a Curator can see usage and cost.");
+    expect(screen.getByRole("note").title).toBe("Approves what Hive learns before agents get it");
     expect(statsCalls()).toEqual([]);
   });
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiFetch, type Role } from "../api";
-import { timeAgo } from "../review/Review";
+import { EmptyState, PageHeader } from "../ui";
+import { PHRASE, VERIFY, when } from "../words";
 
 export type AnchorStatus = "verified" | "drifted" | "missing" | "unverifiable_here" | "unverified";
 
@@ -33,13 +34,7 @@ interface SyncResult {
   verify: { checked: number; verified: number; drifted: number; missing: number; unverifiable_here: number; retracted: number };
 }
 
-const ANCHOR_LABELS: [AnchorStatus, string][] = [
-  ["verified", "verified"],
-  ["drifted", "drifted"],
-  ["missing", "missing"],
-  ["unverifiable_here", "unverifiable here"],
-  ["unverified", "unverified"],
-];
+const ANCHOR_STATES: AnchorStatus[] = ["verified", "drifted", "missing", "unverifiable_here", "unverified"];
 
 async function errorOf(res: Response): Promise<string> {
   const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -100,10 +95,10 @@ function summary(r: SyncResult): string {
   const d = r.ingest.docs;
   const v = r.verify;
   return (
-    `Ingested: ${d.indexed} docs indexed, ${d.unchanged} unchanged, ${d.removed} removed, ` +
+    `Read: ${d.indexed} docs indexed, ${d.unchanged} unchanged, ${d.removed} removed, ` +
     `${r.ingest.chunks_written} chunks, ${r.ingest.commits_added} new commits. ` +
-    `Verified ${v.checked} anchors: ${v.verified} verified, ${v.drifted} drifted, ${v.missing} missing, ` +
-    `${v.unverifiable_here} unverifiable here, ${v.retracted} facts retracted.`
+    `Checked ${v.checked} quotes: ${v.verified} ${VERIFY.verified!.label}, ${v.drifted} ${VERIFY.drifted!.label}, ` +
+    `${v.missing} ${VERIFY.missing!.label}, ${v.unverifiable_here} ${VERIFY.unverifiable_here!.label}, ${v.retracted} facts retired.`
   );
 }
 
@@ -126,7 +121,7 @@ function RepoItem({ repo, curator, onIngested }: { repo: Repo; curator: boolean;
         setResult({ ok: true, text: summary((await res.json()) as SyncResult) });
         onIngested();
       } else if (res.status === 409) {
-        setResult({ ok: false, text: "An ingest of this repo is already running." });
+        setResult({ ok: false, text: "Hive is already reading this repo." });
       } else {
         setResult({ ok: false, text: await errorOf(res) });
       }
@@ -142,12 +137,20 @@ function RepoItem({ repo, curator, onIngested }: { repo: Repo; curator: boolean;
     <li data-key={repo.key}>
       <div className="repos-head">
         <h2>{repo.key}</h2>
-        {repo.host_path && <code className="repos-path">{repo.host_path}</code>}
+        {repo.host_path && (
+          <details className="repos-path">
+            <summary>Where it is on disk</summary>
+            <code>{repo.host_path}</code>
+          </details>
+        )}
       </div>
       <p className="repos-meta">
         {repo.last_ingested_at ? (
           <>
-            Ingested <time dateTime={repo.last_ingested_at}>{timeAgo(repo.last_ingested_at)}</time>
+            Read{" "}
+            <time dateTime={repo.last_ingested_at} title={when(repo.last_ingested_at).title}>
+              {when(repo.last_ingested_at).text}
+            </time>
             {repo.last_ingested_sha && (
               <>
                 {" "}
@@ -156,20 +159,20 @@ function RepoItem({ repo, curator, onIngested }: { repo: Repo; curator: boolean;
             )}
           </>
         ) : (
-          "Not ingested yet"
+          "Not read yet"
         )}
         <span>
           {repo.docs} docs, {repo.chunks} chunks, {repo.commits} commits
         </span>
       </p>
       <p className="repos-anchors" aria-label="Anchor health">
-        {ANCHOR_LABELS.map(([s, label]) => (
-          <span key={s} className={`badge verify-${s}`}>
-            {repo.anchors[s]} {label}
+        {ANCHOR_STATES.map((s) => (
+          <span key={s} className={`badge verify-${s}`} title={VERIFY[s]!.hint || undefined}>
+            {repo.anchors[s]} {VERIFY[s]!.label}
           </span>
         ))}
       </p>
-      {repo.ingest_error && <p className="error">Last ingest failed: {repo.ingest_error}</p>}
+      {repo.ingest_error && <p className="error">Last read failed: {repo.ingest_error}</p>}
       <div className="repos-actions">
         <button type="button" aria-expanded={open} aria-controls={filesId} onClick={() => {
             setOpen(!open);
@@ -179,7 +182,7 @@ function RepoItem({ repo, curator, onIngested }: { repo: Repo; curator: boolean;
         </button>
         {curator && (
           <button type="button" disabled={running} onClick={() => void ingest()}>
-            {running ? "Ingesting…" : "Ingest now"}
+            {running ? PHRASE.ingesting : PHRASE.ingestNow}
           </button>
         )}
       </div>
@@ -222,14 +225,21 @@ export function Repos({ role }: { role: Role }) {
 
   return (
     <main className="page repos-page">
-      <h1>Repos</h1>
+      <PageHeader title="Sources" lede="The repos Hive reads, and whether what it learned from them still matches." />
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
       {!repos && !error && <p className="help">Loading repos…</p>}
-      {repos && repos.length === 0 && <p className="help">No repos registered yet. A curator registers one with POST /v1/repos.</p>}
+      {repos && repos.length === 0 && (
+        <EmptyState title="No repos yet">
+          A curator adds a repo by pointing Hive at its checkout; Hive then reads its docs and commits.{" "}
+          <span className="help">
+            (Through the API: <code>POST /v1/repos</code>.)
+          </span>
+        </EmptyState>
+      )}
       {repos && repos.length > 0 && (
         <ul className="repos-list">
           {repos.map((r) => (

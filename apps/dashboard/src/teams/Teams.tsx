@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiFetch, type Role } from "../api";
 import type { Team } from "../levels/levels";
+import { EmptyState, PageHeader } from "../ui";
+import { ROLE, word } from "../words";
 
 async function errorOf(res: Response): Promise<string> {
   const body = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -147,7 +149,9 @@ function TeamItem({
             {team.members.map((m) => (
               <li key={m.user_id}>
                 <code>{m.user_id}</code>
-                <span className="help">{m.role}</span>
+                <span className="help" title={word(ROLE, m.role).hint || undefined}>
+                  {word(ROLE, m.role).label}
+                </span>
                 <button
                   type="button"
                   disabled={busy}
@@ -226,9 +230,9 @@ export function Teams({ role }: { role: Role }) {
   if (role !== "curator") {
     return (
       <main className="page">
-        <h1>Teams</h1>
-        <p className="help" role="note">
-          Managing teams is for curators only.
+        <PageHeader title="Teams" />
+        <p className="help" role="note" title={ROLE.curator!.hint}>
+          Only a Curator can manage teams.
         </p>
       </main>
     );
@@ -271,7 +275,7 @@ function TeamsAdmin() {
 
   return (
     <main className="page teams-page">
-      <h1>Teams</h1>
+      <PageHeader title="Teams" lede="A team's agents get its facts before anyone else's. Facts are never hidden between teams." />
       <CreateTeam onCreated={put} />
       {error && (
         <p className="error" role="alert">
@@ -279,7 +283,9 @@ function TeamsAdmin() {
         </p>
       )}
       {!teams && !error && <p className="help">Loading teams…</p>}
-      {teams && teams.length === 0 && <p className="help">No teams yet.</p>}
+      {teams && teams.length === 0 && (
+        <EmptyState title="No teams yet">Create one to give its members' agents their own conventions first.</EmptyState>
+      )}
       {teams && teams.length > 0 && (
         <ul className="teams-list">
           {teams.map((t) => (

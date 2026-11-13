@@ -28,7 +28,7 @@ test("a curator opens Stats and sees cost, facts, workers and backlog", async ({
   await expect(seven).toHaveAttribute("aria-pressed", "true");
 });
 
-test("a member sees no Stats link and a curators-only note at /stats", async ({ page }) => {
+test("a member sees no Usage and cost link and a Curator-only note at /stats", async ({ page }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(MEMBER);
@@ -41,5 +41,5 @@ test("a member sees no Stats link and a curators-only note at /stats", async ({ 
     history.pushState(null, "", "/stats");
     dispatchEvent(new PopStateEvent("popstate"));
   });
-  await expect(page.getByRole("note")).toContainText("curators only");
+  await expect(page.getByRole("note")).toHaveText("Only a Curator can see usage and cost.");
 });

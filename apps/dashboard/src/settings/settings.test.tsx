@@ -77,6 +77,8 @@ describe("settings page", () => {
     expect(input("Chat id").value).toBe("-100123");
     const last = screen.getByLabelText("Last digest");
     expect(last.textContent).toContain("2 hours ago");
+    expect(last.querySelector("time")!.title).toMatch(/, 20\d\d at /);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Notifications");
     expect(last.textContent).toContain("4");
     expect(last.textContent).toContain("telegram: Forbidden");
   });
@@ -160,7 +162,8 @@ describe("settings page", () => {
 
   it("a member sees a note and no form", () => {
     render(<Settings role="member" />);
-    expect(screen.getByRole("note").textContent).toBe("Only a curator can change settings.");
+    expect(screen.getByRole("note").textContent).toBe("Only a Curator can change notifications.");
+    expect(screen.getByRole("note").title).toBe("Approves what Hive learns before agents get it");
     expect(screen.queryByRole("form")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });

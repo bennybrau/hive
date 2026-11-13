@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { apiFetch, type Role } from "../api";
 import { splitList } from "../playbooks/PlaybookForm";
-import { timeAgo } from "../review/Review";
+import { PageHeader } from "../ui";
+import { ROLE, when } from "../words";
 
 /** `review_digest` from GET /v1/settings. Never holds the SMTP password or bot token. */
 export interface DigestView {
@@ -106,9 +107,9 @@ export function Settings({ role }: { role: Role }) {
   if (role !== "curator") {
     return (
       <main className="page">
-        <h1>Settings</h1>
-        <p className="help" role="note">
-          Only a curator can change settings.
+        <PageHeader title="Notifications" />
+        <p className="help" role="note" title={ROLE.curator!.hint}>
+          Only a Curator can change notifications.
         </p>
       </main>
     );
@@ -132,7 +133,7 @@ function SettingsPage() {
 
   return (
     <main className="page settings-page">
-      <h1>Settings</h1>
+      <PageHeader title="Notifications" lede="Who hears about facts waiting for review, and when." />
       {loadError && (
         <p className="error" role="alert">
           {loadError}
@@ -374,7 +375,15 @@ function DigestForm({ view, onSaved }: { view: DigestView | null; onSaved: (v: D
       {view && (
         <dl className="settings-last" aria-label="Last digest">
           <dt>Last sent</dt>
-          <dd>{view.last_sent_at ? timeAgo(view.last_sent_at) : "never"}</dd>
+          <dd>
+            {view.last_sent_at ? (
+              <time dateTime={view.last_sent_at} title={when(view.last_sent_at).title}>
+                {when(view.last_sent_at).text}
+              </time>
+            ) : (
+              "never"
+            )}
+          </dd>
           <dt>Items</dt>
           <dd>{view.last_item_count ?? "none yet"}</dd>
           <dt>Last error</dt>

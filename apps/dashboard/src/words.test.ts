@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { KIND, ORIGIN, RAW_VALUES, STATUS, VERIFY, WHERE, levelLabel, when, word } from "./words";
+import { JOB, KIND, ORIGIN, RAW_VALUES, ROLE, STATUS, VERIFY, WHERE, levelLabel, when, word } from "./words";
 
 const NOW = Date.parse("2026-11-12T18:00:00Z");
 const ago = (secs: number) => new Date(NOW - secs * 1000).toISOString();
@@ -10,6 +10,8 @@ describe("words", () => {
     for (const o of ["authored", "distilled", "ingested"]) expect(ORIGIN[o]!.label).not.toBe(o);
     for (const k of ["decision", "preference", "convention", "invariant", "gotcha", "system"]) expect(KIND[k]!.label).toBeTruthy();
     for (const v of ["verified", "drifted", "missing", "unverifiable_here", "unverified"]) expect(VERIFY[v]!.label).not.toBe(v);
+    for (const j of ["distill", "embed"]) expect(JOB[j]!.label).not.toBe(j);
+    for (const r of ["curator", "member", "worker", "reviewer"]) expect(ROLE[r]!.label).not.toBe(r);
     expect(STATUS.candidate!.label).toBe("Waiting for review");
     expect(ORIGIN.distilled!.label).toBe("Learned from a conversation");
     expect(KIND.gotcha!.label).toBe("Pitfall");
@@ -39,7 +41,7 @@ describe("words", () => {
   });
 
   it("lists the raw values the page guard looks for, and none of the words that are fine as they are", () => {
-    expect(RAW_VALUES).toEqual(expect.arrayContaining(["candidate", "retracted", "distilled", "ingested", "gotcha", "invariant", "drifted", "unverifiable_here", "global"]));
+    expect(RAW_VALUES).toEqual(expect.arrayContaining(["candidate", "retracted", "distilled", "ingested", "gotcha", "invariant", "drifted", "unverifiable_here", "global", "distill", "embed"]));
     expect(RAW_VALUES).not.toContain("decision");
   });
 });

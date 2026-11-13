@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiFetch, type Role } from "../api";
 import { navigate } from "../App";
+import { Badge, EmptyState, PageHeader } from "../ui";
+import { levelLabel, ROLE, STATUS, word } from "../words";
 import { getPlaybook, listPlaybooks, retractPlaybook, type Playbook, type PlaybookItem } from "./api";
 import { PlaybookForm } from "./PlaybookForm";
 
@@ -53,9 +55,9 @@ export function Playbooks({ role, path }: { role: Role; path: string }) {
   if (role !== "curator") {
     return (
       <main className="page">
-        <h1>Playbooks</h1>
-        <p className="help" role="note">
-          Playbooks are for curators only.
+        <PageHeader title="Playbooks" />
+        <p className="help" role="note" title={ROLE.curator!.hint}>
+          Only a Curator can manage playbooks.
         </p>
       </main>
     );
@@ -91,34 +93,42 @@ function PlaybookList() {
 
   return (
     <main className="page playbooks-page">
-      <header className="playbook-head">
-        <h1>Playbooks</h1>
-        <button type="button" onClick={() => navigate("/playbooks/new")}>
-          New playbook
-        </button>
-      </header>
+      <PageHeader
+        title="Playbooks"
+        lede="Step-by-step instructions agents follow for a kind of task."
+        action={
+          <button type="button" onClick={() => navigate("/playbooks/new")}>
+            New playbook
+          </button>
+        }
+      />
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
       {!playbooks && !error && <p className="help">Loading…</p>}
-      {playbooks?.length === 0 && <p className="help">No playbooks yet.</p>}
+      {playbooks?.length === 0 && (
+        <EmptyState title="No playbooks yet">
+          A curator writes one with New playbook. When an agent starts a task whose files or words match, Hive gives it
+          that playbook's steps and pitfalls.
+        </EmptyState>
+      )}
       {scopes.length > 1 && (
         <div className="chips" role="group" aria-label="Scope">
           <button type="button" aria-pressed={scope === ""} onClick={() => setScope("")}>
             All
           </button>
           {scopes.map((s) => (
-            <button key={s} type="button" aria-pressed={scope === s} onClick={() => setScope(s)}>
-              {s}
+            <button key={s} type="button" aria-pressed={scope === s} onClick={() => setScope(s)} title={levelLabel({ scope: s }).hint}>
+              {levelLabel({ scope: s }).label}
             </button>
           ))}
         </div>
       )}
       {shown.map((s) => (
-        <section key={s} aria-label={s}>
-          <h2>{s}</h2>
+        <section key={s} aria-label={levelLabel({ scope: s }).label}>
+          <h2>{levelLabel({ scope: s }).label}</h2>
           <ul className="playbooks-list">
             {playbooks!
               .filter((p) => p.scope === s)
@@ -244,8 +254,10 @@ function PlaybookView({ id }: { id: string }) {
         <article className="fact-detail playbook-detail" aria-label="Playbook">
           <header className="playbook-head">
             <h1>{p.title}</h1>
-            <code className="badge">{p.scope}</code>
-            {p.status !== "active" && <span className="badge">{p.status}</span>}
+            <Badge tone="who" title={levelLabel(p).hint}>
+              {levelLabel(p).label}
+            </Badge>
+            {p.status !== "active" && <Badge title={word(STATUS, p.status).hint || undefined}>{word(STATUS, p.status).label}</Badge>}
           </header>
           {p.supersedes && (
             <p className="help">

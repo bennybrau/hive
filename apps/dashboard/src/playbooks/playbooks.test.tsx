@@ -90,9 +90,9 @@ describe("playbooks", () => {
     open("/playbooks");
     await screen.findByText("Global one");
     const sections = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-    expect(sections).toEqual(["global", "repo:acme/widgets"]);
-    expect(within(screen.getByRole("region", { name: "global" })).getByText("src/**")).toBeTruthy();
-    fireEvent.click(within(screen.getByRole("group", { name: "Scope" })).getByRole("button", { name: "repo:acme/widgets" }));
+    expect(sections).toEqual(["Everyone", "Repo: widgets"]);
+    expect(within(screen.getByRole("region", { name: "Everyone" })).getByText("src/**")).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("group", { name: "Scope" })).getByRole("button", { name: "Repo: widgets" }));
     expect(screen.queryByText("Global one")).toBeNull();
     expect(screen.getByText("migration")).toBeTruthy();
   });
@@ -101,6 +101,7 @@ describe("playbooks", () => {
     open("/playbooks/new");
     await screen.findByLabelText("Title");
     type("Title", "Add a migration");
+    expect(within(screen.getByLabelText("Scope")).getAllByRole("option").map((o) => o.textContent)).toEqual(["Everyone", "One repo"]);
     type("Scope", "repo");
     await waitFor(() => expect(document.querySelector('#pb-repos option[value="acme/widgets"]')).not.toBeNull());
     type("Repo", "acme/widgets");
@@ -206,23 +207,26 @@ describe("playbooks", () => {
     expect(callsTo("DELETE", "/v1/playbooks/p1")).toHaveLength(1);
   });
 
-  it("shows 'No playbooks yet.' when the list is empty", async () => {
+  it("says how playbooks appear when the list is empty", async () => {
     open("/playbooks");
-    expect(await screen.findByText("No playbooks yet.")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "No playbooks yet" })).toBeTruthy();
+    expect(screen.getByText(/A curator writes one with New playbook/)).toBeTruthy();
   });
 
   it("hides Edit and Retract once a playbook is no longer active", async () => {
     stored = { p1: playbook("p1", { title: "Gone", status: "retracted" }) };
     open("/playbooks/p1");
     await screen.findByRole("heading", { name: "Gone" });
+    expect(screen.getByText("Retired").title).toBe("Withdrawn or rejected; kept as history");
+    expect(screen.getByText("Everyone").className).toBe("ui-badge who");
     expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Retract" })).toBeNull();
   });
 
-  it("a member sees no tab and a curators-only note", async () => {
+  it("a member sees no tab and a Curator-only note", async () => {
     role = "member";
     open("/playbooks");
-    expect((await screen.findByRole("note")).textContent).toContain("curators only");
+    expect((await screen.findByRole("note")).textContent).toBe("Only a Curator can manage playbooks.");
     expect(screen.queryByRole("link", { name: "Playbooks" })).toBeNull();
     expect(callsTo("GET", "/v1/playbooks")).toHaveLength(0);
   });

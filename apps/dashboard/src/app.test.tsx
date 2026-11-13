@@ -93,7 +93,7 @@ describe("dashboard shell", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("link", { name: "Playbooks" }));
     expect(location.pathname).toBe("/playbooks");
-    expect(await screen.findByText("No playbooks yet.")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "No playbooks yet" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Playbooks" }).getAttribute("aria-current")).toBe("page");
   });
 
@@ -135,8 +135,25 @@ describe("dashboard shell", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("link", { name: "Teams" }));
     expect(location.pathname).toBe("/teams");
-    expect(await screen.findByText("No teams yet.")).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "No teams yet" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Teams" }).getAttribute("aria-current")).toBe("page");
+  });
+
+  it("sign-in says what to paste and where a token comes from", () => {
+    render(<App />);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Hive");
+    expect(screen.getByText("Paste your Hive token. Ask whoever runs Hive for one.")).toBeTruthy();
+    expect(screen.getByText(/Running Hive yourself\?/).textContent).toContain("mint-token");
+  });
+
+  it("an unknown page says so and links to Facts", async () => {
+    sessionStorage.setItem("hive.token", "good-token");
+    history.replaceState(null, "", "/nowhere");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Not found" })).toBeTruthy();
+    expect(screen.getByText("/nowhere").closest(".lede")).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "Go to Facts" }));
+    expect(location.pathname).toBe("/facts");
   });
 
   it("uses a token already stored in this tab without asking again", async () => {

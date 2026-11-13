@@ -143,7 +143,7 @@ test("a curator saves the digest settings and sends a test: email arrives, a bad
   }
 });
 
-test("a member sees no Notifications tab and a curators-only note at /settings", async ({ page }) => {
+test("a member sees no Notifications tab and a Curator-only note at /settings", async ({ page }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   await signIn(page, MEMBER);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Admin" }).click();
@@ -153,5 +153,5 @@ test("a member sees no Notifications tab and a curators-only note at /settings",
     history.pushState(null, "", "/settings");
     dispatchEvent(new PopStateEvent("popstate"));
   });
-  await expect(page.getByRole("note")).toHaveText("Only a curator can change settings.");
+  await expect(page.getByRole("note")).toHaveText("Only a Curator can change notifications.");
 });
