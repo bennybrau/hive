@@ -100,6 +100,8 @@ describe("search view", () => {
 
     const facts = await screen.findByRole("region", { name: "Facts" });
     expect(within(facts).getByRole("link", { name: "the factory deploys to Cloud Run" }).getAttribute("href")).toBe("/facts/f1");
+    expect(within(facts).getByText("Pitfall").className).toMatch(/ui-badge/);
+    expect(within(facts).getByText(/Live/)).toBeTruthy();
 
     const res = screen.getByRole("region", { name: "Results" });
     const item = (s: string) => res.querySelector(`li[data-source="${s}"]`) as HTMLElement;
@@ -108,7 +110,7 @@ describe("search view", () => {
     );
     expect(within(item("doc")).getByText("GATE_POLICY").tagName).toBe("MARK");
     expect(within(item("commit")).getByText("initial import")).toBeTruthy();
-    expect(within(item("commit")).getByText(SHA.slice(0, 10))).toBeTruthy();
+    expect(within(item("commit")).getByText(SHA.slice(0, 7))).toBeTruthy();
     expect(within(item("conversation")).getByText("s-42")).toBeTruthy();
     expect(within(item("history")).getByText("s-7")).toBeTruthy();
   });

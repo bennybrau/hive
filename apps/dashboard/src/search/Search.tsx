@@ -6,6 +6,8 @@ import type { Fact } from "../facts/query";
 import { LevelBadge } from "../levels/LevelBadge";
 import { LevelFilter } from "../levels/LevelFilter";
 import { matchesLevel, useTeams } from "../levels/levels";
+import { Badge, PageHeader } from "../ui";
+import { KIND, STATUS, when, word } from "../words";
 import { apiUrl, readSearch, SOURCES, writeSearch, type Hit, type SearchState, type Source } from "./query";
 
 const LABELS: Record<Source, string> = {
@@ -47,7 +49,7 @@ function HitItem({ hit }: { hit: Hit }) {
   } else if (hit.source === "commit") {
     head = (
       <>
-        <span className="repo">{hit.repo_key}</span> <code>{hit.ref?.slice(0, 10)}</code> <strong>{hit.subject}</strong>
+        <span className="repo">{hit.repo_key}</span> <code>{hit.ref?.slice(0, 7)}</code> <strong>{hit.subject}</strong>
       </>
     );
   } else {
@@ -57,7 +59,9 @@ function HitItem({ hit }: { hit: Hit }) {
         {hit.created_at && (
           <>
             {" "}
-            <time dateTime={hit.created_at}>{hit.created_at.slice(0, 10)}</time>
+            <time dateTime={hit.created_at} title={when(hit.created_at).title}>
+              {when(hit.created_at).text}
+            </time>
           </>
         )}
       </>
@@ -129,7 +133,7 @@ export function Search() {
 
   return (
     <main className="page search-page">
-      <h1>Search</h1>
+      <PageHeader title="Search" lede="Search facts, docs, commits and past conversations at once." />
       <div className="filters">
         <form role="search" className="field search" onSubmit={submit}>
           <label htmlFor="s-q">Search</label>
@@ -163,7 +167,8 @@ export function Search() {
             {facts.map((f) => (
               <li key={f.id} data-source="fact">
                 <div className="meta">
-                  <span className="badge">{f.kind}</span> <LevelBadge fact={f} teams={teams} mine={mine} /> · {f.status}
+                  <Badge title={word(KIND, f.kind).hint || undefined}>{word(KIND, f.kind).label}</Badge>{" "}
+                  <LevelBadge fact={f} teams={teams} mine={mine} /> · {word(STATUS, f.status).label}
                 </div>
                 <a
                   href={`/facts/${encodeURIComponent(f.id)}`}

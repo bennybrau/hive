@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "../api";
 import { LevelBadge } from "../levels/LevelBadge";
+import { KIND, ORIGIN, PHRASE, STATUS, VERIFY, when, word, type Word } from "../words";
 import { githubBlobUrl } from "./github";
 import type { Fact } from "./query";
 
@@ -65,11 +66,24 @@ function Chain({ title, links, onOpen }: { title: string; links: ChainLink[]; on
             >
               {l.text}
             </a>{" "}
-            <span className="help">({l.status})</span>
+            <span className="help">({word(STATUS, l.status).label})</span>
           </li>
         ))}
       </ul>
     </>
+  );
+}
+
+function Label({ w }: { w: Word }) {
+  return <span title={w.hint || undefined}>{w.label}</span>;
+}
+
+function When({ iso, className, full }: { iso: string; className?: string; full?: boolean }) {
+  const t = when(iso);
+  return (
+    <time className={className} dateTime={iso} title={t.title}>
+      {full ? t.title : t.text}
+    </time>
   );
 }
 
@@ -113,40 +127,27 @@ export function FactDetail({ id, onClose, onOpen }: { id: string; onClose: () =>
         <>
           <p className="fact-text">{f.text}</p>
 
-          <h3>Provenance</h3>
           <dl>
             <dt>Kind</dt>
-            <dd>{f.kind}</dd>
+            <dd>
+              <Label w={word(KIND, f.kind)} />
+            </dd>
             <dt>Level</dt>
             <dd>
               <LevelBadge fact={f} />
             </dd>
             <dt>Status</dt>
             <dd>
-              {f.status}
+              <Label w={word(STATUS, f.status)} />
               {f.status_note && <span className="help"> — {f.status_note}</span>}
             </dd>
             <dt>Origin</dt>
-            <dd>{f.origin}</dd>
-            <dt>Author</dt>
-            <dd>{f.author_user_id ?? "—"}</dd>
-            <dt>Recorded</dt>
             <dd>
-              <time dateTime={f.recorded_at}>{f.recorded_at}</time>
+              <Label w={word(ORIGIN, f.origin)} />
             </dd>
-            {f.locus.length > 0 && (
-              <>
-                <dt>Locus</dt>
-                <dd>
-                  {f.locus.map((l) => (
-                    <code key={l}>{l} </code>
-                  ))}
-                </dd>
-              </>
-            )}
           </dl>
 
-          <h3>Anchors</h3>
+          <h3>{PHRASE.anchors}</h3>
           {detail.anchors.length === 0 ? (
             <p className="help">None.</p>
           ) : (
@@ -156,7 +157,9 @@ export function FactDetail({ id, onClose, onOpen }: { id: string; onClose: () =>
                 const moved = a.found_line != null && a.found_line !== a.line_start;
                 return (
                   <li key={a.id}>
-                    <span className={`badge verify-${a.verify_status}`}>{a.verify_status.replace(/_/g, " ")}</span>{" "}
+                    <span className={`badge verify-${a.verify_status}`} title={word(VERIFY, a.verify_status).hint || undefined}>
+                      {word(VERIFY, a.verify_status).label}
+                    </span>{" "}
                     {a.path ? (
                       <code>
                         {a.repo_key ? `${a.repo_key} ` : ""}
@@ -166,7 +169,7 @@ export function FactDetail({ id, onClose, onOpen }: { id: string; onClose: () =>
                     ) : a.episode_id ? (
                       <span>episode {a.episode_id}</span>
                     ) : null}
-                    {a.commit_sha && <code className="help"> @{a.commit_sha.slice(0, 10)}</code>}
+                    {a.commit_sha && <code className="help"> @{a.commit_sha.slice(0, 7)}</code>}
                     {href && (
                       <>
                         {" "}
@@ -195,15 +198,39 @@ export function FactDetail({ id, onClose, onOpen }: { id: string; onClose: () =>
               {detail.reviews.map((r, i) => (
                 <li key={i}>
                   <strong>{r.action}</strong> by {r.reviewer_user_id ?? "—"}{" "}
-                  <time className="help" dateTime={r.created_at}>
-                    {r.created_at.slice(0, 10)}
-                  </time>
+                  <When className="help" iso={r.created_at} />
                   {r.note && <p>{r.note}</p>}
                   {r.new_text && <p className="help">New text: {r.new_text}</p>}
                 </li>
               ))}
             </ul>
           )}
+
+          <details className="provenance">
+            <summary>{PHRASE.provenance}</summary>
+            <dl>
+              <dt>Id</dt>
+              <dd>
+                <code>{f.id}</code>
+              </dd>
+              <dt>Author</dt>
+              <dd>{f.author_user_id ?? "—"}</dd>
+              <dt>Recorded</dt>
+              <dd>
+                <When iso={f.recorded_at} full />
+              </dd>
+              {f.locus.length > 0 && (
+                <>
+                  <dt>Locus</dt>
+                  <dd>
+                    {f.locus.map((l) => (
+                      <code key={l}>{l} </code>
+                    ))}
+                  </dd>
+                </>
+              )}
+            </dl>
+          </details>
         </>
       )}
     </aside>

@@ -162,6 +162,27 @@ describe("facts table", () => {
     expect(p1!.querySelector(".level")!.textContent).toBe("Just me");
   });
 
+  it("shows plain words in the cells and the filters, keeping API values as option values", async () => {
+    listPage = () => ({ facts: [fact("w1", { kind: "invariant", status: "candidate", origin: "distilled" })], has_more: false });
+    render(<Facts />);
+    await screen.findByText("fact w1");
+    const [row] = rows();
+    expect(within(row!).getByText("Must stay true")).toBeTruthy();
+    expect(within(row!).getByText("Waiting for review").getAttribute("title")).toBe("Not given to agents yet");
+    expect(within(row!).getByText("Learned from a conversation")).toBeTruthy();
+    const time = row!.querySelector("time")!;
+    expect(time.getAttribute("dateTime")).toBe("2026-10-01T12:00:00Z");
+    expect(time.textContent).not.toMatch(/2026-10-01/);
+    const status = screen.getByLabelText("Status") as HTMLSelectElement;
+    expect(within(status).getByRole("option", { name: "Waiting for review" }).getAttribute("value")).toBe("candidate");
+  });
+
+  it("says what would appear when nothing matches", async () => {
+    listPage = () => ({ facts: [], has_more: false });
+    render(<Facts />);
+    expect(await screen.findByRole("heading", { name: "Nothing matches these filters" })).toBeTruthy();
+  });
+
   it("pages by has_more", async () => {
     listPage = (offset) => ({ facts: [fact(`p${offset}`)], has_more: offset === 0 });
     render(<Facts />);
@@ -238,8 +259,19 @@ describe("fact detail", () => {
 
     const panel = await screen.findByRole("complementary", { name: "Fact detail" });
     await within(panel).findByText("the open fact");
-    expect(within(panel).getByText("drifted").className).toMatch(/badge/);
-    expect(within(panel).getByText("verified").className).toMatch(/badge/);
+    expect(within(panel).getByRole("heading", { name: "Where this comes from" })).toBeTruthy();
+    expect(within(panel).getByText("Source changed").className).toMatch(/badge verify-drifted/);
+    expect(within(panel).getByText("Still matches").className).toMatch(/badge verify-verified/);
+    expect(within(panel).getByText("@abc123")).toBeTruthy();
+    expect(within(panel).getByText("Pitfall")).toBeTruthy();
+    expect(within(panel).getByText("Live")).toBeTruthy();
+    expect(within(panel).getByText("Written by a person")).toBeTruthy();
+    expect(within(panel).getByText("(Replaced)")).toBeTruthy();
+    const details = panel.querySelector("details")!;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")!.textContent).toBe("Details");
+    expect(within(details).getByText("f1")).toBeTruthy();
+    expect(within(details).getByText("u1")).toBeTruthy();
     expect(within(panel).getByText("quote changed")).toBeTruthy();
     expect(within(panel).getByText("Now found at line 12.")).toBeTruthy();
     const links = within(panel).getAllByRole("link", { name: "View on GitHub" });

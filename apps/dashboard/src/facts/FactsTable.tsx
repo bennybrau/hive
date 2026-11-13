@@ -3,6 +3,8 @@ import { apiFetch } from "../api";
 import { LevelBadge } from "../levels/LevelBadge";
 import { LevelFilter } from "../levels/LevelFilter";
 import { useTeams } from "../levels/levels";
+import { EmptyState } from "../ui";
+import { KIND, ORIGIN, STATUS, when, word, type Word } from "../words";
 import {
   KINDS,
   listUrl,
@@ -31,12 +33,15 @@ function Select({
   label,
   value,
   options,
+  words,
   onChange,
 }: {
   id: string;
   label: string;
   value: string;
   options: readonly string[];
+  /** Labels for the options; the option value stays the API value. Without one, the value is the text. */
+  words?: Record<string, Word>;
   onChange: (v: string) => void;
 }) {
   return (
@@ -46,11 +51,24 @@ function Select({
         <option value="">any</option>
         {options.map((o) => (
           <option key={o} value={o}>
-            {o}
+            {words ? word(words, o).label : o}
           </option>
         ))}
       </select>
     </div>
+  );
+}
+
+function Cell({ w }: { w: Word }) {
+  return <td title={w.hint || undefined}>{w.label}</td>;
+}
+
+function Recorded({ iso }: { iso: string }) {
+  const t = when(iso);
+  return (
+    <time dateTime={iso} title={t.title}>
+      {t.text}
+    </time>
   );
 }
 
@@ -145,9 +163,9 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
           options={repos.map((r) => r.key)}
           onChange={(repo) => set({ repo })}
         />
-        <Select id="f-status" label="Status" value={filters.status} options={STATUSES} onChange={(status) => set({ status })} />
-        <Select id="f-origin" label="Origin" value={filters.origin} options={ORIGINS} onChange={(origin) => set({ origin })} />
-        <Select id="f-kind" label="Kind" value={filters.kind} options={KINDS} onChange={(kind) => set({ kind })} />
+        <Select id="f-status" label="Status" value={filters.status} options={STATUSES} words={STATUS} onChange={(status) => set({ status })} />
+        <Select id="f-origin" label="Origin" value={filters.origin} options={ORIGINS} words={ORIGIN} onChange={(origin) => set({ origin })} />
+        <Select id="f-kind" label="Kind" value={filters.kind} options={KINDS} words={KIND} onChange={(kind) => set({ kind })} />
         <form role="search" className="field search" onSubmit={submit}>
           <label htmlFor="f-q">Search</label>
           <span>
@@ -181,13 +199,6 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
             </tr>
           </thead>
           <tbody>
-            {shown.length === 0 && (
-              <tr>
-                <td colSpan={6} className="help">
-                  No facts match.
-                </td>
-              </tr>
-            )}
             {shown.map((f, i) => (
               <tr
                 key={f.id}
@@ -202,19 +213,25 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
                 onKeyDown={(e) => onRowKey(e, i)}
               >
                 <td className="text">{f.text}</td>
-                <td>{f.kind}</td>
+                <Cell w={word(KIND, f.kind)} />
                 <td>
                   <LevelBadge fact={f} teams={teams} mine={mine} />
                 </td>
-                <td>{f.status}</td>
-                <td>{f.origin}</td>
+                <Cell w={word(STATUS, f.status)} />
+                <Cell w={word(ORIGIN, f.origin)} />
                 <td>
-                  <time dateTime={f.recorded_at}>{f.recorded_at.slice(0, 10)}</time>
+                  <Recorded iso={f.recorded_at} />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+      {shown?.length === 0 && (
+        <EmptyState title="Nothing matches these filters">
+          Facts appear here when a person writes one, when Hive learns one from a conversation and a curator approves
+          it, or when Hive reads one from a repo's docs or code.
+        </EmptyState>
       )}
 
       {!searching && (

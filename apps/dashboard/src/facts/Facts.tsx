@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { navigate } from "../App";
+import { PageHeader } from "../ui";
 import { FactDetail } from "./FactDetail";
 import { FactsTable } from "./FactsTable";
 import { readFilters, writeFilters, type Filters } from "./query";
@@ -48,7 +49,7 @@ export function Facts() {
   return (
     <main className={openId ? "page facts-page open" : "page facts-page"}>
       <div ref={listRef}>
-        <h1>Facts</h1>
+        <PageHeader title="Facts" lede="Every fact agents are given, and where each one came from." />
         <FactsTable filters={filters} onChange={setFilters} openId={openId} onOpen={open} />
       </div>
       {openId && <FactDetail id={openId} onClose={close} onOpen={open} />}

@@ -65,50 +65,61 @@ rebuilt.
 
 ## Words you'll see
 
+The dashboard uses plain words. The word in brackets is the value the API and older screens use, shown here once
+so you can match them up.
+
 - **Fact**: one short statement the hive can tell an assistant, such as "The orchestrator gate waits for a person."
-- **Kind**: what sort of fact it is: `decision`, `invariant` (must always hold), `gotcha` (a trap),
-  `preference`, `convention` or `system` (how something works).
-- **Scope**: who it's true for. `global` is everyone. `repo:<key>` applies to one repository.
-  `personal:<you>` is visible only to you.
+- **Kind**: what sort of fact it is: **Decision**, **Must stay true** (invariant), **Pitfall** (gotcha),
+  **Preference**, **Convention** or **How it works** (system).
+- **Who gets it** (scope): **Everyone** (global), **Repo:** and the repo name (`repo:<key>`), **Team:** and the team name, or
+  **Just me** (personal), which only you see.
 - **Status**:
-  - `candidate`: proposed, waiting for a curator; **not** given to assistants yet.
-  - `active`: approved, so assistants recall it.
-  - `superseded`: replaced by a newer fact (kept as history).
-  - `retracted`: withdrawn or rejected (kept as history).
+  - **Waiting for review** (candidate): proposed, waiting for a curator; **not** given to assistants yet.
+  - **Live** (active): approved, so assistants are given it.
+  - **Replaced** (superseded): a newer fact took its place (kept as history).
+  - **Retired** (retracted): withdrawn or rejected (kept as history).
 - **Origin**: where it came from.
-  - `authored`: someone wrote it, through Hermes or the API.
-  - `distilled`: the hive-worker pulled it out of a finished conversation.
-  - `ingested`: read from a repo's docs.
-- **Anchor**: the evidence behind a fact, either a quote from a file at a line or a quote from a conversation.
-  The hive re-checks file anchors (see [anchor health](#anchor-health)).
+  - **Written by a person** (authored): someone wrote it, through Hermes or the API.
+  - **Learned from a conversation** (distilled): the hive-worker proposed it from something a person said.
+  - **Read from the repo** (ingested): taken from a repo's docs or code.
+- **Where this comes from** (anchors): the evidence behind a fact, either a quote from a file at a line or a quote
+  from a conversation. The hive re-checks file quotes and says whether the source **Still matches** (verified),
+  **Source changed** (drifted), **Source gone** (missing), **Can't check from here** (unverifiable_here) or
+  **Not checked yet** (unverified). See [anchor health](#anchor-health).
 
-How a fact becomes active:
+How a fact goes live:
 
-- Personal facts are active at once.
-- Shared facts written by a **curator** are active at once.
-- Shared facts written by a **member**, and **everything distilled**, start as `candidate` and wait in
-  [Review](#review-curators).
+- Facts for **Just me** are live at once.
+- Shared facts written by a **curator** are live at once.
+- Shared facts written by a **member**, and everything **learned from a conversation**, start as **Waiting for
+  review** in [Review](#review-curators).
 
 ## Facts
 
 ![Facts page with a fact open](img/fact-detail.png)
 
-Everything you can see, newest first, 50 per page.
+Every fact agents are given, and where each one came from: everything you can see, newest first, 50 per page.
+Dates read as "3 hours ago" or "Nov 7"; hover one for the full date and time.
 
-**Filters** along the top narrow by scope, status, kind and origin. The filters are kept in the page address,
-so you can bookmark or share a filtered view.
+**Filters** along the top narrow by who gets it, repo, status, origin and kind. The filters are kept in the page
+address, so you can bookmark or share a filtered view. When nothing matches, the page says so and explains how
+facts get here.
 
 **Search** on this page finds facts by meaning, not just by matching words. Up to 100 matches, ranked by relevance,
-and still narrowed by the filters. Candidates are included. For conversations, commits and docs, use the [Search](#search) page.
+and still narrowed by the filters. Facts waiting for review are included. For conversations, commits and docs, use
+the [Search](#search) page.
 
 **Click a row**, or move with `j`/`k` and press `Enter`, to open the fact on the right:
 
-- **Provenance**: kind, scope, status, origin, author and when it was recorded.
-- **Anchors**: each piece of evidence with its quote and its [health badge](#anchor-health). A file anchor links
-  to the exact lines on GitHub, at the commit the hive last read. If the quote has moved, it says where it is
-  now.
-- **Supersedes / Superseded by**: the chain of older and newer versions of this fact. Click one to open it.
+- Its kind, who gets it, status (with any note) and origin.
+- **Where this comes from**: each piece of evidence with its quote and its [health badge](#anchor-health). A file
+  quote links to the exact lines on GitHub, at the commit the hive last read (shown as its first 7 characters).
+  If the quote has moved, it says where it is now.
+- **Supersedes / Superseded by**: the chain of older and newer versions of this fact, each with its status. Click
+  one to open it.
 - **Reviews**: who approved, fixed or rejected it, when, and why.
+- **Details** (closed until you click it): the fact's id, its author, the full time it was recorded, and the files
+  or areas it is about (locus).
 
 `Esc` closes the panel. The open fact is part of the page address, so a link opens straight to it.
 
@@ -116,21 +127,21 @@ and still narrowed by the filters. Candidates are included. For conversations, c
 
 ![Search for "orchestrator gate"](img/search.png)
 
-One box for everything the hive has read. Type a question or a few words and press `Enter`.
+Search facts, docs, commits and past conversations at once. Type a question or a few words and press `Enter`.
 
 **Sources** are the chips under the box. Click them to switch each one on or off:
 
-- **Facts**: shown first, in their own section, with kind, scope and status.
+- **Facts**: shown first, in their own section, with kind, who gets it and status.
 - **Conversations**: single turns from your past Hermes sessions.
 - **History**: your whole past Hermes sessions.
 
 Conversations and History only ever show **your own** sessions, never a teammate's.
-- **Commits**: commit messages, with the short sha and subject.
+- **Commits**: commit messages, with the commit's first 7 characters and its subject.
 - **Docs**: chunks of the repos' documents, linked to the file and lines on GitHub.
 
 Each source returns its best 20 results. Results mix meaning (embeddings) with keywords, so an exact name or
-error message works as well as a plain-English question. Facts show their status, so candidates waiting for
-review are easy to spot. Click a fact to open it on the Facts page.
+error message works as well as a plain-English question. Facts show their status, so facts waiting for review are
+easy to spot. Click a fact to open it on the Facts page.
 
 ## Repos
 
