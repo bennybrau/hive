@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { apiFetch, type Role } from "../api";
-import { navigate } from "../App";
 import type { Fact } from "../facts/query";
 import { LevelBadge } from "../levels/LevelBadge";
 import { LevelFilter } from "../levels/LevelFilter";
 import { levelLabel, matchesLevel, useTeams, type MyTeam, type Team } from "../levels/levels";
-import { WhoGetsThis } from "../levels/WhoGetsThis";
+import { Badge, Button, EmptyState, Field, Link, PageHeader } from "../ui";
+import { KIND, PHRASE, STATUS, VERIFY, WHERE, when, word } from "../words";
+import { FactCard, type Choice } from "./FactCard";
 import { usePendingDecision, type Decision } from "./usePendingDecision";
 
 interface Anchor {
@@ -20,6 +21,8 @@ interface Anchor {
   episode_snippet: string | null;
   /** The user turn the quote came from and what the bot said just before it; null when the quote is in no user turn. */
   exchange: { assistant: string | null; user: string } | null;
+  /** Who said it, where and when; null on anchors without an episode. */
+  source: { kind: string; author: string | null; where: string; at: string } | null;
 }
 
 interface Similar {
@@ -76,9 +79,179 @@ export function timeAgo(iso: string, now = Date.now()): string {
   return "";
 }
 
-function lines(a: Anchor): string {
-  if (!a.line_start) return "";
-  return a.line_end && a.line_end !== a.line_start ? `:L${a.line_start}–L${a.line_end}` : `:L${a.line_start}`;
+/** "gh/o/a src/a.ts:L10–L14" */
+function place(a: Anchor): string {
+  const lines = !a.line_start ? "" : a.line_end && a.line_end !== a.line_start ? `:L${a.line_start}–L${a.line_end}` : `:L${a.line_start}`;
+  return `${a.repo_key ? `${a.repo_key} ` : ""}${a.path ?? ""}${lines}`;
+}
+
+/** A date as words, with the full date on hover. */
+function When({ iso }: { iso: string }) {
+  const w = when(iso);
+  return (
+    <time dateTime={iso} title={w.title}>
+      {w.text}
+    </time>
+  );
+}
+
+/** Under a quote: "Jon, in a conversation with Hermes, 2 hours ago", or the file it is from; nothing without either. */
+function By({ a }: { a: Anchor }) {
+  const s = a.source;
+  if (s) {
+    const who = [s.author, WHERE[s.where]?.label].filter(Boolean).join(", ");
+    return (
+      <span className="by">
+        {who && `${who[0]!.toUpperCase()}${who.slice(1)}, `}
+        <When iso={s.at} />
+      </span>
+    );
+  }
+  if (a.path) {
+    return (
+      <span className="by">
+        <code>{place(a)}</code>
+      </span>
+    );
+  }
+  return null;
+}
+
+/** What a person said that the fact was drawn from: the user turn, else the conversation snippet or the quote, else the file; null without any. */
+function why(c: Candidate): ReactNode {
+  const ex = c.anchors.find((a) => a.exchange);
+  if (ex?.exchange) {
+    return (
+      <blockquote className="quote">
+        {ex.exchange.user}
+        <By a={ex} />
+      </blockquote>
+    );
+  }
+  const q = c.anchors.find((a) => a.episode_snippet || a.quote);
+  if (q) {
+    return (
+      <blockquote className="quote">
+        {q.episode_snippet ?? q.quote}
+        <By a={q} />
+      </blockquote>
+    );
+  }
+  const p = c.anchors.find((a) => a.path);
+  return p ? <code className="place">{place(p)}</code> : null;
+}
+
+/** The fact a candidate would replace. Not folded: it changes what Approve does. */
+function Replaces({ old }: { old: Replaced }) {
+  return (
+    <section className="replaces" aria-label="Replaces">
+      <h3>Replaces</h3>
+      <p className="old">{old.text}</p>
+      <p className="help">
+        <Link to={`/facts/${encodeURIComponent(old.id)}`}>{old.id.slice(0, 8)}</Link>{" "}
+        {old.status === "active"
+          ? "Approve or edit retires it. Reject leaves it as it is."
+          : `Already ${word(STATUS, old.status).label.toLowerCase()}. Approving won't change it.`}
+      </p>
+    </section>
+  );
+}
+
+/** Closed until asked for: what the agent said before, similar live facts, and the record's details. */
+function Folds({ c }: { c: Candidate }) {
+  const said = c.anchors.find((a) => a.exchange)?.exchange?.assistant;
+  // The replaced fact has its own section; don't list it again as similar.
+  const similar = c.similar.filter((s) => s.id !== c.replaces?.id).slice(0, 3);
+  const episodes = [...new Set(c.anchors.map((a) => a.episode_id).filter((e): e is string => !!e))];
+  return (
+    <>
+      {said && (
+        <details className="more">
+          <summary>{PHRASE.agentSaid}</summary>
+          <p className="said">{said}</p>
+        </details>
+      )}
+      {similar.length > 0 && (
+        <details className="more">
+          <summary>Similar live facts ({similar.length})</summary>
+          <ul className="similar">
+            {similar.map((s) => (
+              <li key={s.id}>
+                <span className="pct">{Math.round(s.similarity * 100)}%</span> {s.text}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      <details className="more">
+        <summary>{PHRASE.provenance}</summary>
+        <dl className="details">
+          <dt>Id</dt>
+          <dd>
+            <code>{c.id}</code>
+          </dd>
+          <dt>Recorded</dt>
+          <dd>
+            <When iso={c.recorded_at} />
+          </dd>
+          {episodes.length > 0 && (
+            <>
+              <dt>Conversation</dt>
+              <dd>
+                {episodes.map((e) => (
+                  <code key={e}>{e}</code>
+                ))}
+              </dd>
+            </>
+          )}
+          <dt>{PHRASE.anchors}</dt>
+          <dd>
+            {c.anchors.length === 0 ? (
+              "Nothing recorded."
+            ) : (
+              <ul className="anchors">
+                {c.anchors.map((a) => (
+                  <li key={a.id}>
+                    {a.path ? <code>{place(a)}</code> : a.episode_id ? <span>From a conversation</span> : null}{" "}
+                    <Badge title={word(VERIFY, a.verify_status).hint || undefined}>{word(VERIFY, a.verify_status).label}</Badge>
+                    {a.quote && <pre className="quote">{a.quote}</pre>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </dd>
+        </dl>
+      </details>
+    </>
+  );
+}
+
+const KEYS: [string, string][] = [
+  ["j / ↓", "Next fact"],
+  ["k / ↑", "Previous fact"],
+  ["a", "Approve"],
+  ["f", "Edit"],
+  ["r", "Reject"],
+  ["Enter", "Save (while editing)"],
+  ["Shift+Enter", "New line (while editing)"],
+  ["Esc", "Cancel (while editing)"],
+];
+
+function KeysTable({ id }: { id: string }) {
+  return (
+    <table className="keys keys-hint" id={id} aria-label="Keyboard shortcuts">
+      <tbody>
+        {KEYS.map(([k, does]) => (
+          <tr key={k}>
+            <th scope="row">
+              <kbd>{k}</kbd>
+            </th>
+            <td>{does}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
 }
 
 const DONE: Record<Decision["action"], string> = {
@@ -93,227 +266,6 @@ type Editing = { kind: "fix"; text: string } | { kind: "reject"; note: string } 
 
 /** For the badge: the queue isn't labelled, so levels are worked out from scope and these. */
 type Teams = { teams: Team[]; mine: MyTeam[] };
-
-/** Where an approve sends the candidate; null keeps its level. */
-type Choice = { scope: string; label: string } | null;
-
-/** The decision buttons for the current candidate; on a phone they are the card's footer, pinned to the bottom of the screen. */
-function Actions({
-  c,
-  approveLabel,
-  editing,
-  setEditing,
-  submit,
-  approve,
-}: {
-  c: Candidate;
-  approveLabel: string;
-  editing: Editing;
-  setEditing: (e: Editing) => void;
-  submit: () => void;
-  approve: () => void;
-}) {
-  const fixOk = editing?.kind !== "fix" || editing.text.trim().length >= 3;
-  return (
-    <div className="review-actions" role="group" aria-label="Decide">
-      {editing ? (
-        <>
-          <button type="button" onClick={() => setEditing(null)}>
-            Cancel
-          </button>
-          {editing.kind === "fix" ? (
-            <button type="button" className="primary" disabled={!fixOk} onClick={submit}>
-              Save fix
-            </button>
-          ) : (
-            <button type="button" className="danger" onClick={submit}>
-              Reject
-            </button>
-          )}
-        </>
-      ) : (
-        <>
-          <button type="button" onClick={() => setEditing({ kind: "reject", note: "" })}>
-            Reject…
-          </button>
-          <button type="button" onClick={() => setEditing({ kind: "fix", text: c.text })}>
-            Fix…
-          </button>
-          <button type="button" className="primary" onClick={approve}>
-            Approve for {approveLabel}
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
-function Evidence({
-  c,
-  levels,
-  editing,
-  setEditing,
-  choice,
-  setChoice,
-  submit,
-  approve,
-}: {
-  c: Candidate;
-  levels: Teams;
-  editing: Editing;
-  setEditing: (e: Editing) => void;
-  choice: Choice;
-  setChoice: (c: Choice) => void;
-  submit: () => void;
-  approve: () => void;
-}) {
-  const onKey = (e: ReactKeyboardEvent) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      setEditing(null);
-    } else if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      submit();
-    }
-  };
-  // On a phone a long bot turn is cut to a few lines until asked for; the parent keys this by candidate, so it resets.
-  const [botOpen, setBotOpen] = useState(false);
-  // The first conversation the fact came from, shown as the exchange; its snippet would only repeat it.
-  const shown = c.anchors.find((a) => a.exchange);
-  // The replaced fact has its own section; don't list it again as similar.
-  const old = c.replaces;
-  const similar = c.similar.filter((s) => s.id !== old?.id);
-  return (
-    <aside className="review-evidence" aria-label="Evidence">
-      {c.metadata?.asked && <span className="badge asked">asked to remember</span>}
-      <p className="review-card-meta">
-        {c.kind} · <LevelBadge fact={c} {...levels} /> · {c.origin}
-      </p>
-      {shown?.exchange && (
-        <section className="exchange" aria-label="Exchange">
-          {shown.exchange.assistant !== null && (
-            <div className={botOpen ? "exchange-bot" : "exchange-bot clamped"}>
-              <span className="exchange-label">bot said</span>
-              <pre className="quote">{shown.exchange.assistant}</pre>
-              {!botOpen && (
-                <button type="button" className="link more" onClick={() => setBotOpen(true)}>
-                  Show all of it
-                </button>
-              )}
-            </div>
-          )}
-          <div className="exchange-user">
-            <span className="exchange-label">you said</span>
-            <pre className="quote">{shown.exchange.user}</pre>
-          </div>
-        </section>
-      )}
-      {editing?.kind === "fix" ? (
-        <div className="field">
-          <label htmlFor="r-fix">Fixed text</label>
-          <textarea
-            id="r-fix"
-            autoFocus
-            rows={4}
-            value={editing.text}
-            onChange={(e) => setEditing({ kind: "fix", text: e.target.value })}
-            onKeyDown={onKey}
-          />
-          <p className="help keys-hint">Enter saves, Esc cancels.</p>
-        </div>
-      ) : (
-        <p className="fact-text">{c.text}</p>
-      )}
-      {editing?.kind === "reject" && (
-        <div className="field">
-          <label htmlFor="r-note">Why reject it? (optional)</label>
-          <input
-            id="r-note"
-            type="text"
-            autoFocus
-            value={editing.note}
-            onChange={(e) => setEditing({ kind: "reject", note: e.target.value })}
-            onKeyDown={onKey}
-          />
-          <p className="help keys-hint">Enter rejects, Esc cancels.</p>
-        </div>
-      )}
-      {!editing && (
-        <WhoGetsThis
-          fact={c}
-          anchorRepo={c.anchors[0]?.repo_key}
-          {...levels}
-          value={choice?.scope ?? c.scope}
-          onChange={(scope, label) => setChoice(scope === c.scope ? null : { scope, label })}
-        />
-      )}
-      <Actions
-        c={c}
-        approveLabel={choice?.label ?? levelLabel(c, levels.teams, levels.mine).label}
-        editing={editing}
-        setEditing={setEditing}
-        submit={submit}
-        approve={approve}
-      />
-      {old && (
-        <section className="replaces" aria-label="Replaces">
-          <h3>Replaces</h3>
-          <p className="old">{old.text}</p>
-          <p className="help">
-            <a
-              href={`/facts/${encodeURIComponent(old.id)}`}
-              onClick={(e) => {
-                e.preventDefault();
-                navigate(`/facts/${encodeURIComponent(old.id)}`);
-              }}
-            >
-              {old.id.slice(0, 8)}
-            </a>{" "}
-            {old.status === "active"
-              ? "Approve or fix retires it. Reject leaves it as it is."
-              : `Already ${old.status}. Approving won't change it.`}
-          </p>
-        </section>
-      )}
-
-      <h3>Anchors</h3>
-      {c.anchors.length === 0 ? (
-        <p className="help">None.</p>
-      ) : (
-        <ul className="anchors">
-          {c.anchors.map((a) => (
-            <li key={a.id}>
-              {a.path ? (
-                <code>
-                  {a.repo_key ? `${a.repo_key} ` : ""}
-                  {a.path}
-                  {lines(a)}
-                </code>
-              ) : a.episode_id ? (
-                <span className="help">From a conversation</span>
-              ) : null}
-              {a.quote && <pre className="quote">{a.quote}</pre>}
-              {a.episode_snippet && a !== shown && <pre className="quote snippet">{a.episode_snippet}</pre>}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {similar.length > 0 && (
-        <>
-          <h3>Similar active facts</h3>
-          <ul className="similar">
-            {similar.slice(0, 3).map((s) => (
-              <li key={s.id}>
-                <span className="pct">{Math.round(s.similarity * 100)}%</span> {s.text}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </aside>
-  );
-}
 
 type FlagEditing = { kind: "fix"; text: string } | { kind: "retire"; note: string } | null;
 
@@ -376,12 +328,12 @@ function FlaggedCard({
         <p className="fact-text">{f.text}</p>
       )}
       <p className="meta">
-        {f.kind} in <LevelBadge fact={f} {...levels} />. Corrected {timeAgo(f.correction.at)}.
+        {word(KIND, f.kind).label} in <LevelBadge fact={f} {...levels} />. Corrected <When iso={f.correction.at} />.
       </p>
       <blockquote className="quote">{f.correction.text}</blockquote>
       {replacing && (
         <p className="help">
-          Replaced by candidate{" "}
+          Replaced by a new fact:{" "}
           {candidateLoaded ? (
             <a
               href={`#${encodeURIComponent(replacing.id)}`}
@@ -445,14 +397,14 @@ function FlaggedCard({
   );
 }
 
-/** Must match the breakpoint in styles.css where the review queue shows one card at a time. */
+/** Must match the breakpoint in review.css where the card's footer is pinned to the bottom of the screen. */
 const SINGLE_CARD = "(max-width: 900px)";
 
 function isTyping(t: EventTarget | null): boolean {
   return t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
 }
 
-/** The review queue: candidates oldest first beside their evidence, decided from the keyboard. */
+/** The review queue: one fact at a time, oldest first, decided from the keyboard or the card's buttons. */
 export function Review({ role }: { role: Role }) {
   if (role !== "curator") {
     return (
@@ -473,9 +425,11 @@ function ReviewQueue() {
   const [active, setActive] = useState(0);
   const [editing, setEditing] = useState<Editing>(null);
   const [choice, setChoice] = useState<Choice>(null);
+  const [keysOpen, setKeysOpen] = useState(false);
+  const keysId = useId();
   const { hidden, pending, error, merged, decide, undo } = usePendingDecision();
-  const rowRefs = useRef<(HTMLLIElement | null)[]>([]);
-  const listRef = useRef<HTMLOListElement>(null);
+  const cardRef = useRef<HTMLElement>(null);
+  const focusCard = useRef(false);
   const levels = useTeams();
   const [level, setLevel] = useState("");
 
@@ -504,13 +458,16 @@ function ReviewQueue() {
   const index = Math.min(active, Math.max(shown.length - 1, 0));
   const current = shown[index];
 
-  // A different row (moved to, or decided away) drops any half-made edit and goes back to its current level.
-  useEffect(() => {
+  // A different fact (moved to, or decided away) drops any half-made edit and goes back to its current level.
+  // Done while rendering, not in an effect, so a key pressed just after the first card shows isn't undone.
+  const [cardId, setCardId] = useState(current?.id);
+  if (cardId !== current?.id) {
+    setCardId(current?.id);
     setEditing(null);
     setChoice(null);
-  }, [current?.id]);
+  }
 
-  // On a phone the list is hidden and the card is the page, so a new card starts at its top.
+  // On a phone the card is the page, so a new card starts at its top.
   const firstCard = useRef(true);
   useEffect(() => {
     if (firstCard.current) {
@@ -520,18 +477,26 @@ function ReviewQueue() {
     if (typeof matchMedia === "function" && matchMedia(SINGLE_CARD).matches) scrollTo({ top: 0 });
   }, [current?.id]);
 
+  // After a flagged fact's "Replaced by" link: the card is keyed by fact, so focus the new one once it is there.
+  useEffect(() => {
+    if (!focusCard.current) return;
+    focusCard.current = false;
+    cardRef.current?.focus();
+  });
+
   function move(to: number) {
-    const next = Math.max(0, Math.min(to, shown.length - 1));
-    setActive(next);
-    if (listRef.current?.contains(document.activeElement)) rowRefs.current[next]?.focus();
+    setActive(Math.max(0, Math.min(to, shown.length - 1)));
   }
 
-  /** Make a candidate the current row and focus it (from a flagged fact's "Replaced by" link). */
+  /** Make a candidate the current card and focus it (from a flagged fact's "Replaced by" link). */
   function selectCandidate(id: string) {
     const i = shown.findIndex((c) => c.id === id);
     if (i < 0) return;
-    setActive(i);
-    rowRefs.current[i]?.focus();
+    if (i === index) cardRef.current?.focus();
+    else {
+      focusCard.current = true;
+      setActive(i);
+    }
   }
 
   function approve(c: Candidate) {
@@ -551,6 +516,16 @@ function ReviewQueue() {
     setEditing(null);
   }
 
+  const onFieldKey = (e: ReactKeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setEditing(null);
+    } else if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submitEdit();
+    }
+  };
+
   // Latest state for the listener without re-subscribing on every render.
   const onKeyRef = useRef<(e: KeyboardEvent) => void>(() => {});
   onKeyRef.current = (e: KeyboardEvent) => {
@@ -569,25 +544,20 @@ function ReviewQueue() {
     return () => removeEventListener("keydown", onKey);
   }, []);
 
+  const empty = queue && shown.length === 0 && flagged.length === 0;
+
   return (
-    <main className="page review-page">
-      <header className="review-head">
-        <h1>Review</h1>
-        {queue && shown.length + flagged.length > 0 && (
-          <p className="help keys">
-            {shown.length + flagged.length} to review.
-            {shown.length > 0 && (
-              <span className="keys-hint">
-                {" "}
-                <kbd>j</kbd>/<kbd>k</kbd> move, <kbd>a</kbd> approve, <kbd>f</kbd> fix, <kbd>r</kbd> reject.
-              </span>
-            )}
-          </p>
-        )}
-        {queue && (queue.candidates.length > 0 || queue.flagged.length > 0) && (
-          <LevelFilter id="r-level" value={level} teams={levels.teams} onChange={setLevel} />
-        )}
-      </header>
+    <main className="page review-queue">
+      <PageHeader
+        title="Review"
+        lede="Hive proposes facts from what people say. Nothing reaches an agent until a curator approves it."
+        action={
+          queue &&
+          (queue.candidates.length > 0 || queue.flagged.length > 0) && (
+            <LevelFilter id="r-level" value={level} teams={levels.teams} onChange={setLevel} />
+          )
+        }
+      />
 
       {loadError && (
         <p className="error" role="alert">
@@ -601,35 +571,120 @@ function ReviewQueue() {
       )}
       {merged && (
         <p className="help merged">
-          Merged into{" "}
-          <a
-            href={`/facts/${encodeURIComponent(merged.id)}`}
-            onClick={(e) => {
-              e.preventDefault();
-              navigate(`/facts/${encodeURIComponent(merged.id)}`);
-            }}
-          >
-            {merged.id.slice(0, 8)}
-          </a>
+          Merged into <Link to={`/facts/${encodeURIComponent(merged.id)}`}>{merged.id.slice(0, 8)}</Link>
         </p>
       )}
       {!queue && !loadError && <p className="help">Loading…</p>}
 
-      {queue && shown.length === 0 && flagged.length === 0 && level && (
-        <p className="help">Nothing to review at this level.</p>
+      {empty && level && <p className="help">Nothing to review at this level.</p>}
+      {empty && !level && (
+        <EmptyState title="Nothing waiting for review">
+          {queue.last_distill_at ? (
+            <>
+              Hive last learned from conversations <When iso={queue.last_distill_at} />.
+            </>
+          ) : (
+            "Hive hasn't learned from any conversations yet."
+          )}
+        </EmptyState>
       )}
-      {queue && shown.length === 0 && flagged.length === 0 && !level && (
-        <p className="review-empty">
-          Nothing to review.{" "}
-          <span className="help">
-            {queue.last_distill_at ? `Last distill ran ${timeAgo(queue.last_distill_at)}.` : "No distill has run yet."}
-          </span>
-        </p>
+
+      {current && (
+        <FactCard
+          key={current.id}
+          ref={cardRef}
+          fact={current}
+          n={index + 1}
+          of={shown.length}
+          onMove={move}
+          levels={levels}
+          anchorRepo={current.anchors[0]?.repo_key}
+          choice={choice}
+          onChoose={setChoice}
+          editor={
+            editing?.kind === "fix" ? (
+              <Field label="Edit the fact" help="Enter saves and approves, Shift+Enter adds a line, Esc cancels.">
+                {(p) => (
+                  <textarea
+                    {...p}
+                    autoFocus
+                    rows={4}
+                    value={editing.text}
+                    onChange={(e) => setEditing({ kind: "fix", text: e.target.value })}
+                    onKeyDown={onFieldKey}
+                  />
+                )}
+              </Field>
+            ) : undefined
+          }
+          why={why(current)}
+          footer={
+            <>
+              {editing?.kind === "reject" && (
+                <Field label="Why reject it? (optional)" help="Enter rejects, Esc cancels.">
+                  {(p) => (
+                    <input
+                      {...p}
+                      type="text"
+                      autoFocus
+                      value={editing.note}
+                      onChange={(e) => setEditing({ kind: "reject", note: e.target.value })}
+                      onKeyDown={onFieldKey}
+                    />
+                  )}
+                </Field>
+              )}
+              <div className="actions" role="group" aria-label="Decide">
+                {editing ? (
+                  <>
+                    {editing.kind === "fix" ? (
+                      <Button variant="primary" big disabled={editing.text.trim().length < 3} onClick={submitEdit}>
+                        Save and approve
+                      </Button>
+                    ) : (
+                      <Button big className="danger" onClick={submitEdit}>
+                        Reject
+                      </Button>
+                    )}
+                    <Button big onClick={() => setEditing(null)}>
+                      Cancel
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button variant="primary" big onClick={() => approve(current)}>
+                      Approve for {choice?.label ?? levelLabel(current, levels.teams, levels.mine).label}
+                    </Button>
+                    <Button big onClick={() => setEditing({ kind: "fix", text: current.text })}>
+                      {PHRASE.edit}
+                    </Button>
+                    <Button big onClick={() => setEditing({ kind: "reject", note: "" })}>
+                      Reject
+                    </Button>
+                    <Button
+                      variant="quiet"
+                      className="end keys-hint"
+                      aria-expanded={keysOpen}
+                      aria-controls={keysOpen ? keysId : undefined}
+                      onClick={() => setKeysOpen(!keysOpen)}
+                    >
+                      <kbd>?</kbd> keys
+                    </Button>
+                  </>
+                )}
+              </div>
+            </>
+          }
+        >
+          {current.replaces && <Replaces old={current.replaces} />}
+          <Folds c={current} />
+          {keysOpen && <KeysTable id={keysId} />}
+        </FactCard>
       )}
 
       {flagged.length > 0 && (
-        <section className="flagged" aria-label="Corrected after citation">
-          <h2>Corrected after citation</h2>
+        <section className="flagged" aria-labelledby="r-flagged">
+          <h2 id="r-flagged">Corrected after citation</h2>
           <ul>
             {flagged.map((f) => (
               <FlaggedCard
@@ -643,67 +698,6 @@ function ReviewQueue() {
             ))}
           </ul>
         </section>
-      )}
-
-      {current && (
-        <nav className="review-stepper" aria-label="Candidate">
-          <button type="button" aria-label="Previous candidate" disabled={index === 0} onClick={() => move(index - 1)}>
-            ‹
-          </button>
-          <span aria-live="polite">
-            Candidate {index + 1} of {shown.length}
-          </span>
-          <button
-            type="button"
-            aria-label="Next candidate"
-            disabled={index >= shown.length - 1}
-            onClick={() => move(index + 1)}
-          >
-            ›
-          </button>
-        </nav>
-      )}
-
-      {current && (
-        <div className="review-panes queue">
-          <ol className="review-list" aria-label="Candidates" ref={listRef}>
-            {shown.map((c, i) => (
-              <li
-                key={c.id}
-                ref={(el) => {
-                  rowRefs.current[i] = el;
-                }}
-                data-id={c.id}
-                tabIndex={i === index ? 0 : -1}
-                aria-current={i === index ? "true" : undefined}
-                onFocus={() => setActive(i)}
-                onClick={() => setActive(i)}
-              >
-                <span className="text">{c.text}</span>
-                <span className="meta">
-                  {c.kind} in <LevelBadge fact={c} {...levels} />, {c.origin}
-                  {c.metadata?.asked && (
-                    <>
-                      {" "}
-                      <span className="badge asked">asked to remember</span>
-                    </>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ol>
-          <Evidence
-            key={current.id}
-            c={current}
-            levels={levels}
-            editing={editing}
-            setEditing={setEditing}
-            choice={choice}
-            setChoice={setChoice}
-            submit={submitEdit}
-            approve={() => approve(current)}
-          />
-        </div>
       )}
 
       {pending && (

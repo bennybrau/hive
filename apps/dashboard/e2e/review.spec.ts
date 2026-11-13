@@ -1,10 +1,22 @@
 // Run by scripts/test-dashboard-e2e.sh inside the Playwright image; not part of vitest or tsc.
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const HIVE = process.env.HIVE_URL ?? "http://127.0.0.1:8800";
 const MEMBER = process.env.HIVE_E2E_TOKEN ?? "";
 const CURATOR = process.env.HIVE_E2E_CURATOR_TOKEN ?? "";
 const RUN = process.env.HIVE_E2E_RUN ?? "";
+
+/**
+ * Review shows one fact at a time: step (j on a keyboard, › on a phone) until the card is the probe, at most 100
+ * times (the queue's limit), and return the card.
+ */
+async function stepTo(page: Page, id: string, step: () => Promise<void>) {
+  const card = page.getByRole("article", { name: "Fact" });
+  await expect(card).toBeVisible();
+  for (let i = 0; i < 100 && (await card.getAttribute("data-id")) !== id; i++) await step();
+  await expect(card).toHaveAttribute("data-id", id);
+  return card;
+}
 
 // Ids this spec made; afterAll retires the ones still active (scripts/test-dashboard-e2e.sh's trap is the backstop).
 const created: string[] = [];
@@ -21,7 +33,7 @@ test.afterAll(async ({ request }) => {
   }
 });
 
-test("a curator reviews a member's candidate from the keyboard, with undo", async ({ page }) => {
+test("a curator finds a member's candidate with j and reviews it from the keyboard, with undo", async ({ page }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   expect(CURATOR, "HIVE_E2E_CURATOR_TOKEN is not set").not.toBe("");
   expect(RUN, "HIVE_E2E_RUN is not set").not.toBe("");
@@ -44,25 +56,25 @@ test("a curator reviews a member's candidate from the keyboard, with undo", asyn
   await page.getByRole("link", { name: "Review" }).click();
   await expect(page).toHaveURL(/\/review$/);
 
-  const row = page.getByRole("list", { name: "Candidates" }).locator(`li[data-id="${id}"]`);
-  await row.click();
-  await expect(row).toHaveAttribute("aria-current", "true");
-  const panel = page.getByRole("complementary", { name: "Evidence" });
-  await expect(panel.getByText(text)).toBeVisible();
-  await expect(panel.getByText("README.md:L1–L3")).toBeVisible();
+  // No list: one card at a time, found with j.
+  await expect(page.getByRole("list", { name: "Candidates" })).toHaveCount(0);
+  const card = await stepTo(page, id, () => page.keyboard.press("j"));
+  const probe = page.locator(`article[data-id="${id}"]`);
+  await expect(card.locator(".proposed")).toHaveText(text);
+  await expect(card.getByRole("region", { name: "Why Hive thinks so" })).toContainText("README.md:L1–L3");
 
-  // Approve, then take it back: the row returns and nothing is decided.
+  // Approve, then take it back: the card returns and nothing is decided.
   await page.keyboard.press("a");
-  await expect(row).toHaveCount(0);
+  await expect(probe).toHaveCount(0);
   await expect(page.getByRole("status")).toContainText("Approved");
   await page.getByRole("button", { name: "Undo" }).click();
-  await expect(row).toHaveAttribute("aria-current", "true");
+  await expect(probe).toBeVisible();
 
   // Reject with a note; it is sent once the undo window closes.
   await page.keyboard.press("r");
   await page.getByLabel(/Why reject it/).fill(`e2e ${marker}`);
   await page.keyboard.press("Enter");
-  await expect(row).toHaveCount(0);
+  await expect(probe).toHaveCount(0);
   await expect(page.getByRole("status")).toContainText("Rejected");
   await expect(page.getByRole("status")).toHaveCount(0, { timeout: 10_000 });
 
@@ -102,12 +114,12 @@ test("a curator shares a member's global candidate with a team on approve", asyn
   await page.getByRole("link", { name: "Review" }).click();
   await expect(page).toHaveURL(/\/review$/);
 
-  const row = page.getByRole("list", { name: "Candidates" }).locator(`li[data-id="${id}"]`);
-  await row.click();
-  await expect(row).toHaveAttribute("aria-current", "true");
+  const card = await stepTo(page, id, () => page.getByRole("button", { name: "Next fact" }).click());
+  await card.getByRole("button", { name: "Change…" }).click();
   await page.getByRole("group", { name: "Who should get this?" }).getByRole("radio", { name: `Team: E2E ${marker}` }).check();
+  // A real click on the Approve button (the hive e2e script approves through the API instead).
   await page.getByRole("group", { name: "Decide" }).getByRole("button", { name: `Approve for Team: E2E ${marker}` }).click();
-  await expect(row).toHaveCount(0);
+  await expect(page.locator(`article[data-id="${id}"]`)).toHaveCount(0);
   await expect(page.getByRole("status")).toContainText("Approved");
   await expect(page.getByRole("status")).toHaveCount(0, { timeout: 10_000 });
 
@@ -146,24 +158,27 @@ test("a curator reviews a member's candidate on a phone, by tapping", async ({ b
   await expect(page.getByRole("navigation", { name: "Main" })).toBeHidden();
   await expect(page).toHaveURL(/\/review$/);
 
-  // One card at a time: the list is hidden, nothing scrolls sideways, and the decisions are on screen under the fact.
-  await expect(page.getByRole("list", { name: "Candidates" })).toBeHidden();
+  // One card at a time: nothing scrolls sideways, and the decisions are pinned to the bottom of the screen under the
+  // fact: Approve full width, Edit… and Reject side by side, each at least 48px tall.
+  await expect(page.getByRole("list", { name: "Candidates" })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  const card = page.getByRole("complementary", { name: "Evidence" });
-  const next = page.getByRole("button", { name: "Next candidate" });
-  for (let i = 0; i < 100 && !(await card.getByText(text).isVisible()); i++) await next.tap();
-  await expect(card.getByText(text)).toBeVisible();
+  const card = await stepTo(page, id, () => page.getByRole("button", { name: "Next fact" }).tap());
   const decide = page.getByRole("group", { name: "Decide" });
   const bar = (await decide.boundingBox())!;
-  const fact = (await card.getByText(text).boundingBox())!;
+  const fact = (await card.locator(".proposed").boundingBox())!;
   expect(bar.y).toBeGreaterThan(fact.y + fact.height);
   expect(bar.y + bar.height).toBeLessThanOrEqual(844);
-  expect(bar.height).toBeGreaterThanOrEqual(48);
+  const approve = (await decide.getByRole("button", { name: /^Approve for / }).boundingBox())!;
+  const edit = (await decide.getByRole("button", { name: "Edit…" }).boundingBox())!;
+  const reject = (await decide.getByRole("button", { name: "Reject" }).boundingBox())!;
+  expect(approve.width).toBeGreaterThan(edit.width + reject.width);
+  expect(edit.y).toBe(reject.y);
+  for (const b of [approve, edit, reject]) expect(b.height).toBeGreaterThanOrEqual(48);
 
-  // Fix it by tapping, then let the undo window close.
-  await decide.getByRole("button", { name: "Fix…" }).tap();
-  await page.getByLabel("Fixed text").fill(`${text} Fixed.`);
-  await decide.getByRole("button", { name: "Save fix" }).tap();
+  // Edit it by tapping, then let the undo window close.
+  await decide.getByRole("button", { name: "Edit…" }).tap();
+  await page.getByLabel("Edit the fact").fill(`${text} Fixed.`);
+  await decide.getByRole("button", { name: "Save and approve" }).tap();
   await expect(page.getByRole("status")).toContainText("Fixed");
   await expect(page.getByRole("status")).toHaveCount(0, { timeout: 10_000 });
 

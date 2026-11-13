@@ -74,7 +74,7 @@ describe("dashboard shell", () => {
     render(<App />);
     fireEvent.click(await screen.findByRole("link", { name: "Review" }));
     expect(location.pathname).toBe("/review");
-    expect(await screen.findByText(/No distill has run yet/)).toBeTruthy();
+    expect(await screen.findByText("Nothing waiting for review")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Review" }).getAttribute("aria-current")).toBe("page");
   });
 

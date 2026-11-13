@@ -182,37 +182,49 @@ Registering a new repo is done through the API (`POST /v1/repos`) for now, not i
 
 ![Review queue](img/review.png)
 
-The queue of candidates, **oldest first**. Nothing here reaches anyone's assistant until you decide. The
-candidate list is on the left and the evidence for the selected one is on the right:
+Hive proposes facts from what people say. Nothing reaches an agent until a curator approves it. **New** shows
+the facts waiting for review **one at a time**, oldest first (facts someone asked Hive to remember come first).
+**Level** at the top right narrows the queue to one level.
 
-- The fact's kind, scope and origin, and the fact it would **supersede**, if any.
-- **Anchors**: the quote it was drawn from. For a distilled fact this is the passage of the conversation, with
-  about 300 characters around it, so you can judge it in context.
-- **Similar active facts**: up to 3 existing facts that say nearly the same thing, with a similarity
-  percentage. If one already covers it, reject the candidate or fix it to match the existing fact.
+Each card, top to bottom:
+
+- **Fact n of N**, with **‹ ›** to move to the previous or next fact.
+- What kind of fact it is, where it came from (for example **Learned from a conversation**), and **asked to
+  remember** if someone asked for it.
+- The proposed fact, in large type.
+- **Who gets it**: the level it would be approved for and what that means. **Change…** opens **Who should get
+  this?** in place, so you can approve it for another repo, a team or everyone instead.
+- **Why Hive thinks so**: what the person said, with who said it, where (for example "in a factory plan approval")
+  and when. Hover the time for the full date. Without a conversation it shows the passage the fact quotes, or the
+  file and lines.
+- **Replaces**, if the fact would replace one that is live now: approving or editing retires the old one.
+- Folded until you open them: **The agent said** (what the agent said just before), **Similar live facts** (up to 3
+  that say nearly the same thing, with a similarity percentage: if one already covers it, reject or edit to match),
+  and **Details** (the fact's id, when it was recorded, the conversation, and every place it comes from with whether
+  that still matches).
+
+Below the card, **Corrected after citation** lists live facts someone corrected after an answer cited them, with
+**Keep**, **Fix** and **Retire**. **Replaced by a new fact** links to the card that would replace it.
 
 ### Deciding
 
-| Key | Action |
-|---|---|
-| `j` / `↓`, `k` / `↑` | next / previous candidate |
-| `a` | **approve**: the fact becomes active and assistants start recalling it |
-| `f` | **fix**: edit the text, then `Enter` to save it as active (`Shift+Enter` for a new line, `Esc` cancels) |
-| `r` | **reject**: optional reason, then `Enter` (`Esc` cancels) |
+The buttons at the bottom of the card:
 
-The **Approve**, **Fix…** and **Reject…** buttons under the fact do the same with a mouse or a finger.
+- **Approve for** *level*: the fact goes live and agents start getting it, at the level shown (change it with
+  **Change…** first).
+- **Edit…**: change the text, then **Save and approve** (or `Enter`; `Shift+Enter` for a new line, `Esc` cancels).
+- **Reject**: an optional reason, then **Reject** again (or `Enter`; `Esc` cancels).
+- **? keys** shows the keyboard shortcuts.
 
-- **On a phone** the queue shows one candidate at a time: the fact first, then the conversation it came from
-  (a long bot reply is cut short; tap **Show all of it**). Use **‹ ›** to move between candidates. The decision
-  buttons stay at the bottom of the screen while you scroll the card.
+- **On a phone** the buttons stay at the bottom of the screen while you scroll the card: **Approve** across the
+  full width, **Edit…** and **Reject** side by side under it.
 - **Undo**: every decision waits **5 seconds** before it is saved, with an **Undo** button. Making the next
   decision, or leaving the page, saves the previous one at once.
-- **Fixing into an existing fact**: if your fixed text is word for word an existing fact in that scope, the
-  candidate is **merged** into it. Its evidence moves to that fact and the candidate is closed.
-- **Approving a superseding candidate** retires the fact it replaces.
-- When the queue is empty, it tells you when the last distill ran. If that was long ago and people have been
-  working, check the worker on [Stats](#stats-curators).
-- If a decision can't be saved, the candidate comes back with the error.
+- **Editing into an existing fact**: if your edited text is word for word an existing fact at that level, the
+  fact is **merged** into it. Its evidence moves to that fact and this one is closed.
+- When nothing is waiting, the page says **Nothing waiting for review** and when Hive last learned from
+  conversations. If that was long ago and people have been working, check the worker on [Stats](#stats-curators).
+- If a decision can't be saved, the fact comes back with the error.
 
 ## Stats (curators)
 
@@ -260,9 +272,13 @@ Gmail refuses the normal password.
 | Facts | `j` / `k` (or arrows) | move through the table |
 | Facts | `Enter` | open the selected fact |
 | Facts | `Esc` | close the fact panel |
-| Review | `j` / `k` (or arrows) | move through candidates |
-| Review | `a` / `f` / `r` | approve / fix / reject |
+| Review | `j` / `k` (or `↓` / `↑`) | next / previous fact |
+| Review | `a` | approve, for the level shown |
+| Review | `f` | edit the text (Edit…) |
+| Review | `r` | reject, with an optional reason |
 | Review, editing | `Enter` / `Shift+Enter` / `Esc` | save / new line / cancel |
+
+On Review, **? keys** under the card shows the same list.
 
 Shortcuts are ignored while you're typing in a box.
 
