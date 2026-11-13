@@ -83,7 +83,7 @@ const NO_TEAM = ["R", "RD", "G", "G2", "gR", "gG"];
 async function record(keys: string[]) {
   for (const key of keys) {
     const f = FACTS[key]!;
-    const res = await json(curator, "POST", "/v1/facts", { kind: f.kind ?? "convention", scope: f.scope, text: f.text, locus: f.locus });
+    const res = await json(curator, "POST", "/v1/facts", { kind: f.kind ?? "decision", scope: f.scope, text: f.text, locus: f.locus });
     expect(res.fact.status).toBe("active");
     ids[key] = res.fact.id;
   }

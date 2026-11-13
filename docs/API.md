@@ -392,8 +392,13 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
     words, any case), then the repo's own over a global one, then the newest. None when nothing matches. Cut to 300
     tokens by dropping steps from the end, then pitfalls.
   - `terms`: the task's words as Postgres' `english` config sees them (stopwords dropped, stemmed), 3+ chars.
-  - `facts` `[{id, text, kind, scope, locus, verify, near_changes?}]`: like `/v1/recall` with `k=5`, `min_sim=0.62` (the
-    prefetch gate) and `changed=changed_paths` (locus boost).
+  - `facts` `[{id, text, kind, scope, locus, verify, near_changes?, standing?}]`: first the repo's standing rules, each
+    with `standing: true`: up to 5 `active` facts of kind `convention` in `repo:<repo_key>`, the caller's own teams or
+    `global` (never another repo's, `also_repos` included, another team's or a personal one), whatever the task says (no
+    similarity floor, no word match). Pinned first, then newest `recorded_at`; on a tie the repo's, then a team's, then
+    `global`. Then the rest, like `/v1/recall` with `k=5`, `min_sim=0.62` (the prefetch gate) and
+    `changed=changed_paths` (locus boost); a standing rule it also finds is listed once, as a standing rule, and doesn't
+    take one of the 5. With no standing rules the answer is what it was before them.
   - `locations` `[{ref, path, source: doc|path}]`, up to 8, one per file: document passages (`ref` = `path:start-end`)
     alternating with tracked files whose path contains the most `terms` (a term in the file name counts double).
   - `runs` `[{ref, title, pr_url, merged_at, snippet}]`, up to 3: the repo's `asf_run` records with a `merged_at` whose
@@ -404,8 +409,10 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
     contains a location's name (minus extension), then in the location's folder or below it, then in a folder next to it.
   - `gotchas`: active `gotcha` facts you can read whose `locus` or anchor paths overlap the locations or `changed_paths`
     (a file, or a directory containing it). A fact listed here is not repeated under `facts`.
-  - Budget: each item costs `ceil(JSON length / 4)` tokens; items are taken round-robin in the order playbook → gotchas → facts →
-    locations → runs → tests, and one that doesn't fit is skipped and counted in `dropped`.
+  - Budget: each item costs `ceil(JSON length / 4)` tokens. Standing rules are packed first, in order, until one doesn't
+    fit (with `also_repos`, into the main repo's share); it and the ones after it are counted in `dropped.facts`. Their
+    tokens are in `tokens.facts`. The other items get what's left, taken round-robin in the order playbook → gotchas →
+    facts → locations → runs → tests, and one that doesn't fit is skipped and counted in `dropped`.
   - A repo that isn't registered still answers 200, with `repo_indexed: false` and only `facts`. Code paths come from
     `repo_files` (every tracked file of the default branch except `node_modules`, `vendor`, `dist`, ...), filled by ingest;
     repos ingested before this existed get it on their next ingest.
@@ -420,7 +427,8 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
     `repo_key` and the answer gets `unknown_repos: [...]` (keys that aren't registered, so weren't read).
   - With teams, `facts`, `gotchas` and the budget follow the order of preference (see Teams).
   - Each fact in the answer's `gotchas` and `facts` (after the budget) gets `use_count + 1` and `last_used_at = now()`,
-    like `/v1/recall`.
+    like `/v1/recall`, except a standing rule the similarity search didn't find too (else every convention would look
+    used on every brief, and never show as out of date).
 
 ## MCP (`/mcp`, for Claude Code and other MCP clients)
 

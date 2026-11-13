@@ -1,14 +1,17 @@
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Instance } from "../auth.js";
-import { buildBrief, type Brief } from "../brief.js";
+import { briefWithUse, type Brief, type BriefOpts } from "../brief.js";
 import { recordUse } from "../facts.js";
 import { MAX_ALSO_REPOS, ScopeError } from "../scope.js";
 import type { SearchDeps } from "../search.js";
 
-/** /v1/brief and MCP hive_brief: the brief, its facts counted as used. ScopeError past MAX_ALSO_REPOS. */
-export async function brief(deps: SearchDeps, who: Instance, opts: Parameters<typeof buildBrief>[2], log: FastifyBaseLogger): Promise<Brief> {
-  const b = await buildBrief(deps, who, opts);
-  await recordUse(deps.pool, [...b.gotchas, ...b.facts].map((f) => f.id), log);
+/**
+ * /v1/brief and MCP hive_brief: the brief, its facts counted as used (a standing rule only when the similarity search
+ * found it too). ScopeError past MAX_ALSO_REPOS.
+ */
+export async function brief(deps: SearchDeps, who: Instance, opts: BriefOpts, log: FastifyBaseLogger): Promise<Brief> {
+  const { brief: b, usedIds } = await briefWithUse(deps, who, opts);
+  await recordUse(deps.pool, usedIds, log);
   return b;
 }
 

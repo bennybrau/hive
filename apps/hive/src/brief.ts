@@ -16,6 +16,8 @@ export const BRIEF_MIN_SIMILARITY = 0.62;
 /** With also_repos, the share of the budget the main repo's items get first. */
 export const BRIEF_MAIN_SHARE = 0.6;
 const FACTS_K = 5;
+/** Standing rules: conventions handed to every brief for the repo, whatever the task. */
+export const STANDING_K = 5;
 const LOCATIONS_K = 8;
 const TESTS_K = 5;
 const RUNS_K = 3;
@@ -31,6 +33,8 @@ export interface BriefFact {
   locus: string[];
   verify?: string | null;
   near_changes?: boolean;
+  /** A standing rule: in the brief because it is a convention of the repo, an own team or the organisation. */
+  standing?: true;
 }
 export interface BriefLocation {
   /** `path:start-end` for a document passage, else the path. */
@@ -168,6 +172,31 @@ async function overlappingGotchas(
 }
 
 /**
+ * Standing rules: active conventions of the repo, the caller's own teams and the organisation, whatever the task. Pinned
+ * first, then newest; on a tie the repo's before a team's before the organisation's. Top STANDING_K.
+ */
+async function standingRules(deps: SearchDeps, repoKey: string, ownTeamKeys: string[] | undefined, changedPaths: string[]): Promise<BriefFact[]> {
+  const scopes = [`repo:${repoKey}`, "global", ...(ownTeamKeys ?? []).map((k) => `team:${k}`)];
+  const { rows } = await deps.pool.query<Fact & { verify: string | null; paths: string[] }>(
+    `select ${FACT_COLUMNS.split(", ").map((c) => "f." + c).join(", ")},
+            (select a.verify_status from anchors a where a.fact_id = f.id and a.verify_status <> 'unverified'
+              order by case a.verify_status when 'missing' then 0 when 'drifted' then 1 when 'unverifiable_here' then 2 else 3 end
+              limit 1) as verify,
+            f.locus || coalesce((select array_agg(a.path) from anchors a where a.fact_id = f.id and a.path is not null), '{}') as paths
+     from facts f where f.status = 'active' and f.kind = 'convention' and f.scope = any($1)
+     order by f.pinned desc, f.recorded_at desc,
+              case when f.scope like 'repo:%' then 0 when f.scope like 'team:%' then 1 else 2 end
+     limit ${STANDING_K}`,
+    [scopes],
+  );
+  return rows.map((r) => ({
+    id: r.id, text: r.text, kind: r.kind, scope: r.scope, locus: r.locus, verify: r.verify,
+    ...(changedPaths.length ? { near_changes: overlaps(r.paths, changedPaths) } : {}),
+    standing: true as const,
+  }));
+}
+
+/**
  * Merged factory runs of the repo that touched the given paths or match the task's words. Best first: most
  * of the paths touched, then a word match, then the newest merge (so a newer run on the same files wins).
  */
@@ -250,8 +279,12 @@ export function packBudget(sections: Record<Section, unknown[]>, budget: number)
  * the rest. Each section keeps list order (main, then extras). A main item that missed the first pass is offered again
  * in the second, so only the second pass's misses count as dropped.
  */
-export function packShared(main: Record<Section, unknown[]>, extra: Record<Section, unknown[]>, budget: number, share: number) {
-  const first = packBudget(main, Math.floor(budget * share));
+export function packShared(
+  main: Record<Section, unknown[]>, extra: Record<Section, unknown[]>, budget: number, share: number,
+  /** The first pass's budget, when it isn't `floor(budget * share)` (standing rules already took part of the share). */
+  firstBudget = Math.floor(budget * share),
+) {
+  const first = packBudget(main, firstBudget);
   const taken = new Set(SECTIONS.flatMap((s) => first.out[s]));
   const rest = Object.fromEntries(SECTIONS.map((s) => [s, [...main[s].filter((i) => !taken.has(i)), ...extra[s]]])) as Record<Section, unknown[]>;
   const second = packBudget(rest, budget - first.tokens.total);
@@ -261,23 +294,45 @@ export function packShared(main: Record<Section, unknown[]>, extra: Record<Secti
   return { out, tokens, dropped: second.dropped };
 }
 
-export async function buildBrief(
-  deps: SearchDeps,
-  who: Instance,
-  opts: {
-    task: string; repoKey: string; changedPaths: string[]; budgetTokens: number;
-    /** Other repos to read too (facts, playbook, gotchas, locations, runs); ScopeError past MAX_ALSO_REPOS. */
-    alsoRepos?: string[];
-  },
-): Promise<Brief> {
+/** Standing rules are packed first, in order, while they fit `cap`; the first one that doesn't and the rest are dropped. */
+export function packStanding(standing: BriefFact[], cap: number) {
+  const kept: BriefFact[] = [];
+  let tokens = 0;
+  for (const f of standing) {
+    const cost = estimateTokens(f);
+    if (tokens + cost > cap) break;
+    kept.push(f);
+    tokens += cost;
+  }
+  return { kept, tokens, dropped: standing.length - kept.length };
+}
+
+export interface BriefOpts {
+  task: string; repoKey: string; changedPaths: string[]; budgetTokens: number;
+  /** Other repos to read too (facts, playbook, gotchas, locations, runs); ScopeError past MAX_ALSO_REPOS. */
+  alsoRepos?: string[];
+}
+
+export async function buildBrief(deps: SearchDeps, who: Instance, opts: BriefOpts): Promise<Brief> {
+  return (await briefWithUse(deps, who, opts)).brief;
+}
+
+/**
+ * The brief, and the ids in it that count as used: its gotchas and similarity facts, and a standing rule only when the
+ * similarity search found it too (else every convention would look used on every brief).
+ */
+export async function briefWithUse(deps: SearchDeps, who: Instance, opts: BriefOpts): Promise<{ brief: Brief; usedIds: string[] }> {
   const { task, repoKey, budgetTokens } = opts;
   const changedPaths = opts.changedPaths.filter(Boolean);
   const also = opts.alsoRepos ? await resolveAlsoRepos(deps.pool, repoKey, opts.alsoRepos) : null;
   const extra = also?.known ?? [];
   const repoKeys = [repoKey, ...extra];
   const [qvec, ownTeamKeys] = await Promise.all([embedQuery(deps.embedder, task), teamPreference(deps.pool, who, repoKey)]);
-  const factOpts = { q: task, k: FACTS_K, statuses: ["active"], qvec, minSimilarity: BRIEF_MIN_SIMILARITY, changedPaths, ownTeamKeys };
-  const [terms, registered, factHits, mainFactHits, matched] = await Promise.all([
+  const standing = await standingRules(deps, repoKey, ownTeamKeys, changedPaths);
+  const standingIds = new Set(standing.map((f) => f.id));
+  // standing rules don't take the similarity facts' slots: look as many deeper, then cut back to FACTS_K without them
+  const factOpts = { q: task, k: FACTS_K + standing.length, statuses: ["active"], qvec, minSimilarity: BRIEF_MIN_SIMILARITY, changedPaths, ownTeamKeys };
+  const [terms, registered, allFactHits, allMainFactHits, matched] = await Promise.all([
     taskTerms(deps, task),
     deps.pool.query("select 1 from repos where key = $1", [repoKey]).then((r) => (r.rowCount ?? 0) > 0),
     searchFacts(deps, who, { ...factOpts, repoKeys }),
@@ -285,6 +340,8 @@ export async function buildBrief(
     extra.length ? searchFacts(deps, who, { ...factOpts, repoKeys: [repoKey] }) : [],
     bestPlaybook(deps.pool, repoKey, task, changedPaths, extra),
   ]);
+  const similar = (hits: typeof allFactHits) => hits.filter((f) => !standingIds.has(f.id)).slice(0, FACTS_K);
+  const [factHits, mainFactHits] = [similar(allFactHits), similar(allMainFactHits)];
   const playbook = matched ? [trimPlaybook(matched)] : [];
   // with also_repos, say which repo each location and run is in
   const tag = <T extends object>(items: T[], key: string): T[] => (also ? items.map((i) => ({ ...i, repo_key: key })) : items);
@@ -337,6 +394,9 @@ export async function buildBrief(
     return { ...sections, gotchas: keep("gotchas"), facts: keep("facts") };
   };
 
+  // standing rules are packed first, into the budget (with also_repos, the main repo's share); the rest get what's left
+  const st = standing.length ? packStanding(standing, extra.length ? Math.floor(budgetTokens * BRIEF_MAIN_SHARE) : budgetTokens) : null;
+  const left = budgetTokens - (st?.tokens ?? 0);
   let packed: ReturnType<typeof packBudget>;
   let all: Record<Section, unknown[]>;
   if (extra.length) {
@@ -353,10 +413,20 @@ export async function buildBrief(
       facts: toFacts(factHits.filter((f) => !mainFactIds.has(f.id))), locations: otherLocations, runs: otherRuns, tests: [],
     };
     all = Object.fromEntries(SECTIONS.map((s) => [s, [...main[s], ...rest[s]]])) as Record<Section, unknown[]>;
-    packed = packShared(holdBack(main), holdBack(rest), budgetTokens, BRIEF_MAIN_SHARE);
+    packed = st
+      ? packShared(holdBack(main), holdBack(rest), left, BRIEF_MAIN_SHARE, Math.floor(budgetTokens * BRIEF_MAIN_SHARE) - st.tokens)
+      : packShared(holdBack(main), holdBack(rest), budgetTokens, BRIEF_MAIN_SHARE);
   } else {
     all = { playbook, gotchas, facts: toFacts(factHits), locations, runs, tests };
-    packed = packBudget(holdBack(all), budgetTokens);
+    packed = packBudget(holdBack(all), left);
+  }
+  if (st) {
+    all = { ...all, facts: [...standing, ...all.facts] };
+    packed = {
+      out: { ...packed.out, facts: [...st.kept, ...packed.out.facts] },
+      tokens: { ...packed.tokens, facts: packed.tokens.facts + st.tokens, total: packed.tokens.total + st.tokens },
+      dropped: { ...packed.dropped, facts: packed.dropped.facts + st.dropped },
+    };
   }
   if (later.gotchas.length || later.facts.length) {
     const last = packBudget(later, budgetTokens - packed.tokens.total);
@@ -369,7 +439,10 @@ export async function buildBrief(
   }
   const { out, tokens, dropped } = packed;
   const labelled = await labelFor(deps.pool, who, repoKey, [...(out.gotchas as BriefFact[]), ...(out.facts as BriefFact[])]);
-  return {
+  // a standing rule counts as used only when it was in the similarity search's own top FACTS_K too
+  const hitIds = new Set([...allFactHits.slice(0, FACTS_K), ...allMainFactHits.slice(0, FACTS_K), ...factHits, ...mainFactHits].map((f) => f.id));
+  const usedIds = labelled.filter((f) => !f.standing || hitIds.has(f.id)).map((f) => f.id);
+  const brief: Brief = {
     repo_key: repoKey,
     repo_indexed: registered,
     ...(also ? { unknown_repos: also.unknown } : {}),
@@ -385,4 +458,5 @@ export async function buildBrief(
     runs: out.runs as BriefRun[],
     tests: out.tests as BriefTest[],
   };
+  return { brief, usedIds };
 }

@@ -169,15 +169,17 @@ describe("brief with also_repos", () => {
     const bText = "zebra crossing zebra crossing rule";
     const aText = "zebra crossing is how we do it in the main repo";
     embedder.fixed.set(task, vecAt(1)).set(aText, vecAt(1)).set(bText, vecAt(0.9));
-    const bFact = await fact({ scope: `repo:${B}`, text: bText });
-    const aFact = await fact({ text: aText });
+    const bFact = await fact({ kind: "decision", scope: `repo:${B}`, text: bText });
+    const aFact = await fact({ kind: "decision", text: aText });
     await runEmbedPass(pool, embedder);
     const plain = await getJson(`/v1/recall?q=${encodeURIComponent(task)}`); // every repo readable, no tie-break
     expect(ids(plain.facts)).toEqual([bFact.id, aFact.id]);
     expect(plain.facts[0].score).toBe(plain.facts[1].score);
     const recall = await getJson(`/v1/recall?q=${encodeURIComponent(task)}&repo_key=${A}&also_repos=${B}`);
     expect(ids(recall.facts)).toEqual([aFact.id, bFact.id]);
-    expect(ids((await brief({ task, also_repos: [B] })).facts)).toEqual([aFact.id, bFact.id]);
+    // after the shared fixture's standing rules (repo A's and global conventions)
+    const tied = (await brief({ task, also_repos: [B] })).facts.filter((f: { standing?: true }) => !f.standing);
+    expect(ids(tied)).toEqual([aFact.id, bFact.id]);
 
     await playbook(`repo:${A}`, "Proj invoice playbook");
     await playbook(`repo:${B}`, "Newer lib invoice playbook");

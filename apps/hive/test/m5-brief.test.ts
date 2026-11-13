@@ -33,7 +33,7 @@ async function brief(token: string, body: Record<string, unknown>) {
   return res.json();
 }
 async function fact(input: Partial<FactInput> & { text: string }, who = curator.instance) {
-  const { fact } = await createFact(pool, { kind: "convention", scope: `repo:${KEY}`, origin: "authored", ...input }, who);
+  const { fact } = await createFact(pool, { kind: "decision", scope: `repo:${KEY}`, origin: "authored", ...input }, who);
   return fact;
 }
 async function ingest() {

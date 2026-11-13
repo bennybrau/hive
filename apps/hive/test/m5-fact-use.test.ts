@@ -18,7 +18,7 @@ const auth = (t: string) => ({ authorization: `Bearer ${t}` });
 const post = (token: string, url: string, payload: unknown) => app.inject({ method: "POST", url, headers: auth(token), payload: payload as object });
 
 async function fact(input: Partial<FactInput> & { text: string }, who = curator.instance, id?: string) {
-  const { fact } = await createFact(pool, { kind: "convention", scope: `repo:${KEY}`, origin: "authored", ...input }, who);
+  const { fact } = await createFact(pool, { kind: "decision", scope: `repo:${KEY}`, origin: "authored", ...input }, who);
   if (!id) return fact.id;
   await pool.query("delete from reviews where fact_id = $1", [fact.id]); // the curator's self-approve
   await pool.query("update facts set id = $2 where id = $1", [fact.id, id]);

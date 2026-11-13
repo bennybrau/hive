@@ -42,6 +42,7 @@ Terms marked (EB) are borrowed from Entire Brain; (M0) from Mem0.
 - **Ground truth** — a claim whose evidence is a machine-readable source rather than someone's recollection. Auto-promotes; auto-demotes when re-verification fails.
 - **Distill / Extraction** (EB, M0) — the background pass that turns conversation into candidate claims. Runs hourly, costs tokens, never on the hot path.
 - **Playbook** (invented) — a short procedure for a class of task in a repo: when it applies (path globs, task words), its steps and its pitfalls. Written by a curator; the brief includes the best match. Editing makes a new version that supersedes the old.
+- **Standing rule** (invented) — a convention handed to every agent working in a repo, whatever the task: the brief lists the active `convention` facts of the repo, the caller's own teams and the organisation first (up to 5; pinned, then newest), without a similarity match.
 - **Playbook step** — one item of a playbook (a step to do, or a pitfall to avoid), linked to the facts it came from.
 - **Run record** (invented) — one merged ASF run (ticket, approved plan, review, PR link) kept as trusted history: searchable and used by the brief, never distilled into candidates or reviewed.
 - **Remember request** (invented) — a person telling the agent to remember something ("remember this", "from now on ..."); flagged by the plugin and distilled at once instead of waiting for session end.
