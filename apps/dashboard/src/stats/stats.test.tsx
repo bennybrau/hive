@@ -139,19 +139,20 @@ describe("stats page", () => {
     expect(statsCalls()).toEqual([]);
   });
 
-  it("shows the Stats nav link to curators only", async () => {
+  it("shows Admin's Usage and cost tab to curators only", async () => {
     sessionStorage.setItem("hive.token", "t");
     role = "member";
+    history.replaceState(null, "", "/repos");
     const { unmount } = render(<App />);
     await screen.findByText("jon-mac");
-    expect(screen.queryByRole("link", { name: "Stats" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Usage and cost" })).toBeNull();
     unmount();
 
     role = "curator";
+    history.replaceState(null, "", "/stats");
     render(<App />);
-    fireEvent.click(await screen.findByRole("link", { name: "Stats" }));
-    expect(location.pathname).toBe("/stats");
     await screen.findByRole("table", { name: "Cost by job" });
-    expect(screen.getByRole("link", { name: "Stats" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Usage and cost" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Admin" }).getAttribute("aria-current")).toBe("page");
   });
 });

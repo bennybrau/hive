@@ -7,6 +7,7 @@ Most of the hive's work happens without you. Your Hermes sessions are recalled f
 automatically. The dashboard is where a person looks in and decides.
 
 - [Signing in](#signing-in)
+- [Finding your way around](#finding-your-way-around): the menu and where each page lives
 - [Words you'll see](#words-youll-see)
 - [Facts](#facts): browse everything the hive knows
 - [Search](#search): ask across facts, conversations, commits and docs
@@ -20,9 +21,9 @@ automatically. The dashboard is where a person looks in and decides.
 
 | | Member | Curator |
 |---|---|---|
-| Facts, Search, Repos | ✓ | ✓ |
+| Knowledge (Facts, Search), Admin › Sources (Repos) | ✓ | ✓ |
 | **Ingest now** on Repos | | ✓ |
-| Review, Stats, Settings | | ✓ |
+| Review (New, Out of date), Playbooks, Teams, Admin › Usage and cost (Stats), Admin › Notifications (Settings) | | ✓ |
 
 Everyone sees shared facts (`global` and every `repo:…`) plus **their own** personal facts. Nobody, curators
 included, ever sees another person's personal facts.
@@ -40,9 +41,27 @@ docker compose exec hive node dist/cli/mint-token.js --name <you>-laptop --user 
 ```
 
 - The token is kept **for this browser tab only**. Closing the tab signs you out; a new tab asks again.
-- Your name and role are shown top right. **Sign out** forgets the token.
+- Your name and role are shown at the bottom of the menu. Click them to see which token you signed in with and to
+  **Sign out**, which forgets the token.
 - You can use the same token your Hermes plugin uses, or mint a separate one for the browser so it can be
   revoked on its own.
+
+## Finding your way around
+
+The menu runs down the left side. On a phone it sits behind the **Menu** button in the top bar.
+
+| Menu item | Its pages (tabs along the top) | Who |
+|---|---|---|
+| **Knowledge** | [Facts](#facts), [Search](#search) | everyone |
+| **Review** | New ([Review](#review-curators)), Out of date (facts nobody has used in a while) | curators |
+| **Playbooks** | step-by-step instructions agents follow for a kind of task | curators |
+| **Teams** | teams, their people and repos | curators |
+| **Admin** | Sources ([Repos](#repos)), Usage and cost ([Stats](#stats-curators)), Notifications ([Settings](#settings-curators)) | everyone sees Sources; the rest is curators only |
+
+A number next to **Review** is how many facts are waiting for a curator. The page addresses haven't changed
+(`/facts`, `/review`, `/stale`, `/repos`, `/stats`, `/settings`), so old links and the daily digest's link still
+work. The screenshots in this manual show the dashboard before the redesign; they are replaced as each page is
+rebuilt.
 
 ## Words you'll see
 
@@ -240,7 +259,7 @@ Shortcuts are ignored while you're typing in a box.
 
 - **"The hive didn't accept that token."**: the token was revoked or mistyped. Ask for a new one.
 - **"Couldn't reach the hive."**: the hive is down, or you're off the tailnet.
-- **Review and Stats are missing from the menu**: your token is a member token.
+- **Review, Playbooks and Teams are missing from the menu, and Admin only has Sources**: your token is a member token.
 - **A doc you expected isn't in Search**: open Repos → **Files not indexed**. Check that the change is on the
   repo's default branch and was fetched from origin.
 - **No new candidates after a session**: check Stats → Workers (stale?) and Backlog.

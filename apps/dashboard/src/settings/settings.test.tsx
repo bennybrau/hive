@@ -165,17 +165,19 @@ describe("settings page", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("only curators get the Settings nav link", async () => {
+  it("only curators get Admin's Notifications tab", async () => {
     sessionStorage.setItem("hive.token", "t");
     role = "member";
+    history.replaceState(null, "", "/repos");
     render(<App />);
-    await screen.findByRole("link", { name: "Facts" });
-    expect(screen.queryByRole("link", { name: "Settings" })).toBeNull();
+    await screen.findByRole("link", { name: "Admin" });
+    expect(screen.queryByRole("link", { name: "Notifications" })).toBeNull();
     cleanup();
 
     role = "curator";
+    history.replaceState(null, "", "/repos");
     render(<App />);
-    fireEvent.click(await screen.findByRole("link", { name: "Settings" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Notifications" }));
     expect(location.pathname).toBe("/settings");
     await screen.findByRole("form", { name: "Daily review digest" });
   });

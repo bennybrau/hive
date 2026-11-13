@@ -11,7 +11,8 @@ test("a curator opens Stats and sees cost, facts, workers and backlog", async ({
   await page.getByLabel("Token").fill(CURATOR);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/facts$/);
-  await page.getByRole("link", { name: "Stats" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Admin" }).click();
+  await page.getByRole("navigation", { name: "Admin pages" }).getByRole("link", { name: "Usage and cost" }).click();
   await expect(page).toHaveURL(/\/stats$/);
 
   for (const name of ["Cost", "Facts", "Workers", "Backlog"]) {
@@ -33,7 +34,9 @@ test("a member sees no Stats link and a curators-only note at /stats", async ({ 
   await page.getByLabel("Token").fill(MEMBER);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/facts$/);
-  await expect(page.getByRole("link", { name: "Stats" })).toHaveCount(0);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Admin" }).click();
+  await expect(page).toHaveURL(/\/repos$/);
+  await expect(page.getByRole("link", { name: "Usage and cost" })).toHaveCount(0);
   await page.evaluate(() => {
     history.pushState(null, "", "/stats");
     dispatchEvent(new PopStateEvent("popstate"));

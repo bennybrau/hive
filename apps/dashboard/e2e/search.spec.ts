@@ -38,7 +38,7 @@ test("search finds a fresh personal fact and opens it", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/facts$/);
 
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Search" }).click();
+  await page.getByRole("navigation", { name: "Knowledge pages" }).getByRole("link", { name: "Search" }).click();
   await expect(page).toHaveURL(/\/search$/);
   await page.getByRole("button", { name: "Docs" }).click();
   await expect(page).toHaveURL(/source=fact%2Cconversation%2Chistory%2Ccommit$/);

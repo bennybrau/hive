@@ -139,7 +139,11 @@ test("a curator reviews a member's candidate on a phone, by tapping", async ({ b
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(CURATOR);
   await page.getByRole("button", { name: "Sign in" }).tap();
-  await page.getByRole("link", { name: "Review" }).tap();
+  // On a phone the menu sits behind the Menu button in the top bar.
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeHidden();
+  await page.getByRole("button", { name: "Menu" }).tap();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Review" }).tap();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeHidden();
   await expect(page).toHaveURL(/\/review$/);
 
   // One card at a time: the list is hidden, nothing scrolls sideways, and the decisions are on screen under the fact.

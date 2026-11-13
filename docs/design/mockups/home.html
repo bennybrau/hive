@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home · Hive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Reddit+Sans:wght@400..700&family=JetBrains+Mono:wght@400..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="hive.css">
+</head>
+<body data-page="home">
+<div class="app">
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1>Good afternoon, Jon</h1>
+        <p class="lede">Hive is your team's shared memory. Agents are given what's here before they start work.</p>
+      </div>
+    </div>
+
+    <section>
+      <h2 style="margin-bottom:var(--s-4)">Needs you</h2>
+      <div class="grid c3">
+        <div class="card need hot">
+          <span class="num">3</span>
+          <span class="what">Facts waiting for review</span>
+          <p class="muted small">Learned from what people said in factory chats. Agents don't get them until you approve.</p>
+          <div class="act"><a class="btn primary" href="review.html">Review 3 facts</a></div>
+        </div>
+        <div class="card need">
+          <span class="num">0</span>
+          <span class="what">Possibly out of date</span>
+          <p class="muted small">Facts nobody has used in 60 days. Nothing yet: Hive is two weeks old.</p>
+          <div class="act"><a class="btn" href="#">See the list</a></div>
+        </div>
+        <div class="card need">
+          <span class="num">2</span>
+          <span class="what">Repos Hive reads</span>
+          <p class="ok small"><span class="dot"></span>Both read today, no problems</p>
+          <div class="act"><a class="btn" href="admin.html">Check sources</a></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>What Hive knows</h2>
+      <p class="sub">117 live facts, by who gets them</p>
+      <div class="grid c2">
+        <div class="card bars">
+          <div class="bar"><span>Repo: hive<span class="hint">Agents working in the hive repo</span></span><span class="track"><span class="fill" style="width:100%"></span></span><span class="n">57</span></div>
+          <div class="bar"><span>Repo: agentic-software-factory<span class="hint">Agents working in the factory repo</span></span><span class="track"><span class="fill" style="width:94.7%"></span></span><span class="n">54</span></div>
+          <div class="bar"><span>Everyone<span class="hint">Every agent, in any repo</span></span><span class="track"><span class="fill" style="width:5.3%"></span></span><span class="n">3</span></div>
+          <div class="bar"><span>Just me<span class="hint">Only your own agents</span></span><span class="track"><span class="fill" style="width:5.3%"></span></span><span class="n">3</span></div>
+        </div>
+        <div class="card" style="display:flex;flex-direction:column;gap:var(--s-3)">
+          <span class="label">Teams</span>
+          <p>No teams yet. A team's agents get its facts before anyone else's, so Billing hears Billing's rules first.</p>
+          <p><a class="btn" href="#">Create a team</a></p>
+          <hr style="border:0;border-top:1px solid var(--line);width:100%;margin:var(--s-2) 0">
+          <span class="label">This month</span>
+          <p><b style="font-weight:500">$7.96</b> to learn from 569 conversations, which proposed 179 facts. Indexing for search is free.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>Recently added</h2>
+      <div class="card" style="padding:var(--s-2)">
+        <div class="facts">
+          <a class="fact" href="knowledge.html"><span class="text">In dashboard e2e, stale-fact test data must use its own marker sharing no token prefix with the run marker; otherwise recall or brief calls from other specs match it, record a use, and the facts stop being stale.</span>
+            <span class="meta"><span class="badge who">Repo: hive</span><span>Pitfall</span><span class="sep">From what Jon said in a factory run</span><span class="sep">17 hours ago</span></span></a>
+          <a class="fact" href="knowledge.html"><span class="text">The repo picker's list includes registered repos plus repos that have live or waiting facts; retired facts are left out because they would fill the picker with throwaway test repos.</span>
+            <span class="meta"><span class="badge who">Repo: hive</span><span>Decision</span><span class="sep">From what Jon said in a factory run</span><span class="sep">18 hours ago</span></span></a>
+          <a class="fact" href="knowledge.html"><span class="text">Facts that only matter to people working in one codebase belong at repo level rather than for everyone, so they don't reach agents in unrelated repos.</span>
+            <span class="meta"><span class="badge who">Everyone</span><span>Convention</span><span class="sep">Learned from a conversation</span><span class="sep">Today</span></span></a>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<script src="shell.js"></script>
+</body>
+</html>

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notifications · Admin · Hive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Reddit+Sans:wght@400..700&family=JetBrains+Mono:wght@400..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="hive.css">
+</head>
+<body data-page="admin">
+<div class="app">
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1>Admin</h1>
+        <p class="lede">Where Hive reads from, what it costs, and who hears about new facts.</p>
+      </div>
+    </div>
+    <nav class="subnav" aria-label="Admin sections">
+      <a href="#">Sources</a>
+      <a href="#">Usage and cost</a>
+      <a href="#" aria-current="page">Notifications</a>
+    </nav>
+
+    <form class="form" onsubmit="return false">
+      <div class="fieldset">
+        <h2>Daily review summary</h2>
+        <p class="muted">Once a day, curators get a list of facts waiting for review. Nothing is sent on a day with nothing new.</p>
+        <div class="switch"><span class="knob" aria-hidden="true"></span><span><b>Send the daily summary</b><span class="small muted">On since Nov 9</span></span></div>
+        <div class="two">
+          <div class="f"><label for="t">Send at</label><input id="t" value="6:00 PM"></div>
+          <div class="f"><label for="z">Time zone</label><select id="z"><option>Central time (Chicago)</option></select></div>
+        </div>
+      </div>
+
+      <div class="fieldset">
+        <h2>Telegram</h2>
+        <div class="f"><label for="c">Chat id</label><input id="c" value="123456789"><span class="help">The chat the summary goes to. Message your bot, then paste the id it shows.</span></div>
+        <div class="f"><label for="b">Bot token</label><input id="b" type="password" placeholder="Saved. Paste a new one to replace it"><span class="saved"><span class="dot"></span>Saved Nov 9. Hive never shows it again.</span></div>
+      </div>
+
+      <div class="fieldset">
+        <h2>Email</h2>
+        <div class="f"><label for="e">Send to</label><input id="e" value="curator@example.com"></div>
+        <div class="f"><label for="p">Gmail app password</label><input id="p" type="password" placeholder="16 letters from your Google account"><span class="help">Create one at Google Account, Security, App passwords. Your normal password won't work.</span></div>
+      </div>
+
+      <div class="formbar">
+        <button class="btn primary big">Save notification settings</button>
+        <button class="btn big">Send a test summary</button>
+        <span class="status small muted">Last summary sent yesterday at 6:00 PM</span>
+      </div>
+    </form>
+  </main>
+</div>
+<script src="shell.js"></script>
+</body>
+</html>

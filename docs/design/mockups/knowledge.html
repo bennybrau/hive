@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knowledge · Hive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Reddit+Sans:wght@400..700&family=JetBrains+Mono:wght@400..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="hive.css">
+</head>
+<body data-page="knowledge">
+<div class="app">
+  <main class="main" style="max-width:1320px">
+    <div class="page-head">
+      <div>
+        <h1>Knowledge</h1>
+        <p class="lede">Every fact agents are given, and where each one came from.</p>
+      </div>
+      <a class="btn primary end" href="#"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add a fact</a>
+    </div>
+
+    <form class="search" role="search" onsubmit="return false">
+      <label for="q">Search what Hive knows</label>
+      <div class="field"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        <input id="q" type="search" value="containers" placeholder="A topic, a repo, a word someone used"></div>
+    </form>
+    <div class="chips" aria-label="Filters">
+      <button class="chip on">Live<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      <button class="chip">Who gets it<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      <button class="chip">Repo<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      <button class="chip">Kind<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+      <button class="chip">Came from<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+    </div>
+
+    <nav class="tabs" aria-label="Results">
+      <a href="#" aria-current="page">Facts <span class="n">4</span></a>
+      <a href="#">Docs <span class="n">6</span></a>
+      <a href="#">Commits <span class="n">2</span></a>
+      <a href="#">Conversations <span class="n">11</span></a>
+    </nav>
+
+    <div class="split">
+      <div class="facts">
+        <a class="fact" href="#" aria-current="true"><span class="text">"All in containers" covers only the Hive side (service, Postgres, hive-worker). Hermes is a client on each teammate's machine, so tests run it on the host with throwaway profiles, not in a container.</span>
+          <span class="meta"><span class="badge who">Repo: hive</span><span>Decision</span><span class="sep">Learned from a conversation</span><span class="sep">Used 46 times</span></span></a>
+        <a class="fact" href="#"><span class="text">The Hive runs as its own Docker Compose project with its own Postgres volume, separate from the factory's stack.</span>
+          <span class="meta"><span class="badge who">Repo: hive</span><span>Decision</span><span class="sep">Written by a person</span><span class="sep">Used 35 times</span></span></a>
+        <a class="fact" href="#"><span class="text">The factory's uninstall script finds containers and volumes by label, so the Hive must never share the factory's Postgres.</span>
+          <span class="meta"><span class="badge who">Repo: hive</span><span>Must stay true</span><span class="sep">Written by a person</span><span class="sep">Used 30 times</span></span></a>
+        <a class="fact" href="#"><span class="text">Postgres for the Hive is exposed on host port 5544 because the factory's Postgres already uses 5432.</span>
+          <span class="meta"><span class="badge who">Repo: hive</span><span>Pitfall</span><span class="sep">Written by a person</span><span class="sep">Used 24 times</span></span></a>
+      </div>
+
+      <aside class="card detail" aria-label="Selected fact">
+        <div class="row"><span class="badge who"><svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z"/><path d="M4 7l3-3h10l3 3"/></svg>Repo: hive</span><span class="badge">Decision</span><span class="badge"><span class="dot"></span>Live</span></div>
+        <p class="bigfact">"All in containers" covers only the Hive side (service, Postgres, hive-worker). Hermes is a client on each teammate's machine, so tests run it on the host with throwaway profiles, not in a container.</p>
+        <dl class="kv">
+          <dt>Who gets it</dt><dd>Agents working in the hive repo</dd>
+          <dt>Came from</dt><dd>Learned from a conversation with Jon, 5 days ago</dd>
+          <dt>Used</dt><dd>46 times, last 2 hours ago</dd>
+        </dl>
+        <div>
+          <span class="label">What Jon said</span>
+          <div class="quote" style="margin-top:var(--s-2)">"All in containers" means the Hive side. Hermes is the client on each teammate's machine, so it runs from throwaway host profiles, never a Hermes container.<span class="by">Factory plan chat, Nov 7</span></div>
+        </div>
+        <div class="row">
+          <a class="btn" href="#">Edit…</a>
+          <a class="btn" href="#">Change who gets it…</a>
+          <a class="btn quiet" href="#">Retire</a>
+        </div>
+        <details class="more"><summary>Details</summary>
+          <dl class="kv" style="margin-top:var(--s-3)"><dt>Id</dt><dd class="mono">9d1160a7</dd><dt>Recorded</dt><dd>Nov 7, 2026, 3:41 PM</dd></dl>
+        </details>
+      </aside>
+    </div>
+  </main>
+</div>
+<script src="shell.js"></script>
+</body>
+</html>

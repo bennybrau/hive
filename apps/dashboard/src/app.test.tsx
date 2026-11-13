@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { apiFetch } from "./api";
@@ -44,7 +44,7 @@ describe("dashboard shell", () => {
     render(<App />);
     await signIn("good-token");
     expect(await screen.findByText("bennys-laptop")).toBeTruthy();
-    expect(screen.getByLabelText("role").textContent).toBe("member");
+    expect(screen.getByLabelText("role").textContent).toBe("Member");
     expect(screen.getByRole("heading", { name: "Facts" })).toBeTruthy();
     expect(location.pathname).toBe("/facts");
     expect(sessionStorage.getItem("hive.token")).toBe("good-token");
@@ -97,11 +97,12 @@ describe("dashboard shell", () => {
     expect(screen.getByRole("link", { name: "Playbooks" }).getAttribute("aria-current")).toBe("page");
   });
 
-  it("shows the Stale nav link to curators only, and /stale opens it", async () => {
+  it("shows Review's Out of date tab to curators only, and /stale opens it under Review", async () => {
     sessionStorage.setItem("hive.token", "good-token");
+    history.replaceState(null, "", "/stale");
     const { unmount } = render(<App />);
     await screen.findByText("bennys-laptop");
-    expect(screen.queryByRole("link", { name: "Stale" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Out of date" })).toBeNull();
     unmount();
 
     fetchMock.mockImplementation(async (url) =>
@@ -109,11 +110,14 @@ describe("dashboard shell", () => {
         ? json(200, { ...STATUS, instance: { ...STATUS.instance, role: "curator" } })
         : json(200, { facts: [], has_more: false, stale_days: 60 }),
     );
+    history.replaceState(null, "", "/stale");
     render(<App />);
-    fireEvent.click(await screen.findByRole("link", { name: "Stale" }));
-    expect(location.pathname).toBe("/stale");
     expect(await screen.findByText(/No facts unused/)).toBeTruthy();
-    expect(screen.getByRole("link", { name: "Stale" }).getAttribute("aria-current")).toBe("page");
+    const tabs = screen.getByRole("navigation", { name: "Review pages" });
+    expect(within(tabs).getByRole("link", { name: "Out of date" }).getAttribute("aria-current")).toBe("page");
+    expect(within(tabs).getByRole("link", { name: "New" }).getAttribute("aria-current")).toBeNull();
+    const main = screen.getByRole("navigation", { name: "Main" });
+    expect(within(main).getByRole("link", { name: "Review" }).getAttribute("aria-current")).toBe("page");
   });
 
   it("shows the Teams nav link to curators only, and /teams opens it", async () => {

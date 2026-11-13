@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review · Hive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Reddit+Sans:wght@400..700&family=JetBrains+Mono:wght@400..500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="hive.css">
+</head>
+<body data-page="review">
+<div class="app">
+  <main class="main">
+    <div class="review">
+      <div class="page-head">
+        <div>
+          <h1>Review</h1>
+          <p class="lede">Hive proposes facts from what people say. Nothing reaches an agent until a curator approves it.</p>
+        </div>
+      </div>
+      <nav class="tabs" aria-label="Review lists">
+        <a href="#" aria-current="page">New <span class="n">3</span></a>
+        <a href="#">Out of date <span class="n">0</span></a>
+      </nav>
+
+      <article class="card rcard">
+        <div class="pos"><span class="label">Fact 1 of 3</span>
+          <span class="row"><button class="btn quiet" aria-label="Previous fact"><svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg></button><button class="btn quiet" aria-label="Next fact"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></button></span></div>
+
+        <p class="proposed">Move offers the first source's repo when there is one, then an "Another repo…" list of every repo that is registered or already has facts, because facts learned from conversations often have no source.</p>
+
+        <div class="gets">
+          <span class="badge who">Repo: hive</span>
+          <span class="t"><b>Who gets it:</b> agents working in the hive repo</span>
+          <a class="btn quiet end" href="#">Change…</a>
+        </div>
+
+        <div>
+          <span class="label">Why Hive thinks so</span>
+          <div class="quote" style="margin-top:var(--s-2)">The facts that most needed moving were facts learned from conversations with no source, so the first source's repo is often missing.<span class="by">Jon, in the factory's plan chat for "Move a fact", 18 hours ago</span></div>
+        </div>
+
+        <details class="more"><summary>What the agent had said before</summary>
+          <p class="muted small" style="margin-top:var(--s-2)">The plan proposed listing only the repo of the fact's first source as a move target…</p>
+        </details>
+
+        <div class="actions">
+          <button class="btn primary big">Approve for Repo: hive</button>
+          <button class="btn big">Edit…</button>
+          <button class="btn big">Reject</button>
+          <span class="end small muted kbdhint"><span class="kbd">?</span> keys</span>
+        </div>
+      </article>
+    </div>
+  </main>
+</div>
+<script src="shell.js"></script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+/* Design tokens. Source of truth: docs/design/DESIGN.md (tasteskill deal for a developer tool:
+   Forest and lime, Reddit Sans + JetBrains Mono, radius sharp). Light is the default; dark follows the OS. */
+@import "./fonts.css";
+
+:root {
+  color-scheme: light dark;
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px;
+  --t-label: 13px; --t-small: 14px; --t-body: 16px; --t-lead: 18px; --t-fact: 20px; --t-h2: 20px; --t-h1: 30px; --t-stat: 36px;
+  --font-text: "Reddit Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --ctl: 40px; --field: 48px; --side: 232px;
+
+  --bg: #f4f5f2; --surface: #ffffff; --raise: #ecedec; --line: #dadfd9; --ink: #0f1f10; --muted: #434f43;
+  --accent: #2d6a1f; --action: #0f1f10; --action-ink: #ffffff; --tint: #e8f8d6; --tint-ink: #1f4a14;
+  --warn: #8a5a00; --warn-tint: #fdf1d8; --bad: #b3261e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1f10; --surface: #162a17; --raise: #1d351e; --line: #2c452d; --ink: #ffffff; --muted: #b8c2b8;
+    --accent: #c6f19d; --action: #c6f19d; --action-ink: #0f1f10; --tint: rgb(198 241 157 / 0.12); --tint-ink: #c6f19d;
+    --warn: #f2c66d; --warn-tint: rgb(242 198 109 / 0.12); --bad: #ff9c8a;
+  }
+}

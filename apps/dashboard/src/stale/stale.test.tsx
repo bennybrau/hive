@@ -244,9 +244,10 @@ describe("stale facts", () => {
 
     const status = (role: "member" | "curator") => ({ version: "t", instance: { id: "i1", name: "x", user_id: "u1", role } });
     const { unmount } = render(<Shell status={status("member")} path="/facts">{null}</Shell>);
-    expect(screen.queryByRole("link", { name: "Stale" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Out of date" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Review" })).toBeNull();
     unmount();
     render(<Shell status={status("curator")} path="/stale">{null}</Shell>);
-    expect(screen.getByRole("link", { name: "Stale" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Out of date" }).getAttribute("aria-current")).toBe("page");
   });
 });

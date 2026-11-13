@@ -100,7 +100,8 @@ test("a curator saves the digest settings and sends a test: email arrives, a bad
     const botToken = `0:e2e-bogus-token-${stamp}`;
 
     await signIn(page, CURATOR);
-    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Settings" }).click();
+    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Admin" }).click();
+    await page.getByRole("navigation", { name: "Admin pages" }).getByRole("link", { name: "Notifications" }).click();
     await expect(page).toHaveURL(/\/settings$/);
     await expect(page.getByLabel("Dashboard link", { exact: true })).toHaveValue(new URL(HIVE).origin);
 
@@ -142,10 +143,12 @@ test("a curator saves the digest settings and sends a test: email arrives, a bad
   }
 });
 
-test("a member sees no Settings link and a curators-only note at /settings", async ({ page }) => {
+test("a member sees no Notifications tab and a curators-only note at /settings", async ({ page }) => {
   expect(MEMBER, "HIVE_E2E_TOKEN is not set").not.toBe("");
   await signIn(page, MEMBER);
-  await expect(page.getByRole("link", { name: "Settings" })).toHaveCount(0);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Admin" }).click();
+  await expect(page).toHaveURL(/\/repos$/);
+  await expect(page.getByRole("link", { name: "Notifications" })).toHaveCount(0);
   await page.evaluate(() => {
     history.pushState(null, "", "/settings");
     dispatchEvent(new PopStateEvent("popstate"));
