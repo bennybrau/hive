@@ -320,6 +320,8 @@ table.stats .num { text-align: right; font-variant-numeric: tabular-nums; }
 .teams-list > li { display: grid; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .teams-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .teams-head h2 { font-size: 15px; font-weight: 600; margin: 0; }
+/* Team names, keys, user ids and repo keys are free text with no spaces; let them wrap rather than widen the page. */
+.teams-list > li, .teams-head > *, .teams-rows li > * { min-width: 0; overflow-wrap: anywhere; }
 .teams-head button { margin-left: auto; }
 .teams-list h3 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
 .teams-rows { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 4px; }

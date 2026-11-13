@@ -49,5 +49,7 @@ test("filter, search and open a fresh personal fact", async ({ page }) => {
   await expect(page).toHaveURL(/\/facts\/[0-9a-f-]+\?.*q=/);
   const panel = page.getByRole("complementary", { name: "Fact detail" });
   await expect(panel.getByText(text)).toBeVisible();
-  await expect(panel.locator(".badge.verify-unverified")).toHaveText("Not checked yet");
+  // Hive's verify job may reach the new anchor within a second (a path with no repo is "unverifiable here"), so
+  // either plain state is right; what must never show is the raw value.
+  await expect(panel.locator(".anchors .badge")).toHaveText(/^(Not checked yet|Can't check from here)$/);
 });
