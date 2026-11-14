@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Facts } from "./Facts";
 import type { Fact } from "./query";
+import { RAW_VALUES } from "../words";
 
 function fact(id: string, over: Partial<Fact> = {}): Fact {
   return {
@@ -44,6 +45,7 @@ function json(body: unknown, status = 200): Response {
 }
 
 let listPage: (offset: number) => { facts: Fact[]; has_more: boolean; total: number };
+let detailOf: (id: string) => unknown;
 let searchHits: Fact[];
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -54,8 +56,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   if (url.pathname === "/v1/search") return json({ mode: "hybrid", facts: searchHits, results: [] });
   if (url.pathname === "/v1/facts") return json(listPage(Number(url.searchParams.get("offset"))));
   if (url.pathname.startsWith("/v1/facts/")) {
-    const id = url.pathname.slice("/v1/facts/".length);
-    return id === "f1" ? json(DETAIL) : json({ ...DETAIL, fact: fact(id, { text: `detail ${id}` }), supersedes: [] });
+    return json(detailOf(url.pathname.slice("/v1/facts/".length)));
   }
   return json({ error: "not found" }, 404);
 });
@@ -73,6 +74,7 @@ beforeEach(() => {
   history.replaceState(null, "", "/facts");
   listPage = () => ({ facts: [fact("f1"), fact("f2"), fact("f3")], has_more: false, total: 3 });
   searchHits = [];
+  detailOf = (id) => (id === "f1" ? DETAIL : { ...DETAIL, fact: fact(id, { text: `detail ${id}` }), supersedes: [] });
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -275,34 +277,56 @@ describe("facts list", () => {
   });
 });
 
+const HOURS_AGO = new Date(Date.now() - 2 * 3600_000).toISOString();
+
+/** An anchor on something a person said (no file). */
+const said = (id: string, over: Partial<(typeof DETAIL.anchors)[number]> & { source?: unknown }) => ({
+  ...DETAIL.anchors[1]!, id, repo_key: null, commit_sha: null, path: null, line_start: null, line_end: null, found_line: null,
+  episode_id: `ep-${id}`, quote: "we always use Postgres", verify_status: "verified", source: null, ...over,
+});
+
+const pane = () => screen.findByRole("complementary", { name: "Selected fact" });
+
+async function openPane(detail: object, url = "/facts/f1") {
+  detailOf = () => detail;
+  history.replaceState(null, "", url);
+  render(<Facts />);
+  const p = await pane();
+  await within(p).findByText((detail as typeof DETAIL).fact.text);
+  return p;
+}
+
 describe("fact detail", () => {
-  it("opens in the path, keeps the query, and shows anchors, chain and reviews", async () => {
+  it("opens in the path, keeps the query, and shows the file anchors, chain and history", async () => {
     history.replaceState(null, "", "/facts?level=global");
     render(<Facts />);
     fireEvent.click(await screen.findByRole("link", { name: /^fact f1/ }));
     expect(location.pathname + location.search).toBe("/facts/f1?level=global");
+    expect(history.state).toEqual({ fromList: true });
 
-    const panel = await screen.findByRole("complementary", { name: "Fact detail" });
+    const panel = await pane();
     await within(panel).findByText("the open fact");
-    expect(within(panel).getByRole("heading", { name: "Where this comes from" })).toBeTruthy();
-    expect(within(panel).getByText("Source changed").className).toMatch(/badge verify-drifted/);
-    expect(within(panel).getByText("Still matches").className).toMatch(/badge verify-verified/);
-    expect(within(panel).getByText("@abc123")).toBeTruthy();
-    expect(within(panel).getByText("Pitfall")).toBeTruthy();
-    expect(within(panel).getByText("Live")).toBeTruthy();
-    expect(within(panel).getByText("Written by a person")).toBeTruthy();
+    expect(document.querySelector("main")!.className).toBe("page kn view-fact");
+    const files = within(panel).getByRole("list", { name: "Where this comes from" });
+    expect(within(files).getByText("Source changed").className).toMatch(/badge verify-drifted/);
+    expect(within(files).getByText("Still matches").className).toMatch(/badge verify-verified/);
+    expect(within(files).getByText("@abc123")).toBeTruthy();
+    expect(within(files).getByText("quote changed")).toBeTruthy();
+    expect(within(files).getByText("Now found at line 12.")).toBeTruthy();
+    expect(within(files).getByText("const a = 1;").className).toBe("quote");
+    const links = within(panel).getAllByRole("link", { name: "View on GitHub" });
+    expect(links.map((l) => l.getAttribute("href"))).toEqual(["https://github.com/acme/widgets/blob/abc123/src/a.ts#L10-L14"]);
+    expect([...panel.querySelectorAll(".pane-top .ui-badge")].map((b) => b.textContent)).toEqual(["Repo: widgets", "Pitfall", "Live"]);
+    expect(within(panel).getByRole("heading", { name: "Replaces" })).toBeTruthy();
     expect(within(panel).getByText("(Replaced)")).toBeTruthy();
+
     const details = panel.querySelector("details")!;
     expect(details.open).toBe(false);
     expect(details.querySelector("summary")!.textContent).toBe("Details");
     expect(within(details).getByText("f1")).toBeTruthy();
     expect(within(details).getByText("u1")).toBeTruthy();
-    expect(within(panel).getByText("quote changed")).toBeTruthy();
-    expect(within(panel).getByText("Now found at line 12.")).toBeTruthy();
-    const links = within(panel).getAllByRole("link", { name: "View on GitHub" });
-    expect(links.map((l) => l.getAttribute("href"))).toEqual(["https://github.com/acme/widgets/blob/abc123/src/a.ts#L10-L14"]);
-    expect(within(panel).getByText("tightened wording")).toBeTruthy();
-    expect(within(panel).getByText("fix")).toBeTruthy();
+    expect(within(details).getByText("tightened wording")).toBeTruthy();
+    expect(details.querySelector(".history li")!.textContent).toMatch(/^Approved with a fix by curator1, October 3, 2026/);
 
     fireEvent.click(within(panel).getByRole("link", { name: "the older fact" }));
     expect(location.pathname + location.search).toBe("/facts/f0?level=global");
@@ -313,6 +337,139 @@ describe("fact detail", () => {
     history.replaceState(null, "", "/facts/f1");
     render(<Facts />);
     expect(await screen.findByText("the open fact")).toBeTruthy();
+  });
+
+  it("lays the pane out in order: badges and Close, the fact, what was said, the files, the plain lines, the chain, Details", async () => {
+    const p = await openPane({ ...DETAIL, anchors: [DETAIL.anchors[0], said("q1", {})] });
+    expect([...p.children].map((c) => c.className || c.tagName)).toEqual(["pane-top", "bigfact", "said", "files", "kv", "chain", "more"]);
+    expect(within(p.querySelector(".pane-top") as HTMLElement).getByRole("button", { name: "Close" })).toBeTruthy();
+    expect(within(p.querySelector(".kv") as HTMLElement).getAllByRole("term").map((t) => t.textContent)).toEqual(["Who gets it", "Written"]);
+    expect(p.querySelector(".kv dd")!.textContent).toBe("Agents working in this repository.");
+  });
+
+  it("says who said a quote, where and when, and whether it still matches", async () => {
+    const p = await openPane({
+      ...DETAIL,
+      anchors: [said("q1", { source: { kind: "asf_dialog", author: "Jon", where: "factory_plan_note", at: HOURS_AGO } })],
+    });
+    const fig = p.querySelector("figure.said")!;
+    expect(fig.querySelector("blockquote")!.textContent).toBe("we always use Postgres");
+    expect([...fig.querySelectorAll("figcaption > span")].map((s) => s.textContent)).toEqual([
+      "Jon, in a factory plan approval, 2 hours ago",
+      "Still matches",
+    ]);
+  });
+
+  it("shows a quote said in two conversations once, and lists both conversations in Details", async () => {
+    const p = await openPane({
+      ...DETAIL,
+      anchors: [said("q1", {}), said("q2", { source: { kind: "turn", author: "ana", where: "conversation", at: HOURS_AGO } }), said("q3", { quote: "and Redis for queues" })],
+    });
+    const figs = [...p.querySelectorAll("figure.said")];
+    expect(figs.map((f) => f.querySelector("blockquote")!.textContent)).toEqual(["we always use Postgres", "and Redis for queues"]);
+    expect(figs[0]!.querySelector("figcaption")!.textContent).toBe("Ana, in a conversation with Hermes, 2 hours agoStill matches");
+    const details = p.querySelector("details")!;
+    expect(within(details).getByText("Conversations")).toBeTruthy();
+    expect([...details.querySelectorAll("dd code")].map((c) => c.textContent)).toEqual(["f1", "ep-q1", "ep-q2", "ep-q3"]);
+  });
+
+  it("without a source a quote shows with its check alone", async () => {
+    const p = await openPane({ ...DETAIL, anchors: [said("q1", { verify_status: "unverified" })] });
+    const caption = p.querySelector("figure.said figcaption")!;
+    expect([...caption.children].map((c) => c.textContent)).toEqual(["Not checked yet"]);
+    expect(p.querySelector(".files")).toBeNull();
+  });
+
+  it.each([
+    ["distilled", "Approved", "By curator2, 2 hours ago"],
+    ["authored", "Written", "By u1, Oct 1"],
+    ["ingested", null, null],
+  ])("a fact from origin %s has its %s line", async (origin, term, line) => {
+    const reviews = [
+      { action: "approve", note: null, new_text: null, reviewer_user_id: "curator1", created_at: "2026-10-02T00:00:00Z" },
+      { action: "fix", note: null, new_text: "x", reviewer_user_id: "curator2", created_at: HOURS_AGO },
+      { action: "pin", note: null, new_text: null, reviewer_user_id: "curator3", created_at: HOURS_AGO },
+    ];
+    const f = fact("f1", { text: "the open fact", origin, recorded_at: `${new Date().getFullYear()}-10-01T12:00:00Z`, use_count: 5, last_used_at: HOURS_AGO });
+    const p = await openPane({ ...DETAIL, fact: f, reviews });
+    const kv = p.querySelector(".kv")!;
+    const terms = [...kv.querySelectorAll(":scope > dt")].map((t) => t.textContent);
+    expect(terms).toEqual(["Who gets it", "Used", ...(term ? [term] : [])]);
+    expect(kv.querySelectorAll(":scope > dd")[1]!.textContent).toBe("5 times, last 2 hours ago");
+    if (line) expect(kv.querySelectorAll(":scope > dd")[2]!.textContent).toBe(line);
+  });
+
+  it("says why a retired fact was retired", async () => {
+    const p = await openPane({ ...DETAIL, fact: fact("f1", { text: "the open fact", origin: "ingested", status: "retracted", status_note: "Wrong since v2" }) });
+    const kv = p.querySelector(".kv")!;
+    expect([...kv.querySelectorAll("dt")].map((t) => t.textContent)).toEqual(["Who gets it", "Retired"]);
+    expect(kv.querySelectorAll("dd")[1]!.textContent).toBe("Wrong since v2");
+  });
+
+  it("shows no raw API value and no raw review action", async () => {
+    const actions = ["approve", "fix", "reject", "keep", "retire", "pin", "unpin", "move"];
+    const p = await openPane({
+      ...DETAIL,
+      fact: fact("f1", { text: "the open fact", origin: "distilled", status: "superseded", status_note: "newer one", use_count: 0, last_used_at: null }),
+      anchors: [...DETAIL.anchors, said("q1", { verify_status: "unverifiable_here", source: { kind: "turn", author: null, where: "other", at: HOURS_AGO } })],
+      reviews: actions.map((action) => ({ action, note: null, new_text: null, reviewer_user_id: "c1", created_at: HOURS_AGO })),
+      superseded_by: [{ id: "f9", text: "the newer fact", status: "active", recorded_at: HOURS_AGO }],
+    });
+    const text = p.textContent!;
+    // "fix" is fine inside "Approved with a fix"; the history lines are checked whole below.
+    for (const raw of [...RAW_VALUES, ...actions.filter((a) => a !== "fix"), "turn"]) {
+      expect(text).not.toMatch(new RegExp(`\\b${raw}\\b`));
+    }
+    expect([...p.querySelectorAll(".history li")].map((li) => li.textContent!.split(" by ")[0])).toEqual([
+      "Approved", "Approved with a fix", "Rejected", "Kept", "Retired", "Pinned", "Unpinned", "Moved",
+    ]);
+  });
+
+  it("Escape and Close put focus back on the fact's row", async () => {
+    render(<Facts />);
+    await screen.findByText("fact f2");
+    fireEvent.click(screen.getByRole("link", { name: /^fact f2/ }));
+    await within(await pane()).findByText("detail f2");
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(location.pathname).toBe("/facts");
+    expect(screen.queryByRole("complementary")).toBeNull();
+    expect(document.activeElement).toBe(rows()[1]);
+
+    fireEvent.click(screen.getByRole("link", { name: /^fact f3/ }));
+    const p = await pane();
+    await within(p).findByText("detail f3");
+    fireEvent.click(within(p).getByRole("button", { name: "Close" }));
+    expect(location.pathname).toBe("/facts");
+    expect(document.querySelector("main")!.className).toBe("page kn no-fact");
+    expect(document.activeElement).toBe(rows()[2]);
+  });
+
+  it("the back link goes to the list with the same filters, and focus returns to the row", async () => {
+    history.replaceState(null, "", "/facts/f2?level=personal&kind=gotcha");
+    render(<Facts />);
+    await within(await pane()).findByText("detail f2");
+    const back = screen.getByRole("link", { name: "Facts" });
+    expect(back.getAttribute("href")).toBe("/facts?level=personal&kind=gotcha");
+    const len = history.length;
+    fireEvent.click(back);
+    expect(location.pathname + location.search).toBe("/facts?level=personal&kind=gotcha");
+    expect(history.length).toBe(len + 1);
+    await waitFor(() => expect(document.activeElement).toBe(rows()[1]));
+  });
+
+  it("the back link steps back in history when the fact was opened from the list", async () => {
+    render(<Facts />);
+    await screen.findByText("fact f1");
+    fireEvent.click(screen.getByRole("link", { name: /^fact f2/ }));
+    await within(await pane()).findByText("detail f2");
+    const backSpy = vi.spyOn(history, "back");
+    const len = history.length;
+    fireEvent.click(screen.getByRole("link", { name: "Facts" }));
+    expect(backSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(location.pathname).toBe("/facts"));
+    expect(history.length).toBe(len);
+    await waitFor(() => expect(document.activeElement).toBe(rows()[1]));
+    backSpy.mockRestore();
   });
 });
 

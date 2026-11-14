@@ -251,7 +251,7 @@ function PlaybookView({ id }: { id: string }) {
       )}
       {!p && !error && <p className="help">Loading…</p>}
       {p && (
-        <article className="fact-detail playbook-detail" aria-label="Playbook">
+        <article className="playbook-detail" aria-label="Playbook">
           <header className="playbook-head">
             <h1>{p.title}</h1>
             <Badge tone="who" title={levelLabel(p).hint}>

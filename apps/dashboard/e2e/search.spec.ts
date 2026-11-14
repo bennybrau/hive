@@ -48,5 +48,5 @@ test("search finds a fresh personal fact and opens it", async ({ page }) => {
 
   await page.getByRole("region", { name: "Facts" }).getByRole("link", { name: text }).click();
   await expect(page).toHaveURL(/\/facts\/[0-9a-f-]+$/);
-  await expect(page.getByRole("complementary", { name: "Fact detail" }).getByText(text)).toBeVisible();
+  await expect(page.getByRole("complementary", { name: "Selected fact" }).getByText(text)).toBeVisible();
 });

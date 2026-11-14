@@ -207,6 +207,11 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
                 data-id={f.id}
                 tabIndex={i === active ? 0 : -1}
                 current={f.id === openId}
+                onClick={(e) => {
+                  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                  e.preventDefault();
+                  onOpen(f.id);
+                }}
                 onFocus={() => setActive(i)}
                 onKeyDown={(e) => onRowKey(e, i)}
                 text={f.text}

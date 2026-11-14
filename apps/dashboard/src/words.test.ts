@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { JOB, KIND, ORIGIN, RAW_VALUES, ROLE, STATUS, VERIFY, WHERE, levelLabel, usedTimes, when, word } from "./words";
+import { JOB, KIND, ORIGIN, RAW_VALUES, REVIEW, ROLE, STATUS, VERIFY, WHERE, levelLabel, saidCaption, usedLine, usedTimes, when, word } from "./words";
 
 const NOW = Date.parse("2026-11-12T18:00:00Z");
 const ago = (secs: number) => new Date(NOW - secs * 1000).toISOString();
@@ -21,6 +21,35 @@ describe("words", () => {
     expect(usedTimes(0)).toBe("Not used yet");
     expect(usedTimes(1)).toBe("Used once");
     expect(usedTimes(5)).toBe("Used 5 times");
+  });
+
+  it("says what a review did, in words", () => {
+    expect(Object.fromEntries(Object.entries(REVIEW).map(([k, v]) => [k, v.label]))).toEqual({
+      approve: "Approved",
+      fix: "Approved with a fix",
+      reject: "Rejected",
+      keep: "Kept",
+      retire: "Retired",
+      pin: "Pinned",
+      unpin: "Unpinned",
+      move: "Moved",
+    });
+  });
+
+  it("says how often and how lately a fact was used", () => {
+    expect(usedLine(0, null, NOW)).toBe("Not used yet");
+    expect(usedLine(0, ago(60), NOW)).toBe("Not used yet");
+    expect(usedLine(1, ago(3 * 3600), NOW)).toBe("Once, last 3 hours ago");
+    expect(usedLine(5, ago(26 * 3600), NOW)).toBe("5 times, last yesterday");
+    expect(usedLine(5, null, NOW)).toBe("5 times");
+  });
+
+  it("says who said a quote, where and when, leaving out what it doesn't know", () => {
+    expect(saidCaption({ author: "Jon", where: "factory_plan_note", at: ago(2 * 3600) }, NOW)).toBe("Jon, in a factory plan approval, 2 hours ago");
+    expect(saidCaption({ author: null, where: "conversation", at: ago(2 * 3600) }, NOW)).toBe("In a conversation with Hermes, 2 hours ago");
+    expect(saidCaption({ author: "jon", where: "other", at: ago(10) }, NOW)).toBe("Jon, just now");
+    expect(saidCaption({ author: null, where: "other", at: ago(10) }, NOW)).toBe("Just now");
+    expect(saidCaption({ author: "Jon", where: "somewhere_new", at: ago(90) }, NOW)).toBe("Jon, 2 minutes ago");
   });
 
   it("an unknown value shows as itself instead of blank", () => {

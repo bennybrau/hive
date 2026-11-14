@@ -19,6 +19,7 @@ export interface Fact extends Labelled {
   recorded_at: string;
   /** On a list page; search results don't carry it. */
   use_count?: number;
+  last_used_at?: string | null;
   metadata?: { asked?: boolean; replaces?: string };
 }
 

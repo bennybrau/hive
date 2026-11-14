@@ -47,9 +47,49 @@ test("filter, search and open a fresh personal fact", async ({ page }) => {
 
   await page.getByRole("link", { name: text }).click();
   await expect(page).toHaveURL(/\/facts\/[0-9a-f-]+\?.*q=/);
-  const panel = page.getByRole("complementary", { name: "Fact detail" });
+  const panel = page.getByRole("complementary", { name: "Selected fact" });
   await expect(panel.getByText(text)).toBeVisible();
   // Hive's verify job may reach the new anchor within a second (a path with no repo is "unverifiable here"), so
   // either plain state is right; what must never show is the raw value.
-  await expect(panel.locator(".anchors .badge")).toHaveText(/^(Not checked yet|Can't check from here)$/);
+  await expect(panel.getByRole("list", { name: "Where this comes from" }).getByText(/^(Not checked yet|Can't check from here)$/)).toBeVisible();
+});
+
+test("on a phone a fact opens as its own page, and the back link returns to the list", async ({ browser }) => {
+  expect(TOKEN, "HIVE_E2E_TOKEN is not set").not.toBe("");
+  expect(RUN, "HIVE_E2E_RUN is not set").not.toBe("");
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const marker = `${RUN}p${Date.now()}`;
+  const text = `Dashboard e2e phone fact ${marker}: opened as its own page.`;
+  const res = await page.request.post(`${HIVE}/v1/facts`, {
+    headers: { authorization: `Bearer ${TOKEN}` },
+    data: { text, kind: "gotcha", scope: "personal" },
+  });
+  expect(res.status()).toBe(201);
+  created.push((await res.json()).fact.id);
+
+  await page.goto(`${HIVE}/`);
+  await page.getByLabel("Token").fill(TOKEN);
+  await page.getByRole("button", { name: "Sign in" }).tap();
+  await expect(page).toHaveURL(/\/facts$/);
+  await page.getByLabel("Search facts").fill(marker);
+  await page.getByLabel("Search facts").press("Enter");
+  await page.getByRole("link", { name: text }).tap();
+
+  // The list, its header and filters give way to the fact; nothing scrolls sideways; Close is the back link here.
+  await expect(page).toHaveURL(/\/facts\/[0-9a-f-]+\?q=/);
+  const panel = page.getByRole("complementary", { name: "Selected fact" });
+  await expect(panel.getByText(text)).toBeVisible();
+  await expect(page.getByLabel("Search facts")).toBeHidden();
+  await expect(panel.getByRole("button", { name: "Close" })).toBeHidden();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+
+  // The section tabs have a Facts link too; the back link is the one in the page.
+  const back = page.getByRole("main").getByRole("link", { name: "Facts", exact: true });
+  await expect(back).toBeVisible();
+  await back.tap();
+  await expect(page).toHaveURL(new RegExp(`/facts\\?q=${marker}$`));
+  await expect(page.getByLabel("Search facts")).toBeVisible();
+  await expect(page.getByRole("link", { name: text })).toBeFocused();
+  await context.close();
 });

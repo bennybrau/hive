@@ -119,19 +119,28 @@ says so and explains how facts get here.
 **Each row** is the fact's text, then who gets it, its kind (and its status, when it isn't live), when it was
 recorded, and how often agents were given it ("Used 5 times"; search results leave that out).
 
-**Click a row**, or move with `j`/`k` and press `Enter`, to open the fact on the right:
+**Click a row**, or move with `j`/`k` and press `Enter`, to open the fact in a pane beside the list, from top to
+bottom:
 
-- Its kind, who gets it, status (with any note) and origin.
-- **Where this comes from**: each piece of evidence with its quote and its [health badge](#anchor-health). A file
-  quote links to the exact lines on GitHub, at the commit the hive last read (shown as its first 7 characters).
-  If the quote has moved, it says where it is now.
-- **Supersedes / Superseded by**: the chain of older and newer versions of this fact, each with its status. Click
-  one to open it.
-- **Reviews**: who approved, fixed or rejected it, when, and why.
-- **Details** (closed until you click it): the fact's id, its author, the full time it was recorded, and the files
-  or areas it is about (locus).
+- Who gets it, its kind and its status, and **Close**.
+- The fact itself, in large type.
+- What the person said, as a quote, with who said it, where (for example "in a factory plan approval") and when, and
+  whether the source still matches. The same words said in two conversations show once. A fact read from a repo shows
+  **Where this comes from** instead: each file and its lines with its [health badge](#anchor-health), linked to the
+  exact lines on GitHub at the commit the hive last read (shown as its first 7 characters). If the quote has moved,
+  it says where it is now.
+- Three plain lines: **Who gets it** (in a sentence), **Used** ("5 times, last 2 hours ago") and **Approved** (who
+  approved a learned fact, and when) or **Written** (who wrote it, and when). A retired or replaced fact also says why.
+- **Replaces / Replaced by**: the older and newer versions of this fact, each with its status. Click one to open it.
+- **Details** (closed until you click it): the fact's id, the full time it was recorded, its author, the
+  conversations it came from, its history in words ("Approved with a fix by …"), and the files or areas it is about.
 
-`Esc` closes the panel. The open fact is part of the page address, so a link opens straight to it.
+`Esc` or **Close** closes the pane and puts you back on the fact's row. The open fact is part of the page address, so
+a link opens straight to it.
+
+**On a phone or a narrow window** (under 1180px wide) there is no room for both: tapping a row opens the fact as its
+own page, with **‹ Facts** at the top. That takes you back to the list with the same menus and search, at the place you
+left it.
 
 ## Search
 

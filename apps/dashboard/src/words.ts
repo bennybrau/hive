@@ -66,6 +66,18 @@ export const WHERE: Record<string, Word> = {
   other: w(""),
 };
 
+/** A review of a fact (`reviews[].action`), as its history tells it. */
+export const REVIEW: Record<string, Word> = {
+  approve: w("Approved"),
+  fix: w("Approved with a fix"),
+  reject: w("Rejected"),
+  keep: w("Kept", "Confirmed it is still true"),
+  retire: w("Retired"),
+  pin: w("Pinned"),
+  unpin: w("Unpinned"),
+  move: w("Moved", "Changed who gets it"),
+};
+
 /** Fixed phrases that replace internal words on screen. */
 export const PHRASE = {
   anchors: "Where this comes from",
@@ -77,6 +89,15 @@ export const PHRASE = {
   ingestNow: "Read again now",
   ingesting: "Reading…",
   edit: "Edit…",
+  selectedFact: "Selected fact",
+  close: "Close",
+  factsBack: "Facts",
+  whoGetsIt: "Who gets it",
+  used: "Used",
+  approved: "Approved",
+  written: "Written",
+  replaces: "Replaces",
+  replacedBy: "Replaced by",
 } as const;
 
 /** The word for a value; an unknown value (a newer server) shows as itself rather than blank. */
@@ -88,6 +109,19 @@ export function word(table: Record<string, Word>, value: string): Word {
 export function usedTimes(n: number): string {
   if (n <= 0) return "Not used yet";
   return n === 1 ? "Used once" : `Used ${n} times`;
+}
+
+/** The pane's Used line: "Not used yet", "Once, last 2 hours ago", "5 times, last yesterday". */
+export function usedLine(n: number, last: string | null | undefined, now: number = Date.now()): string {
+  if (n <= 0) return "Not used yet";
+  const times = n === 1 ? "Once" : `${n} times`;
+  return last ? `${times}, last ${when(last, now).text}` : times;
+}
+
+/** Under a quote: who said it, where and when ("Jon, in a factory plan approval, 2 hours ago"); empty parts are left out. */
+export function saidCaption(source: { author: string | null; where: string; at: string }, now: number = Date.now()): string {
+  const line = [source.author, WHERE[source.where]?.label ?? "", when(source.at, now).text].filter(Boolean).join(", ");
+  return line && `${line[0]!.toUpperCase()}${line.slice(1)}`;
 }
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [

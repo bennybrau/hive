@@ -32,6 +32,8 @@ The person's name and role sit at the foot of the sidebar; Sign out is in its me
 
 **As built in the foundation step:** the sidebar, the top bar and section tabs, with every page at its old address. Home is not in the menu yet; it arrives with its own page, and until then `/` opens Knowledge › Facts. Members see Knowledge and Admin › Sources only.
 
+**As built for Facts (#147):** the search box, the filter line, FactRows and the open fact as a pane (its own page with a back link under 1180px), still at `/facts`; it moves to `/knowledge` when Search is folded in. The pane's Edit… / Change who gets it… / Retire buttons are not built yet.
+
 ## Tokens
 
 Source: tasteskill deal for a developer tool — palette **Forest and lime** (`forest-pale-lime`), type **Reddit Sans + JetBrains Mono**, radius **sharp**. Light theme = the same palette's own inverse field plus a lime tint. The dashboard follows the OS setting (`prefers-color-scheme`). Fonts are bundled in the image (no Google Fonts call from a private network).

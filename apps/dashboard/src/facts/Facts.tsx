@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { navigate } from "../App";
 import { PageHeader } from "../ui";
+import { PHRASE } from "../words";
 import { FactDetail } from "./FactDetail";
 import { FactsTable } from "./FactsTable";
 import { readFilters, writeFilters, type Filters } from "./query";
@@ -10,7 +11,7 @@ function openIdOf(path: string): string | null {
   return m ? decodeURIComponent(m[1]!) : null;
 }
 
-/** /facts?<filters> is the table; /facts/<id>?<filters> also opens that fact beside it. */
+/** /facts?<filters> is the list; /facts/<id>?<filters> also opens that fact in the pane beside it, or as its own page under 1180px. */
 export function Facts() {
   const [loc, setLoc] = useState(() => ({ path: location.pathname, search: location.search }));
   const listRef = useRef<HTMLDivElement>(null);
@@ -25,17 +26,40 @@ export function Facts() {
   const openId = openIdOf(loc.path);
 
   const setFilters = useCallback((f: Filters) => {
-    history.replaceState(null, "", location.pathname + writeFilters(f));
+    history.replaceState(history.state, "", location.pathname + writeFilters(f));
     setLoc({ path: location.pathname, search: location.search });
   }, []);
 
-  const open = useCallback((id: string) => navigate(`/facts/${encodeURIComponent(id)}${location.search}`), []);
+  // Opening from the list marks the entry, so the back link can return to the list with its place kept.
+  const open = useCallback((id: string) => {
+    history.pushState({ fromList: true }, "", `/facts/${encodeURIComponent(id)}${location.search}`);
+    dispatchEvent(new PopStateEvent("popstate"));
+  }, []);
 
-  const close = useCallback(() => {
-    navigate(`/facts${location.search}`);
+  const close = useCallback(() => navigate(`/facts${location.search}`), []);
+
+  // Once the fact has closed (Esc, Close, the back link or the browser's Back), focus goes back to its row. Not before:
+  // under 1180px the list is hidden while a fact is open, and a hidden row can't take focus.
+  const wasOpen = useRef<string | null>(null);
+  useEffect(() => {
+    if (openId) {
+      wasOpen.current = openId;
+      return;
+    }
+    const id = wasOpen.current;
+    wasOpen.current = null;
+    if (!id) return;
     const rows = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-id]") ?? [])];
-    (rows.find((r) => r.dataset.id === openId) ?? rows.find((r) => r.tabIndex === 0))?.focus();
+    (rows.find((r) => r.dataset.id === id) ?? rows.find((r) => r.tabIndex === 0))?.focus();
   }, [openId]);
+
+  const listHref = `/facts${loc.search}`;
+  const back = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    if ((history.state as { fromList?: boolean } | null)?.fromList) history.back();
+    else navigate(listHref);
+  };
 
   useEffect(() => {
     if (!openId) return;
@@ -47,12 +71,19 @@ export function Facts() {
   }, [openId, close]);
 
   return (
-    <main className={openId ? "page facts-page open" : "page facts-page"}>
-      <div ref={listRef}>
-        <PageHeader title="Facts" lede="Every fact agents are given, and where each one came from." />
-        <FactsTable filters={filters} onChange={setFilters} openId={openId} onOpen={open} />
+    <main className={openId ? "page kn view-fact" : "page kn no-fact"}>
+      {openId && (
+        <a className="back" href={listHref} onClick={back}>
+          {PHRASE.factsBack}
+        </a>
+      )}
+      <PageHeader title="Facts" lede="Every fact agents are given, and where each one came from." />
+      <div className="kn-split">
+        <div ref={listRef}>
+          <FactsTable filters={filters} onChange={setFilters} openId={openId} onOpen={open} />
+        </div>
+        {openId && <FactDetail id={openId} onClose={close} onOpen={(id) => navigate(`/facts/${encodeURIComponent(id)}${location.search}`)} />}
       </div>
-      {openId && <FactDetail id={openId} onClose={close} onOpen={open} />}
     </main>
   );
 }
