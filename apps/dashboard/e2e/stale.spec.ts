@@ -104,7 +104,7 @@ test("a member sees no Out of date link and a curators-only note at /stale", asy
   await page.getByLabel("Token").fill(MEMBER);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/facts$/);
-  await expect(page.getByRole("link", { name: "Review" })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Review" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Out of date" })).toHaveCount(0);
   await page.evaluate(() => {
     history.pushState(null, "", "/stale");

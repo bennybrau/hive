@@ -74,15 +74,19 @@ export function Facts() {
     <main className={openId ? "page kn view-fact" : "page kn no-fact"}>
       {openId && (
         <a className="back" href={listHref} onClick={back}>
+          <span aria-hidden="true">‹</span>
           {PHRASE.factsBack}
         </a>
       )}
       <PageHeader title="Facts" lede="Every fact agents are given, and where each one came from." />
-      <div className="kn-split">
-        <div ref={listRef}>
-          <FactsTable filters={filters} onChange={setFilters} openId={openId} onOpen={open} />
-        </div>
-        {openId && <FactDetail id={openId} onClose={close} onOpen={(id) => navigate(`/facts/${encodeURIComponent(id)}${location.search}`)} />}
+      <div ref={listRef}>
+        <FactsTable
+          filters={filters}
+          onChange={setFilters}
+          openId={openId}
+          onOpen={open}
+          pane={openId && <FactDetail id={openId} onClose={close} onOpen={(id) => navigate(`/facts/${encodeURIComponent(id)}${location.search}`)} />}
+        />
       </div>
     </main>
   );

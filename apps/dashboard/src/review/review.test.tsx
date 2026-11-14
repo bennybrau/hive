@@ -597,7 +597,7 @@ describe("who should get this", () => {
       ["local", "repo:local"],
     ]);
     expect(hint("Everyone (current)")).toBe("Agents in every repository, for every team.");
-    expect(hint("Repo: proj")).toBe("Agents working in this repository.");
+    expect(hint("Repo: proj")).toBe("Agents working in the proj repo.");
     expect(hint("Team: Billing")).toBe("This team first; others can still find it.");
     expect(approveButton().textContent).toBe("Approve for Everyone");
     press("j");

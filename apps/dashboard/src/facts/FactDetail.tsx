@@ -109,7 +109,7 @@ function When({ iso, full }: { iso: string; full?: boolean }) {
 function By({ who, iso }: { who: string | null; iso: string }) {
   return (
     <>
-      {who && `By ${who}, `}
+      {who && `By ${who[0]!.toUpperCase()}${who.slice(1)}, `}
       <When iso={iso} />
     </>
   );

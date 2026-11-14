@@ -84,7 +84,8 @@ test("on a phone a fact opens as its own page, and the back link returns to the 
   await expect(panel.getByRole("button", { name: "Close" })).toBeHidden();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
-  // The section tabs have a Facts link too; the back link is the one in the page.
+  // The section tabs are hidden on a fact's own page; the back link is the one way back.
+  await expect(page.getByRole("navigation", { name: "Knowledge pages" })).toBeHidden();
   const back = page.getByRole("main").getByRole("link", { name: "Facts", exact: true });
   await expect(back).toBeVisible();
   await back.tap();

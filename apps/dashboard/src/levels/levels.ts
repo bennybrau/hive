@@ -56,7 +56,8 @@ export function levelLabel(fact: Labelled, teams: Team[] = [], mine: MyTeam[] = 
   if (l.level === "personal") return { label: "Just me", hint: "Only your own agents." };
   if (l.level === "repository") {
     const key = fact.scope.slice("repo:".length);
-    return { label: `Repo: ${key.slice(key.lastIndexOf("/") + 1)}`, hint: "Agents working in this repository." };
+    const name = key.slice(key.lastIndexOf("/") + 1);
+    return { label: `Repo: ${name}`, hint: `Agents working in the ${name} repo.` };
   }
   if (l.team) return { label: `Team: ${l.team.name}`, hint: "This team first; others can still find it." };
   return { label: "Everyone", hint: "Agents in every repository, for every team." };

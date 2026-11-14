@@ -88,6 +88,16 @@ describe("GET /v1/facts", () => {
     expect([p1.facts.length, p1.total, p2.facts.length, p2.total]).toEqual([1, 2, 1, 2]);
     expect((await list("limit=1&offset=5")).total).toBe(6);
   });
+
+  it("counts only what the caller may read: another person's own facts are not in the total", async () => {
+    await remember(curator.token, { text: "Deploys go out from main" });
+    await remember(alice.token, { text: "Alice's own note", kind: "preference", scope: "personal" });
+    await remember(curator.token, { text: "Jon's own note", kind: "preference", scope: "personal" });
+    const asAlice = (await get(alice.token, "/v1/facts")).json() as { facts: { text: string }[]; total: number };
+    expect(asAlice.facts.map((f) => f.text).sort()).toEqual(["Alice's own note", "Deploys go out from main"]);
+    expect(asAlice.total).toBe(2);
+    expect((await list("")).total).toBe(2);
+  });
 });
 
 describe("GET /v1/facts/:id", () => {

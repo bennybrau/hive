@@ -98,7 +98,10 @@ describe("facts list", () => {
     await screen.findByText("fact f1");
     expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ status: "active", limit: "50", offset: "0" });
     expect(["Status", "Who gets it", "Kind", "Came from"].map(picked)).toEqual(["Live", "For anyone", "Any kind", "From anywhere"]);
-    for (const m of screen.getAllByRole("combobox")) expect(m.className).toBe("menu");
+    for (const m of screen.getAllByRole("combobox")) expect(m.parentElement!.className).toBe("menu");
+    // Each menu is drawn as its current value, so it is only as wide as that word.
+    expect([...document.querySelectorAll(".menu .now")].map((n) => n.textContent)).toEqual(["Live", "For anyone", "Any kind", "From anywhere"]);
+    expect(screen.getByText("Search facts").tagName).toBe("LABEL");
     expect(screen.getByRole("searchbox", { name: "Search facts" }).getAttribute("placeholder")).toBe("A topic, a repo, a word");
     expect(screen.queryByRole("button", { name: "Search" })).toBeNull();
   });
@@ -127,7 +130,8 @@ describe("facts list", () => {
     fireEvent.change(menu(name), { target: { value } });
     await waitFor(() => expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ ...expected, limit: "50", offset: "0" }));
     expect(location.search).toBe(`?${search}`);
-    expect(menu(name).className).toBe("menu set");
+    expect(menu(name).parentElement!.className).toBe("menu set");
+    expect(menu(name).parentElement!.querySelector(".now")!.textContent).toBe(picked(name));
   });
 
   it("uses the plain words in the menus, keeping API values as option values", async () => {
@@ -307,6 +311,11 @@ describe("fact detail", () => {
     const panel = await pane();
     await within(panel).findByText("the open fact");
     expect(document.querySelector("main")!.className).toBe("page kn view-fact");
+    // The pane sits beside the rows only: the search box and the filter line span the page above both.
+    const split = document.querySelector(".kn-split")!;
+    expect(split.querySelector("aside")).toBeTruthy();
+    expect(split.querySelector(".kn-list")).toBeTruthy();
+    expect(split.querySelector(".filterbar, [role=search]")).toBeNull();
     const files = within(panel).getByRole("list", { name: "Where this comes from" });
     expect(within(files).getByText("Source changed").className).toMatch(/badge verify-drifted/);
     expect(within(files).getByText("Still matches").className).toMatch(/badge verify-verified/);
@@ -344,7 +353,7 @@ describe("fact detail", () => {
     expect([...p.children].map((c) => c.className || c.tagName)).toEqual(["pane-top", "bigfact", "said", "files", "kv", "chain", "more"]);
     expect(within(p.querySelector(".pane-top") as HTMLElement).getByRole("button", { name: "Close" })).toBeTruthy();
     expect(within(p.querySelector(".kv") as HTMLElement).getAllByRole("term").map((t) => t.textContent)).toEqual(["Who gets it", "Written"]);
-    expect(p.querySelector(".kv dd")!.textContent).toBe("Agents working in this repository.");
+    expect(p.querySelector(".kv dd")!.textContent).toBe("Agents working in the widgets repo.");
   });
 
   it("says who said a quote, where and when, and whether it still matches", async () => {
@@ -381,8 +390,8 @@ describe("fact detail", () => {
   });
 
   it.each([
-    ["distilled", "Approved", "By curator2, 2 hours ago"],
-    ["authored", "Written", "By u1, Oct 1"],
+    ["distilled", "Approved", "By Curator2, 2 hours ago"],
+    ["authored", "Written", "By U1, Oct 1"],
     ["ingested", null, null],
   ])("a fact from origin %s has its %s line", async (origin, term, line) => {
     const reviews = [

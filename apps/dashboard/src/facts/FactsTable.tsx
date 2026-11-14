@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { apiFetch } from "../api";
 import { useTeams } from "../levels/levels";
 import { Badge, Button, EmptyState, FactRow } from "../ui";
@@ -25,6 +25,8 @@ interface Props {
   onChange: (f: Filters) => void;
   openId: string | null;
   onOpen: (id: string) => void;
+  /** The open fact. It sits beside the rows, under the search box and the filter line. */
+  pane?: ReactNode;
 }
 
 interface Option {
@@ -46,20 +48,33 @@ const STATUS_OPTIONS: Option[] = [
 const KIND_OPTIONS: Option[] = [{ value: "", label: "Any kind" }, ...opts(KINDS, KIND)];
 const ORIGIN_OPTIONS: Option[] = [{ value: "", label: "From anywhere" }, ...opts(ORIGINS, ORIGIN)];
 
-/** A quiet menu that reads as its current value; `.set` once it's off its default (the first option). */
+/**
+ * A quiet menu that reads as its current value; `.set` once it's off its default (the first option).
+ * The words and the chevron are drawn here and the native select lies invisible on top of them: a select
+ * is as wide as its longest option, so four of them drawn directly don't fit on one line.
+ */
 function Menu({ label, value, options, onChange }: { label: string; value: string; options: Option[]; onChange: (v: string) => void }) {
+  const current = options.find((o) => o.value === value) ?? options[0];
   return (
-    <select aria-label={label} className={value ? "menu set" : "menu"} value={value} onChange={(e) => onChange(e.target.value)}>
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+    <span className={value ? "menu set" : "menu"}>
+      <span className="now" aria-hidden="true">
+        {current?.label}
+      </span>
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 9l6 6 6-6" />
+      </svg>
+      <select aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </span>
   );
 }
 
-export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
+export function FactsTable({ filters, onChange, openId, onOpen, pane }: Props) {
   const searching = filters.q !== "";
   const [body, setBody] = useState<{ facts: Fact[]; has_more?: boolean; total?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -153,9 +168,10 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
   return (
     <section className="facts-list" aria-label="Facts list">
       <form role="search" className="search" onSubmit={submit}>
+        <label htmlFor="facts-q">Search facts</label>
         <input
+          id="facts-q"
           type="search"
-          aria-label="Search facts"
           placeholder="A topic, a repo, a word"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -195,64 +211,69 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
         </p>
       )}
 
-      {shown && shown.length > 0 && (
-        <div className="kn-list" ref={listRef}>
-          {shown.map((f, i) => {
-            const who = levelLabel(f, teams, mine);
-            const t = when(f.recorded_at);
-            return (
-              <FactRow
-                key={f.id}
-                href={`/facts/${encodeURIComponent(f.id)}${query}`}
-                data-id={f.id}
-                tabIndex={i === active ? 0 : -1}
-                current={f.id === openId}
-                onClick={(e) => {
-                  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                  e.preventDefault();
-                  onOpen(f.id);
-                }}
-                onFocus={() => setActive(i)}
-                onKeyDown={(e) => onRowKey(e, i)}
-                text={f.text}
-                badge={
-                  <Badge tone="who" title={f.scope}>
-                    {who.label}
-                  </Badge>
-                }
-                meta={
-                  <>
-                    {word(KIND, f.kind).label},{" "}
-                    {f.status !== "active" && <>{word(STATUS, f.status).label}, </>}
-                    <time dateTime={f.recorded_at} title={t.title}>
-                      {t.text}
-                    </time>
-                  </>
-                }
-                used={f.use_count !== undefined ? usedTimes(f.use_count) : undefined}
-              />
-            );
-          })}
-        </div>
-      )}
-      {shown?.length === 0 && (
-        <EmptyState title="Nothing matches these filters">
-          Facts appear here when a person writes one, when Hive learns one from a conversation and a curator approves
-          it, or when Hive reads one from a repo's docs or code.
-        </EmptyState>
-      )}
+      <div className="kn-split">
+        <div className="kn-col">
+        {shown && shown.length > 0 && (
+          <div className="kn-list" ref={listRef}>
+            {shown.map((f, i) => {
+              const who = levelLabel(f, teams, mine);
+              const t = when(f.recorded_at);
+              return (
+                <FactRow
+                  key={f.id}
+                  href={`/facts/${encodeURIComponent(f.id)}${query}`}
+                  data-id={f.id}
+                  tabIndex={i === active ? 0 : -1}
+                  current={f.id === openId}
+                  onClick={(e) => {
+                    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                    e.preventDefault();
+                    onOpen(f.id);
+                  }}
+                  onFocus={() => setActive(i)}
+                  onKeyDown={(e) => onRowKey(e, i)}
+                  text={f.text}
+                  badge={
+                    <Badge tone="who" title={f.scope}>
+                      {who.label}
+                    </Badge>
+                  }
+                  meta={
+                    <>
+                      {word(KIND, f.kind).label},{" "}
+                      {f.status !== "active" && <>{word(STATUS, f.status).label}, </>}
+                      <time dateTime={f.recorded_at} title={t.title}>
+                        {t.text}
+                      </time>
+                    </>
+                  }
+                  used={f.use_count !== undefined ? usedTimes(f.use_count) : undefined}
+                />
+              );
+            })}
+          </div>
+        )}
+        {shown?.length === 0 && (
+          <EmptyState title="Nothing matches these filters">
+            Facts appear here when a person writes one, when Hive learns one from a conversation and a curator approves
+            it, or when Hive reads one from a repo's docs or code.
+          </EmptyState>
+        )}
 
-      {!searching && (
-        <nav className="pages" aria-label="Pages">
-          <Button variant="quiet" disabled={filters.page === 0} onClick={() => onChange({ ...filters, page: filters.page - 1 })}>
-            Previous
-          </Button>
-          <span className="help">Page {filters.page + 1}</span>
-          <Button variant="quiet" disabled={!body?.has_more} onClick={() => onChange({ ...filters, page: filters.page + 1 })}>
-            Next
-          </Button>
-        </nav>
-      )}
+        {!searching && (
+          <nav className="pages" aria-label="Pages">
+            <Button variant="quiet" disabled={filters.page === 0} onClick={() => onChange({ ...filters, page: filters.page - 1 })}>
+              Previous
+            </Button>
+            <span className="help">Page {filters.page + 1}</span>
+            <Button variant="quiet" disabled={!body?.has_more} onClick={() => onChange({ ...filters, page: filters.page + 1 })}>
+              Next
+            </Button>
+          </nav>
+        )}
+        </div>
+        {pane}
+      </div>
     </section>
   );
 }

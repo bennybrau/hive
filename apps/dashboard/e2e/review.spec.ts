@@ -53,7 +53,7 @@ test("a curator finds a member's candidate with j and reviews it from the keyboa
   await page.getByLabel("Token").fill(CURATOR);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/facts$/);
-  await page.getByRole("link", { name: "Review" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Review" }).click();
   await expect(page).toHaveURL(/\/review$/);
 
   // No list: one card at a time, found with j.
@@ -111,7 +111,7 @@ test("a curator shares a member's global candidate with a team on approve", asyn
   await page.getByLabel("Token").fill(CURATOR);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/facts$/);
-  await page.getByRole("link", { name: "Review" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Review" }).click();
   await expect(page).toHaveURL(/\/review$/);
 
   const card = await stepTo(page, id, () => page.getByRole("button", { name: "Next fact" }).click());
@@ -221,7 +221,7 @@ test("a curator keeps a fact the member corrected after an answer cited it", asy
   await page.getByLabel("Token").fill(CURATOR);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/facts$/);
-  await page.getByRole("link", { name: "Review" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Review" }).click();
   await expect(page).toHaveURL(/\/review$/);
 
   const card = page.getByRole("region", { name: "Corrected after citation" }).locator(`li[data-id="${id}"]`);
@@ -247,7 +247,7 @@ test("a member sees no Review link and a curators-only note at /review", async (
   await page.getByLabel("Token").fill(MEMBER);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/facts$/);
-  await expect(page.getByRole("link", { name: "Review" })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Review" })).toHaveCount(0);
   await page.evaluate(() => {
     history.pushState(null, "", "/review");
     dispatchEvent(new PopStateEvent("popstate"));
