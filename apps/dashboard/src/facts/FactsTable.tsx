@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { apiFetch } from "../api";
-import { LevelBadge } from "../levels/LevelBadge";
-import { LevelFilter } from "../levels/LevelFilter";
 import { useTeams } from "../levels/levels";
-import { EmptyState } from "../ui";
-import { KIND, ORIGIN, STATUS, when, word, type Word } from "../words";
+import { Badge, Button, EmptyState, FactRow } from "../ui";
+import { KIND, levelLabel, ORIGIN, STATUS, usedTimes, when, word, type Word } from "../words";
 import {
   KINDS,
   listUrl,
@@ -13,6 +11,7 @@ import {
   SEARCH_K,
   searchUrl,
   STATUSES,
+  writeFilters,
   type Fact,
   type Filters,
 } from "./query";
@@ -28,59 +27,46 @@ interface Props {
   onOpen: (id: string) => void;
 }
 
-function Select({
-  id,
-  label,
-  value,
-  options,
-  words,
-  onChange,
-}: {
-  id: string;
-  label: string;
+interface Option {
   value: string;
-  options: readonly string[];
-  /** Labels for the options; the option value stays the API value. Without one, the value is the text. */
-  words?: Record<string, Word>;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">any</option>
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {words ? word(words, o).label : o}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
+  label: string;
 }
 
-function Cell({ w }: { w: Word }) {
-  return <td title={w.hint || undefined}>{w.label}</td>;
-}
+const opts = (values: readonly string[], words: Record<string, Word>): Option[] =>
+  values.map((v) => ({ value: v, label: word(words, v).label }));
 
-function Recorded({ iso }: { iso: string }) {
-  const t = when(iso);
+const STATUS_OPTIONS: Option[] = [
+  { value: "", label: STATUS.active!.label },
+  ...opts(
+    STATUSES.filter((s) => s !== "active"),
+    STATUS,
+  ),
+  { value: "any", label: "Any status" },
+];
+const KIND_OPTIONS: Option[] = [{ value: "", label: "Any kind" }, ...opts(KINDS, KIND)];
+const ORIGIN_OPTIONS: Option[] = [{ value: "", label: "From anywhere" }, ...opts(ORIGINS, ORIGIN)];
+
+/** A quiet menu that reads as its current value; `.set` once it's off its default (the first option). */
+function Menu({ label, value, options, onChange }: { label: string; value: string; options: Option[]; onChange: (v: string) => void }) {
   return (
-    <time dateTime={iso} title={t.title}>
-      {t.text}
-    </time>
+    <select aria-label={label} className={value ? "menu set" : "menu"} value={value} onChange={(e) => onChange(e.target.value)}>
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
 export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
   const searching = filters.q !== "";
-  const [rows, setRows] = useState<Fact[] | null>(null);
-  const [hasMore, setHasMore] = useState(false);
+  const [body, setBody] = useState<{ facts: Fact[]; has_more?: boolean; total?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [draft, setDraft] = useState(filters.q);
   const [active, setActive] = useState(0);
-  const rowRefs = useRef<(HTMLTableRowElement | null)[]>([]);
+  const listRef = useRef<HTMLDivElement>(null);
   const { teams, mine } = useTeams();
 
   useEffect(() => setDraft(filters.q), [filters.q]);
@@ -103,25 +89,35 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
     apiFetch(url)
       .then(async (res) => {
         if (!res.ok) throw new Error(`The hive answered ${res.status}.`);
-        return (await res.json()) as { facts: Fact[]; has_more?: boolean };
+        return (await res.json()) as { facts: Fact[]; has_more?: boolean; total?: number };
       })
-      .then((body) => {
-        if (!live) return;
-        setRows(body.facts ?? []);
-        setHasMore(body.has_more ?? false);
-      })
+      .then((b) => live && setBody({ ...b, facts: b.facts ?? [] }))
       .catch((err: unknown) => live && setError(err instanceof Error ? err.message : "Couldn't load facts."));
     return () => {
       live = false;
     };
   }, [url]);
 
-  // The server can filter a list page by every level but Repository; that one narrows the loaded page here.
-  const narrow = searching || (filters.level === "repository" && !filters.repo);
+  // A list page comes back filtered by the server; search can't filter, so its hits are narrowed here.
   const shown = useMemo(
-    () => (rows && narrow ? rows.filter((f) => matchesFilters(f, filters)) : rows),
-    [rows, narrow, filters],
+    () => (body && searching ? body.facts.filter((f) => matchesFilters(f, filters)) : (body?.facts ?? null)),
+    [body, searching, filters],
   );
+
+  // Who gets it: a repo is one of the levels. A level from the URL that isn't loaded (yet) still shows as itself.
+  const levels = useMemo(() => {
+    const o: Option[] = [
+      { value: "", label: "For anyone" },
+      { value: "personal", label: "Just me" },
+      ...repos.map((r) => ({ value: `repo:${r.key}`, label: levelLabel({ scope: `repo:${r.key}` }).label })),
+      ...teams.map((t) => ({ value: `team:${t.key}`, label: `Team: ${t.name}` })),
+      { value: "global", label: "Everyone" },
+    ];
+    if (!o.some((x) => x.value === filters.level)) {
+      o.splice(o.length - 1, 0, { value: filters.level, label: levelLabel({ scope: filters.level }).label });
+    }
+    return o;
+  }, [repos, teams, filters.level]);
 
   // Keep the roving row on the open fact when it's in view, else in range.
   useEffect(() => {
@@ -149,35 +145,48 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
     } else return;
     e.preventDefault();
     setActive(next);
-    rowRefs.current[next]?.focus();
+    listRef.current?.querySelectorAll<HTMLElement>("[data-id]")[next]?.focus();
   }
+
+  const query = writeFilters(filters);
 
   return (
     <section className="facts-list" aria-label="Facts list">
-      <div className="filters">
-        <LevelFilter id="f-level" value={filters.level} teams={teams} onChange={(level) => set({ level })} />
-        <Select
-          id="f-repo"
-          label="Repo"
-          value={filters.repo}
-          options={repos.map((r) => r.key)}
-          onChange={(repo) => set({ repo })}
+      <form role="search" className="search" onSubmit={submit}>
+        <input
+          type="search"
+          aria-label="Search facts"
+          placeholder="A topic, a repo, a word"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
         />
-        <Select id="f-status" label="Status" value={filters.status} options={STATUSES} words={STATUS} onChange={(status) => set({ status })} />
-        <Select id="f-origin" label="Origin" value={filters.origin} options={ORIGINS} words={ORIGIN} onChange={(origin) => set({ origin })} />
-        <Select id="f-kind" label="Kind" value={filters.kind} options={KINDS} words={KIND} onChange={(kind) => set({ kind })} />
-        <form role="search" className="field search" onSubmit={submit}>
-          <label htmlFor="f-q">Search</label>
-          <span>
-            <input id="f-q" type="search" value={draft} onChange={(e) => setDraft(e.target.value)} />
-            <button type="submit">Search</button>
-          </span>
-        </form>
+      </form>
+
+      <div className="filterbar">
+        {shown && (
+          <p className="count">
+            {searching ? (
+              <>
+                <b>{shown.length}</b> {shown.length === 1 ? "match" : "matches"}, best first
+              </>
+            ) : (
+              <>
+                <b>{body?.total ?? shown.length}</b> {(body?.total ?? shown.length) === 1 ? "fact" : "facts"}, newest first
+              </>
+            )}
+          </p>
+        )}
+        <div className="menus" role="group" aria-label="Filters">
+          <Menu label="Status" value={filters.status} options={STATUS_OPTIONS} onChange={(status) => set({ status })} />
+          <Menu label="Who gets it" value={filters.level} options={levels} onChange={(level) => set({ level })} />
+          <Menu label="Kind" value={filters.kind} options={KIND_OPTIONS} onChange={(kind) => set({ kind })} />
+          <Menu label="Came from" value={filters.origin} options={ORIGIN_OPTIONS} onChange={(origin) => set({ origin })} />
+        </div>
       </div>
 
       {searching && (
         <p className="help" role="note">
-          Showing up to {SEARCH_K} matches; filters applied here, no paging.
+          At most {SEARCH_K} matches are shown.
         </p>
       )}
       {error && (
@@ -186,46 +195,40 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
         </p>
       )}
 
-      {shown && (
-        <table className="facts">
-          <thead>
-            <tr>
-              <th scope="col">Text</th>
-              <th scope="col">Kind</th>
-              <th scope="col">Level</th>
-              <th scope="col">Status</th>
-              <th scope="col">Origin</th>
-              <th scope="col">Recorded</th>
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((f, i) => (
-              <tr
+      {shown && shown.length > 0 && (
+        <div className="kn-list" ref={listRef}>
+          {shown.map((f, i) => {
+            const who = levelLabel(f, teams, mine);
+            const t = when(f.recorded_at);
+            return (
+              <FactRow
                 key={f.id}
-                ref={(el) => {
-                  rowRefs.current[i] = el;
-                }}
+                href={`/facts/${encodeURIComponent(f.id)}${query}`}
                 data-id={f.id}
                 tabIndex={i === active ? 0 : -1}
-                aria-current={f.id === openId ? "true" : undefined}
+                current={f.id === openId}
                 onFocus={() => setActive(i)}
-                onClick={() => onOpen(f.id)}
                 onKeyDown={(e) => onRowKey(e, i)}
-              >
-                <td className="text">{f.text}</td>
-                <Cell w={word(KIND, f.kind)} />
-                <td>
-                  <LevelBadge fact={f} teams={teams} mine={mine} />
-                </td>
-                <Cell w={word(STATUS, f.status)} />
-                <Cell w={word(ORIGIN, f.origin)} />
-                <td>
-                  <Recorded iso={f.recorded_at} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                text={f.text}
+                badge={
+                  <Badge tone="who" title={f.scope}>
+                    {who.label}
+                  </Badge>
+                }
+                meta={
+                  <>
+                    {word(KIND, f.kind).label},{" "}
+                    {f.status !== "active" && <>{word(STATUS, f.status).label}, </>}
+                    <time dateTime={f.recorded_at} title={t.title}>
+                      {t.text}
+                    </time>
+                  </>
+                }
+                used={f.use_count !== undefined ? usedTimes(f.use_count) : undefined}
+              />
+            );
+          })}
+        </div>
       )}
       {shown?.length === 0 && (
         <EmptyState title="Nothing matches these filters">
@@ -235,14 +238,14 @@ export function FactsTable({ filters, onChange, openId, onOpen }: Props) {
       )}
 
       {!searching && (
-        <nav className="pager" aria-label="Pages">
-          <button type="button" disabled={filters.page === 0} onClick={() => onChange({ ...filters, page: filters.page - 1 })}>
-            Prev
-          </button>
+        <nav className="pages" aria-label="Pages">
+          <Button variant="quiet" disabled={filters.page === 0} onClick={() => onChange({ ...filters, page: filters.page - 1 })}>
+            Previous
+          </Button>
           <span className="help">Page {filters.page + 1}</span>
-          <button type="button" disabled={!hasMore} onClick={() => onChange({ ...filters, page: filters.page + 1 })}>
+          <Button variant="quiet" disabled={!body?.has_more} onClick={() => onChange({ ...filters, page: filters.page + 1 })}>
             Next
-          </button>
+          </Button>
         </nav>
       )}
     </section>

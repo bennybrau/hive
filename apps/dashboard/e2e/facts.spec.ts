@@ -38,14 +38,14 @@ test("filter, search and open a fresh personal fact", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/facts$/);
 
-  await page.getByLabel("Level").selectOption("personal");
-  await page.getByLabel("Origin").selectOption("authored");
+  await page.getByLabel("Who gets it").selectOption("personal");
+  await page.getByLabel("Came from").selectOption("authored");
   await expect(page).toHaveURL(/level=personal/);
-  await page.getByLabel("Search").fill(marker);
-  await page.getByRole("button", { name: "Search" }).click();
-  await expect(page.getByRole("note")).toContainText("no paging");
+  await page.getByLabel("Search facts").fill(marker);
+  await page.getByLabel("Search facts").press("Enter");
+  await expect(page.getByRole("note")).toContainText("At most 100");
 
-  await page.getByRole("cell", { name: text }).click();
+  await page.getByRole("link", { name: text }).click();
   await expect(page).toHaveURL(/\/facts\/[0-9a-f-]+\?.*q=/);
   const panel = page.getByRole("complementary", { name: "Fact detail" });
   await expect(panel.getByText(text)).toBeVisible();

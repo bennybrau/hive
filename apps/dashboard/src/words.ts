@@ -84,6 +84,12 @@ export function word(table: Record<string, Word>, value: string): Word {
   return table[value] ?? w(value);
 }
 
+/** How often agents were given a fact: "Not used yet", "Used once", "Used 5 times". */
+export function usedTimes(n: number): string {
+  if (n <= 0) return "Not used yet";
+  return n === 1 ? "Used once" : `Used ${n} times`;
+}
+
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["second", 60],
   ["minute", 60],

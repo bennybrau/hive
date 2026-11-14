@@ -77,6 +77,18 @@ button.btn.big, a.btn.big { min-height: 48px; padding: 0 var(--s-5); font-size: 
 .ui-badge.who { background: var(--tint); color: var(--tint-ink); }
 .ui-badge.warn { background: var(--warn-tint); color: var(--warn); }
 
+/* FactRow: the whole row is the link; rows are divided by a 1px rule. */
+.fact-row { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; padding: var(--s-4); text-decoration: none; color: inherit; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.fact-row:hover { background: var(--raise); }
+.fact-row[aria-current="true"] { background: var(--tint); box-shadow: inset 3px 0 0 var(--accent); }
+.fact-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.fact-row .text { font-size: var(--t-body); line-height: 1.5; overflow-wrap: anywhere; max-width: 78ch; }
+.fact-row .meta { display: flex; align-items: center; gap: var(--s-1) var(--s-3); min-width: 0; font-size: 13px; color: var(--muted); }
+.fact-row .meta .ui-badge { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 26px; }
+.fact-row .used { margin-left: auto; white-space: nowrap; }
+@media (max-width: 1180px) { .fact-row .meta { flex-wrap: wrap; } }
+@media (max-width: 860px) { .fact-row .used { margin-left: 0; } }
+
 /* Cards */
 .ui-card { padding: var(--s-5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); }
 

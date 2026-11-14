@@ -5,6 +5,7 @@ import "./ui/tokens.css";
 import "./styles.css";
 import "./ui/ui.css";
 import "./review/review.css";
+import "./facts/facts.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

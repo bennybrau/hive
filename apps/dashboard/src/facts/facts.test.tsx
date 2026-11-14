@@ -43,7 +43,7 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-let listPage: (offset: number) => { facts: Fact[]; has_more: boolean };
+let listPage: (offset: number) => { facts: Fact[]; has_more: boolean; total: number };
 let searchHits: Fact[];
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -67,11 +67,11 @@ function lastCall(path: string): URLSearchParams {
   return urls.at(-1)!.searchParams;
 }
 
-const rows = () => screen.getAllByRole("row").filter((r) => r.hasAttribute("data-id"));
+const rows = () => [...document.querySelectorAll<HTMLElement>(".kn-list [data-id]")];
 
 beforeEach(() => {
   history.replaceState(null, "", "/facts");
-  listPage = () => ({ facts: [fact("f1"), fact("f2"), fact("f3")], has_more: false });
+  listPage = () => ({ facts: [fact("f1"), fact("f2"), fact("f3")], has_more: false, total: 3 });
   searchHits = [];
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
@@ -81,121 +81,140 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("facts table", () => {
-  it("asks for the first page with no filters", async () => {
+const menu = (name: string) => screen.getByRole("combobox", { name }) as HTMLSelectElement;
+const picked = (name: string) => menu(name).selectedOptions[0]!.textContent;
+
+function search(q: string) {
+  const box = screen.getByRole("searchbox", { name: "Search facts" });
+  fireEvent.change(box, { target: { value: q } });
+  fireEvent.submit(box.closest("form")!);
+}
+
+describe("facts list", () => {
+  it("asks for the first page of live facts, and the menus read as their defaults", async () => {
     render(<Facts />);
     await screen.findByText("fact f1");
-    expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ limit: "50", offset: "0" });
+    expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ status: "active", limit: "50", offset: "0" });
+    expect(["Status", "Who gets it", "Kind", "Came from"].map(picked)).toEqual(["Live", "For anyone", "Any kind", "From anywhere"]);
+    for (const m of screen.getAllByRole("combobox")) expect(m.className).toBe("menu");
+    expect(screen.getByRole("searchbox", { name: "Search facts" }).getAttribute("placeholder")).toBe("A topic, a repo, a word");
+    expect(screen.queryByRole("button", { name: "Search" })).toBeNull();
+  });
+
+  it("counts the facts from the server's total", async () => {
+    listPage = () => ({ facts: [fact("f1")], has_more: true, total: 124 });
+    render(<Facts />);
+    await screen.findByText("fact f1");
+    expect(document.querySelector(".filterbar .count")!.textContent).toBe("124 facts, newest first");
+    expect(document.querySelector(".filterbar .count b")!.textContent).toBe("124");
   });
 
   it.each([
-    ["Level", "personal", { scope: "personal" }],
-    ["Status", "candidate", { status: "candidate" }],
-    ["Origin", "distilled", { origin: "distilled" }],
-    ["Kind", "invariant", { kind: "invariant" }],
-    ["Repo", "acme/widgets", { scope: "repo:acme/widgets" }],
-  ])("the %s filter goes into the request and the URL", async (label, value, expected) => {
+    ["Status", "candidate", { status: "candidate" }, "status=candidate"],
+    ["Status", "any", {}, "status=any"],
+    ["Who gets it", "personal", { status: "active", scope: "personal" }, "level=personal"],
+    ["Who gets it", "repo:acme/widgets", { status: "active", scope: "repo:acme/widgets" }, "level=repository&repo=acme%2Fwidgets"],
+    ["Who gets it", "team:billing", { status: "active", scope: "team:billing" }, "level=team%3Abilling"],
+    ["Who gets it", "global", { status: "active", scope: "global" }, "level=global"],
+    ["Kind", "invariant", { status: "active", kind: "invariant" }, "kind=invariant"],
+    ["Came from", "distilled", { status: "active", origin: "distilled" }, "origin=distilled"],
+  ])("the %s menu set to %s goes into the request and the URL, and takes the tint", async (name, value, expected, search) => {
     render(<Facts />);
-    await screen.findByRole("option", { name: "acme/widgets" });
-    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    await screen.findByRole("option", { name: "Repo: widgets" });
+    await screen.findByRole("option", { name: "Team: Billing" });
+    fireEvent.change(menu(name), { target: { value } });
     await waitFor(() => expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ ...expected, limit: "50", offset: "0" }));
-    expect(new URLSearchParams(location.search).get(label.toLowerCase())).toBe(value);
+    expect(location.search).toBe(`?${search}`);
+    expect(menu(name).className).toBe("menu set");
+  });
+
+  it("uses the plain words in the menus, keeping API values as option values", async () => {
+    render(<Facts />);
+    await screen.findByText("fact f1");
+    const status = within(menu("Status"));
+    expect(status.getAllByRole("option").map((o) => o.textContent)).toEqual(["Live", "Waiting for review", "Replaced", "Retired", "Any status"]);
+    expect(status.getByRole("option", { name: "Waiting for review" }).getAttribute("value")).toBe("candidate");
+    expect(within(menu("Kind")).getByRole("option", { name: "Must stay true" }).getAttribute("value")).toBe("invariant");
+    expect(within(menu("Came from")).getByRole("option", { name: "Learned from a conversation" }).getAttribute("value")).toBe("distilled");
+  });
+
+  it.each([
+    ["?level=repository&repo=acme/widgets", "Repo: widgets", { scope: "repo:acme/widgets" }],
+    ["?level=repository", "For anyone", {}],
+    ["?repo=acme/widgets", "Repo: widgets", { scope: "repo:acme/widgets" }],
+  ])("reads %s from the URL", async (search, label, expected) => {
+    history.replaceState(null, "", `/facts${search}`);
+    render(<Facts />);
+    await screen.findByText("fact f1");
+    expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ ...expected, status: "active", limit: "50", offset: "0" });
+    await waitFor(() => expect(picked("Who gets it")).toBe(label));
   });
 
   it("keeps the filters in the URL across a remount", async () => {
     const { unmount } = render(<Facts />);
-    await screen.findByRole("option", { name: "acme/widgets" });
-    fireEvent.change(screen.getByLabelText("Level"), { target: { value: "personal" } });
-    fireEvent.change(screen.getByLabelText("Origin"), { target: { value: "authored" } });
+    await screen.findByText("fact f1");
+    fireEvent.change(menu("Who gets it"), { target: { value: "personal" } });
+    fireEvent.change(menu("Came from"), { target: { value: "authored" } });
     unmount();
     fetchMock.mockClear();
 
     render(<Facts />);
     await screen.findByText("fact f1");
-    expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ scope: "personal", origin: "authored", limit: "50", offset: "0" });
-    expect((screen.getByLabelText("Level") as HTMLSelectElement).value).toBe("personal");
-    expect((screen.getByLabelText("Origin") as HTMLSelectElement).value).toBe("authored");
+    expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ scope: "personal", status: "active", origin: "authored", limit: "50", offset: "0" });
+    expect(menu("Who gets it").value).toBe("personal");
+    expect(menu("Came from").value).toBe("authored");
   });
 
-  it.each([
-    ["Everyone", "global"],
-    ["Team: Billing", "team:billing"],
-  ])("the %s level asks the server for scope=%s", async (name, scope) => {
-    render(<Facts />);
-    const level = screen.getByLabelText("Level") as HTMLSelectElement;
-    await screen.findByRole("option", { name: "Team: Billing" });
-    fireEvent.change(level, { target: { value: within(level).getByRole("option", { name }).getAttribute("value") } });
-    await waitFor(() => expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ scope, limit: "50", offset: "0" }));
-    expect(new URLSearchParams(location.search).get("level")).toBe(scope);
-  });
-
-  it("the Repo level filters the loaded page here, and a picked repo still wins", async () => {
-    listPage = () => ({
-      facts: [fact("r1", { text: "in a repo", scope: "repo:acme/widgets" }), fact("g1", { text: "org wide" })],
-      has_more: false,
-    });
-    render(<Facts />);
-    await screen.findByText("org wide");
-    fireEvent.change(screen.getByLabelText("Level"), { target: { value: "repository" } });
-    await waitFor(() => expect(screen.queryByText("org wide")).toBeNull());
-    expect(screen.getByText("in a repo")).toBeTruthy();
-    expect(Object.fromEntries(lastCall("/v1/facts"))).toEqual({ limit: "50", offset: "0" });
-
-    await screen.findByRole("option", { name: "acme/widgets" });
-    fireEvent.change(screen.getByLabelText("Repo"), { target: { value: "acme/widgets" } });
-    await waitFor(() => expect(lastCall("/v1/facts").get("scope")).toBe("repo:acme/widgets"));
-  });
-
-  it("shows each fact's level as a badge in the Level column", async () => {
+  it("shows each fact as one link: text, who gets it, kind and when, and how often it was used", async () => {
     listPage = () => ({
       facts: [
-        fact("t1", { scope: "team:billing", level: "team", team: "billing", team_name: "Billing", own_team: true }),
-        fact("p1", { scope: "personal:u1", level: "personal" }),
+        fact("t1", { text: "team fact", kind: "convention", scope: "team:billing", level: "team", team: "billing", team_name: "Billing", use_count: 5 }),
+        fact("p1", { text: "my fact", scope: "personal:u1", level: "personal", status: "candidate", use_count: 0 }),
       ],
       has_more: false,
+      total: 2,
     });
     render(<Facts />);
-    await screen.findByText("fact t1");
-    const [t1, p1] = rows();
-    expect(t1!.querySelector(".level")!.textContent).toBe("Team: Billingyour team");
-    expect(within(t1!).getByText("Team: Billing").getAttribute("class")).toMatch(/badge/);
-    expect(p1!.querySelector(".level")!.textContent).toBe("Just me");
-  });
-
-  it("shows plain words in the cells and the filters, keeping API values as option values", async () => {
-    listPage = () => ({ facts: [fact("w1", { kind: "invariant", status: "candidate", origin: "distilled" })], has_more: false });
-    render(<Facts />);
-    await screen.findByText("fact w1");
-    const [row] = rows();
-    expect(within(row!).getByText("Must stay true")).toBeTruthy();
-    expect(within(row!).getByText("Waiting for review").getAttribute("title")).toBe("Not given to agents yet");
-    expect(within(row!).getByText("Learned from a conversation")).toBeTruthy();
-    const time = row!.querySelector("time")!;
+    await screen.findByText("team fact");
+    const t1 = screen.getByRole("link", { name: /^team fact/ });
+    expect(t1.className).toBe("fact-row");
+    expect(t1.getAttribute("href")).toBe("/facts/t1");
+    expect(within(t1).getByText("Team: Billing").className).toBe("ui-badge who");
+    expect(t1.querySelector(".meta")!.textContent).toMatch(/^Team: Billing Convention, .+ Used 5 times$/);
+    expect(t1.querySelector(".used")!.textContent).toBe("Used 5 times");
+    const time = t1.querySelector("time")!;
     expect(time.getAttribute("dateTime")).toBe("2026-10-01T12:00:00Z");
     expect(time.textContent).not.toMatch(/2026-10-01/);
-    const status = screen.getByLabelText("Status") as HTMLSelectElement;
-    expect(within(status).getByRole("option", { name: "Waiting for review" }).getAttribute("value")).toBe("candidate");
+
+    const p1 = screen.getByRole("link", { name: /^my fact/ });
+    expect(within(p1).getByText("Just me")).toBeTruthy();
+    expect(p1.querySelector(".meta")!.textContent).toMatch(/Pitfall, Waiting for review, /);
+    expect(p1.querySelector(".used")!.textContent).toBe("Not used yet");
   });
 
   it("says what would appear when nothing matches", async () => {
-    listPage = () => ({ facts: [], has_more: false });
+    listPage = () => ({ facts: [], has_more: false, total: 0 });
     render(<Facts />);
     expect(await screen.findByRole("heading", { name: "Nothing matches these filters" })).toBeTruthy();
+    expect(document.querySelector(".filterbar .count")!.textContent).toBe("0 facts, newest first");
   });
 
   it("pages by has_more", async () => {
-    listPage = (offset) => ({ facts: [fact(`p${offset}`)], has_more: offset === 0 });
+    listPage = (offset) => ({ facts: [fact(`p${offset}`)], has_more: offset === 0, total: 51 });
     render(<Facts />);
     await screen.findByText("fact p0");
     const next = screen.getByRole("button", { name: "Next" }) as HTMLButtonElement;
-    const prev = screen.getByRole("button", { name: "Prev" }) as HTMLButtonElement;
+    const prev = screen.getByRole("button", { name: "Previous" }) as HTMLButtonElement;
+    expect(next.className).toBe("btn quiet");
     expect(prev.disabled).toBe(true);
     expect(next.disabled).toBe(false);
+    expect(screen.getByText("Page 1")).toBeTruthy();
 
     fireEvent.click(next);
     await screen.findByText("fact p50");
     expect(lastCall("/v1/facts").get("offset")).toBe("50");
     expect(new URLSearchParams(location.search).get("page")).toBe("1");
+    expect(screen.getByText("Page 2")).toBeTruthy();
     expect(next.disabled).toBe(true);
 
     fireEvent.click(prev);
@@ -204,18 +223,17 @@ describe("facts table", () => {
     expect(location.search).toBe("");
   });
 
-  it("searches, filters the hits here, and says there's no paging", async () => {
+  it("searches on Enter, filters the hits here, counts them, and has no pages or Used line", async () => {
     searchHits = [
       fact("s1", { text: "kept hit", scope: "repo:acme/widgets", status: "candidate" }),
       fact("s2", { text: "wrong status", scope: "repo:acme/widgets", status: "active" }),
       fact("s3", { text: "wrong scope", scope: "global", status: "candidate" }),
     ];
     render(<Facts />);
-    await screen.findByRole("option", { name: "acme/widgets" });
-    fireEvent.change(screen.getByLabelText("Repo"), { target: { value: "acme/widgets" } });
-    fireEvent.change(screen.getByLabelText("Status"), { target: { value: "candidate" } });
-    fireEvent.change(screen.getByLabelText("Search"), { target: { value: " retry budget " } });
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByRole("option", { name: "Repo: widgets" });
+    fireEvent.change(menu("Who gets it"), { target: { value: "repo:acme/widgets" } });
+    fireEvent.change(menu("Status"), { target: { value: "candidate" } });
+    search(" retry budget ");
 
     await screen.findByText("kept hit");
     expect(Object.fromEntries(lastCall("/v1/search"))).toEqual({
@@ -223,30 +241,37 @@ describe("facts table", () => {
     });
     expect(screen.queryByText("wrong status")).toBeNull();
     expect(screen.queryByText("wrong scope")).toBeNull();
-    expect(screen.getByRole("note").textContent).toMatch(/up to 100 matches; filters applied here, no paging/);
+    expect(document.querySelector(".filterbar .count")!.textContent).toBe("1 match, best first");
+    expect(screen.getByRole("note").textContent).toBe("At most 100 matches are shown.");
+    expect(screen.getByRole("link", { name: /^kept hit/ }).querySelector(".used")).toBeNull();
     expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
     expect(new URLSearchParams(location.search).get("q")).toBe("retry budget");
   });
 
-  it("search mode also applies the origin, kind and personal-scope filters client-side", async () => {
+  it("search keeps only live hits by default, any status with Any status, and applies the other menus here", async () => {
     searchHits = [
       fact("s1", { text: "kept hit", scope: "personal:u1", origin: "authored", kind: "gotcha" }),
       fact("s2", { text: "wrong origin", scope: "personal:u1", origin: "distilled", kind: "gotcha" }),
       fact("s3", { text: "wrong kind", scope: "personal:u1", origin: "authored", kind: "decision" }),
       fact("s4", { text: "wrong scope", scope: "global", origin: "authored", kind: "gotcha" }),
+      fact("s5", { text: "waiting hit", scope: "personal:u1", origin: "authored", kind: "gotcha", status: "candidate" }),
     ];
     render(<Facts />);
-    await screen.findByRole("option", { name: "acme/widgets" });
-    fireEvent.change(screen.getByLabelText("Level"), { target: { value: "personal" } });
-    fireEvent.change(screen.getByLabelText("Origin"), { target: { value: "authored" } });
-    fireEvent.change(screen.getByLabelText("Kind"), { target: { value: "gotcha" } });
-    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "retry budget" } });
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    await screen.findByText("fact f1");
+    fireEvent.change(menu("Who gets it"), { target: { value: "personal" } });
+    fireEvent.change(menu("Came from"), { target: { value: "authored" } });
+    fireEvent.change(menu("Kind"), { target: { value: "gotcha" } });
+    search("retry budget");
 
     await screen.findByText("kept hit");
     expect(screen.queryByText("wrong origin")).toBeNull();
     expect(screen.queryByText("wrong kind")).toBeNull();
     expect(screen.queryByText("wrong scope")).toBeNull();
+    expect(screen.queryByText("waiting hit")).toBeNull();
+
+    fireEvent.change(menu("Status"), { target: { value: "any" } });
+    expect(await screen.findByText("waiting hit")).toBeTruthy();
+    expect(document.querySelector(".filterbar .count")!.textContent).toBe("2 matches, best first");
   });
 });
 
@@ -254,7 +279,7 @@ describe("fact detail", () => {
   it("opens in the path, keeps the query, and shows anchors, chain and reviews", async () => {
     history.replaceState(null, "", "/facts?level=global");
     render(<Facts />);
-    fireEvent.click(await screen.findByText("fact f1"));
+    fireEvent.click(await screen.findByRole("link", { name: /^fact f1/ }));
     expect(location.pathname + location.search).toBe("/facts/f1?level=global");
 
     const panel = await screen.findByRole("complementary", { name: "Fact detail" });

@@ -61,16 +61,6 @@ select, input[type="search"] {
 }
 input[type="search"] { width: 240px; }
 
-table.facts { width: 100%; border-collapse: collapse; margin-top: 8px; background: var(--surface); }
-table.facts th { text-align: left; font-size: 13px; font-weight: 500; color: var(--muted); }
-table.facts th, table.facts td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-table.facts tbody tr[data-id] { cursor: pointer; }
-table.facts tbody tr[data-id]:hover { background: var(--bg); }
-table.facts tr[aria-current] { box-shadow: inset 3px 0 0 var(--accent); }
-table.facts tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-table.facts td.text { max-width: 60ch; }
-.pager { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
-
 .fact-detail {
   position: sticky;
   top: 16px;
@@ -291,9 +281,9 @@ table.stats .num { text-align: right; font-variant-numeric: tabular-nums; }
   .settings-last dd + dt { margin-top: 6px; }
 }
 
-/* Until Facts and Usage are rebuilt as rows, a wide table scrolls inside its own box, never the page. */
+/* Until Usage is rebuilt as rows, a wide table scrolls inside its own box, never the page. */
 @media (max-width: 860px) {
-  table.facts, table.stats, table.repos-files { display: block; max-width: 100%; overflow-x: auto; }
+  table.stats, table.repos-files { display: block; max-width: 100%; overflow-x: auto; }
 }
 
 @media (max-width: 640px) {

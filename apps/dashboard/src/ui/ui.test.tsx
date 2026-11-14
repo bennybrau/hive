@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Status } from "../api";
 import { Shell } from "../Shell";
-import { Badge, Button, EmptyState, Field, Link, PageHeader, Tabs, isCurrent } from ".";
+import { Badge, Button, EmptyState, FactRow, Field, Link, PageHeader, Tabs, isCurrent } from ".";
 
 const status = (role: Status["instance"]["role"]): Status => ({ version: "t", instance: { id: "i1", name: "jons-laptop", user_id: "jon", role } });
 
@@ -224,5 +224,25 @@ describe("ui components", () => {
     expect(screen.getByText("Every fact agents are given.").className).toBe("lede");
     expect(screen.getByRole("heading", { level: 2, name: "No teams yet" })).toBeTruthy();
     expect(screen.getByText("Repo: hive").className).toBe("ui-badge who");
+  });
+
+  it("FactRow is one link: the text, then the badge, the meta phrase and the use count", () => {
+    const { rerender } = render(
+      <FactRow href="/facts/f1" text="Retry twice." badge={<Badge tone="who">Repo: hive</Badge>} meta="Convention, 2 hours ago" used="Used 5 times" data-id="f1" />,
+    );
+    const row = screen.getByRole("link", { name: "Retry twice. Repo: hive Convention, 2 hours ago Used 5 times" });
+    expect(row.className).toBe("fact-row");
+    expect(row.getAttribute("href")).toBe("/facts/f1");
+    expect(row.dataset.id).toBe("f1");
+    expect(row.getAttribute("aria-current")).toBeNull();
+    expect(row.querySelector(".text")!.textContent).toBe("Retry twice.");
+    expect(row.querySelector(".used")!.textContent).toBe("Used 5 times");
+
+    rerender(<FactRow href="/facts/f1" text="Retry twice." meta="Convention" current />);
+    const open = screen.getByRole("link", { name: "Retry twice. Convention" });
+    expect(open.getAttribute("aria-current")).toBe("true");
+    expect(open.querySelector(".used")).toBeNull();
+    fireEvent.click(open);
+    expect(location.pathname).toBe("/facts/f1");
   });
 });

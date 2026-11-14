@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { JOB, KIND, ORIGIN, RAW_VALUES, ROLE, STATUS, VERIFY, WHERE, levelLabel, when, word } from "./words";
+import { JOB, KIND, ORIGIN, RAW_VALUES, ROLE, STATUS, VERIFY, WHERE, levelLabel, usedTimes, when, word } from "./words";
 
 const NOW = Date.parse("2026-11-12T18:00:00Z");
 const ago = (secs: number) => new Date(NOW - secs * 1000).toISOString();
@@ -15,6 +15,12 @@ describe("words", () => {
     expect(STATUS.candidate!.label).toBe("Waiting for review");
     expect(ORIGIN.distilled!.label).toBe("Learned from a conversation");
     expect(KIND.gotcha!.label).toBe("Pitfall");
+  });
+
+  it("says how often a fact was used", () => {
+    expect(usedTimes(0)).toBe("Not used yet");
+    expect(usedTimes(1)).toBe("Used once");
+    expect(usedTimes(5)).toBe("Used 5 times");
   });
 
   it("an unknown value shows as itself instead of blank", () => {

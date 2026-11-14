@@ -33,7 +33,7 @@ export function Facts() {
 
   const close = useCallback(() => {
     navigate(`/facts${location.search}`);
-    const rows = [...(listRef.current?.querySelectorAll<HTMLElement>("tr[data-id]") ?? [])];
+    const rows = [...(listRef.current?.querySelectorAll<HTMLElement>("[data-id]") ?? [])];
     (rows.find((r) => r.dataset.id === openId) ?? rows.find((r) => r.tabIndex === 0))?.focus();
   }, [openId]);
 

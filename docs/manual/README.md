@@ -99,16 +99,25 @@ How a fact goes live:
 
 ![Facts page with a fact open](img/fact-detail.png)
 
-Every fact agents are given, and where each one came from: everything you can see, newest first, 50 per page.
-Dates read as "3 hours ago" or "Nov 7"; hover one for the full date and time.
+Every fact agents are given, and where each one came from: live facts you can see, newest first, 50 per page
+(**Previous** and **Next** at the bottom). The line above the list says how many there are.
 
-**Filters** along the top narrow by who gets it, repo, status, origin and kind. The filters are kept in the page
-address, so you can bookmark or share a filtered view. When nothing matches, the page says so and explains how
-facts get here.
+**Search facts** at the top finds facts by meaning, not just by matching words: type and press `Enter`. Up to 100
+matches, best first, still narrowed by the menus. For conversations, commits and docs, use the [Search](#search)
+page.
 
-**Search** on this page finds facts by meaning, not just by matching words. Up to 100 matches, ranked by relevance,
-and still narrowed by the filters. Facts waiting for review are included. For conversations, commits and docs, use
-the [Search](#search) page.
+**The menus** beside the count narrow the list. Each reads as its current choice, and takes a tint once you change it:
+
+- **Status**: **Live** (the default), **Waiting for review**, **Replaced**, **Retired** or **Any status**.
+- **Who gets it**: **For anyone**, **Just me**, one repo (**Repo:** and its name), one team, or **Everyone**.
+- **Kind**: **Any kind** or one kind.
+- **Came from**: **From anywhere**, **Written by a person**, **Learned from a conversation** or **Read from the repo**.
+
+The menus are kept in the page address, so you can bookmark or share a filtered view. When nothing matches, the page
+says so and explains how facts get here.
+
+**Each row** is the fact's text, then who gets it, its kind (and its status, when it isn't live), when it was
+recorded, and how often agents were given it ("Used 5 times"; search results leave that out).
 
 **Click a row**, or move with `j`/`k` and press `Enter`, to open the fact on the right:
 

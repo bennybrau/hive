@@ -83,6 +83,40 @@ export function Badge({ tone, children, title }: { tone?: "who" | "warn"; childr
   );
 }
 
+/**
+ * One fact in a list: its text, then a meta line with the who-gets-it badge, a plain phrase ("Convention, 2 hours ago")
+ * and how often it was used at the right end. The whole row is one link; `current` marks the open one.
+ */
+export function FactRow({
+  href,
+  text,
+  badge,
+  meta,
+  used,
+  current,
+  className,
+  ...anchor
+}: Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "href"> & {
+  href: string;
+  text: ReactNode;
+  badge?: ReactNode;
+  meta?: ReactNode;
+  used?: ReactNode;
+  current?: boolean;
+}) {
+  return (
+    <Link to={href} className={className ? `fact-row ${className}` : "fact-row"} aria-current={current ? "true" : undefined} {...anchor}>
+      {/* The spaces keep the parts apart in the link's name; flex layout ignores them. */}
+      <span className="text">{text}</span>{" "}
+      <span className="meta">
+        {badge}
+        {meta && <> <span>{meta}</span></>}
+        {used && <> <span className="used">{used}</span></>}
+      </span>
+    </Link>
+  );
+}
+
 export function Card({ children, className, ...rest }: { children: ReactNode; className?: string } & Omit<HTMLAttributes<HTMLDivElement>, "className">) {
   return (
     <div className={className ? `ui-card ${className}` : "ui-card"} {...rest}>
