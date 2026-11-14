@@ -385,6 +385,7 @@ exports[`no teams > every read answers the same, in the same order, after migrat
       },
     ],
     "has_more": false,
+    "total": 6,
   },
   "recall": {
     "facts": [

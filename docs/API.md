@@ -29,10 +29,12 @@ may only use `/v1/worker/*` and `/v1/status`; every other `/v1` call is a 403
   - `supersedes`: id of the fact this one replaces. It must exist, be readable, `active`, and in the same scope
     (400 otherwise). When the new fact is (or later becomes, on review) `active`, the old one becomes
     `superseded` with `valid_to = now()`, if it is still active then. Ignored when the text dedupes.
-- `GET /v1/facts?scope=&status=&kind=&origin=&repo_key=&limit=&offset=` — `{facts, has_more}`, newest first.
+- `GET /v1/facts?scope=&status=&kind=&origin=&repo_key=&limit=&offset=` — `{facts, has_more, total}`, newest first.
   `origin` is `authored|distilled|ingested`. `has_more` is true when another page exists past `offset + limit`.
+  `total` is the count of facts matching the same filters, ignoring `limit` and `offset`.
 - `GET /v1/facts/:id` — `{fact, anchors, reviews, supersedes, superseded_by}`. Each anchor also carries `verify_note`,
-  `found_line` and `remote_url` (from the registered repo; `null` if its `repo_key` isn't registered).
+  `found_line` and `remote_url` (from the registered repo; `null` if its `repo_key` isn't registered), and `source`:
+  `{kind, author, where, at}`, or `null` without an episode, same as on `/v1/review/queue`.
   `reviews[]` is the review history, oldest first, as `{action, note, new_text, reviewer_user_id, created_at}`.
   `supersedes`/`superseded_by` are the supersede chain, nearest first, as `{id, text, status, recorded_at}`:
   what this fact replaced (older) and what replaced it (newer).

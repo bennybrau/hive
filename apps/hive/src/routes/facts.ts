@@ -17,6 +17,7 @@ import {
   type Fact,
 } from "../facts.js";
 import { readableScopes, resolveScope, ScopeError, ScopeForbidden, ScopeNotFound } from "../scope.js";
+import { sourceOf, type SourceColumns } from "../source.js";
 import { labelFor, TEAM_KEY_PATTERN } from "../teams.js";
 
 const anchorSchema = {
@@ -136,14 +137,18 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
       if (qs.kind) add("kind = ?", qs.kind);
       if (qs.origin) add("origin = ?", qs.origin);
       const limit = qs.limit ?? 50;
+      const countParams = [...params]; // the same filters, without limit and offset
       params.push(limit + 1, qs.offset ?? 0); // one extra row tells us whether there's another page
-      const { rows } = await pool.query<Fact>(
-        `select ${listColumns} from facts where ${where.join(" and ")}
-         order by recorded_at desc, id desc limit $${params.length - 1} offset $${params.length}`,
-        params,
-      );
+      const [{ rows }, count] = await Promise.all([
+        pool.query<Fact>(
+          `select ${listColumns} from facts where ${where.join(" and ")}
+           order by recorded_at desc, id desc limit $${params.length - 1} offset $${params.length}`,
+          params,
+        ),
+        pool.query<{ total: number }>(`select count(*)::int as total from facts where ${where.join(" and ")}`, countParams),
+      ]);
       const has_more = rows.length > limit;
-      return { facts: await labelFor(pool, who, qs.repo_key, has_more ? rows.slice(0, limit) : rows), has_more };
+      return { facts: await labelFor(pool, who, qs.repo_key, has_more ? rows.slice(0, limit) : rows), has_more, total: count.rows[0]!.total };
     },
   );
 
@@ -190,10 +195,13 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
         [req.params.id, ...params],
       );
       if (!rows[0]) return reply.code(404).send({ error: "no such fact" });
-      const anchors = await pool.query(
+      const anchors = await pool.query<Record<string, unknown> & SourceColumns>(
         `select a.id, a.episode_id, a.repo_key, a.commit_sha, a.path, a.line_start, a.line_end, a.quote,
-                a.verify_status, a.verified_at, a.verify_note, a.found_line, r.remote_url
-         from anchors a left join repos r on r.key = a.repo_key where a.fact_id = $1`,
+                a.verify_status, a.verified_at, a.verify_note, a.found_line, r.remote_url,
+                e.kind as ep_kind, e.ref as ep_ref, e.user_id as ep_user_id, e.metadata->>'author' as ep_author,
+                e.created_at as ep_at
+         from anchors a left join repos r on r.key = a.repo_key left join episodes e on e.id = a.episode_id
+         where a.fact_id = $1`,
         [req.params.id],
       );
       const reviews = await pool.query(
@@ -201,7 +209,15 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
         [req.params.id],
       );
       const [fact] = await labelFor(pool, who, undefined, rows);
-      return { fact, anchors: anchors.rows, reviews: reviews.rows, ...(await factChain(pool, req.params.id)) };
+      return {
+        fact,
+        anchors: anchors.rows.map(({ ep_kind, ep_ref, ep_user_id, ep_author, ep_at, ...a }) => ({
+          ...a,
+          source: sourceOf({ ep_kind, ep_ref, ep_user_id, ep_author, ep_at }),
+        })),
+        reviews: reviews.rows,
+        ...(await factChain(pool, req.params.id)),
+      };
     },
   );
 

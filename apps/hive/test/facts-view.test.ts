@@ -25,7 +25,7 @@ async function remember(token: string, body: Record<string, unknown>) {
 async function list(qs: string) {
   const res = await get(curator.token, `/v1/facts?${qs}`);
   expect(res.statusCode, res.body).toBe(200);
-  return res.json() as { facts: { id: string; origin: string }[]; has_more: boolean };
+  return res.json() as { facts: { id: string; origin: string }[]; has_more: boolean; total: number };
 }
 async function view(id: string) {
   const res = await get(curator.token, `/v1/facts/${id}`);
@@ -75,6 +75,19 @@ describe("GET /v1/facts", () => {
     // pages don't overlap
     expect(new Set([...p1.facts, ...p2.facts].map((f) => f.id)).size).toBe(3);
   });
+
+  it("says how many facts match the filters, whatever the page", async () => {
+    for (const t of ["First fact here", "Second fact here", "Third fact here"]) await remember(curator.token, { text: t });
+    expect((await list("")).total).toBe(3);
+    await remember(curator.token, { text: "Gotcha one: retries double-charge", kind: "gotcha" });
+    await remember(curator.token, { text: "Gotcha two: cron runs in UTC", kind: "gotcha" });
+    expect((await remember(alice.token, { text: "Gotcha three: a candidate", kind: "gotcha" })).status).toBe("candidate");
+    expect((await list("status=active&kind=gotcha")).total).toBe(2);
+    const p1 = await list("status=active&kind=gotcha&limit=1");
+    const p2 = await list("status=active&kind=gotcha&limit=1&offset=1");
+    expect([p1.facts.length, p1.total, p2.facts.length, p2.total]).toEqual([1, 2, 1, 2]);
+    expect((await list("limit=1&offset=5")).total).toBe(6);
+  });
 });
 
 describe("GET /v1/facts/:id", () => {
@@ -97,6 +110,38 @@ describe("GET /v1/facts/:id", () => {
       found_line: 14,
     });
     expect(byRepo["gh/acme/unknown"]).toMatchObject({ remote_url: null, verify_note: null, found_line: null });
+  });
+
+  it("an episode anchor carries its source: kind, who said it (never the factory), where, when", async () => {
+    const episode = async (kind: string, ref: string, userId: string, metadata: Record<string, unknown> = {}) => {
+      const { rows } = await pool.query<{ id: string; created_at: Date }>(
+        `insert into episodes (kind, ref, user_id, repo_key, content, metadata) values ($1, $2, $3, 'gh/o/a', 'user: ok', $4)
+         returning id, created_at`,
+        [kind, ref, userId, metadata],
+      );
+      return rows[0]!;
+    };
+    const plan = await episode("asf_dialog", "run_1:gate:after_plan", "asf-factory", { author: "jon" });
+    const turn = await episode("turn", "sess_1:3", "alice");
+    const bot = await episode("asf_dialog", "run_2:gate:after_plan", "asf-factory");
+    const f = await remember(curator.token, {
+      text: "Plans name their tests",
+      anchors: [
+        { episode_id: plan.id, quote: "ok" },
+        { episode_id: turn.id, quote: "ok" },
+        { episode_id: bot.id, quote: "ok" },
+        { repo_key: "gh/o/a", path: "x.ts", quote: "x" },
+      ],
+    });
+    const { anchors } = await view(f.id);
+    const byEpisode = Object.fromEntries(anchors.map((a: { episode_id: string | null; source: unknown }) => [a.episode_id ?? "none", a.source]));
+    expect(byEpisode).toEqual({
+      [plan.id]: { kind: "asf_dialog", where: "factory_plan_note", author: "jon", at: plan.created_at.toISOString() },
+      [turn.id]: { kind: "turn", where: "conversation", author: "alice", at: turn.created_at.toISOString() },
+      [bot.id]: { kind: "asf_dialog", where: "factory_plan_note", author: null, at: bot.created_at.toISOString() },
+      none: null,
+    });
+    for (const a of anchors) expect(Object.keys(a).filter((k) => k.startsWith("ep_"))).toEqual([]);
   });
 
   it("returns the review history, oldest first", async () => {
