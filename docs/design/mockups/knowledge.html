@@ -2,78 +2,93 @@
 <html lang="en" data-theme="dark">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Knowledge · Hive</title>
+<title>Facts · Knowledge · Hive</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Reddit+Sans:wght@400..700&family=JetBrains+Mono:wght@400..500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="hive.css">
+<link rel="stylesheet" href="rows.css">
 </head>
 <body data-page="knowledge">
 <div class="app">
-  <main class="main" style="max-width:1320px">
+  <main class="main kn">
+    <nav class="sec-tabs" aria-label="Knowledge"><a href="?" aria-current="page">Facts</a><a href="#">Search</a></nav>
+    <a class="back" href="?">Facts</a>
     <div class="page-head">
       <div>
-        <h1>Knowledge</h1>
+        <h1>Facts</h1>
         <p class="lede">Every fact agents are given, and where each one came from.</p>
       </div>
       <a class="btn primary end" href="#"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Add a fact</a>
     </div>
 
     <form class="search" role="search" onsubmit="return false">
-      <label for="q">Search what Hive knows</label>
+      <label for="q">Search facts</label>
       <div class="field"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-        <input id="q" type="search" value="containers" placeholder="A topic, a repo, a word someone used"></div>
+        <input id="q" type="search" placeholder="A topic, a repo, a word"></div>
     </form>
-    <div class="chips" aria-label="Filters">
-      <button class="chip on">Live<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
-      <button class="chip">Who gets it<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
-      <button class="chip">Repo<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
-      <button class="chip">Kind<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
-      <button class="chip">Came from<svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+
+    <div class="filterbar">
+      <p class="count"><b>124</b> facts, newest first</p>
+      <div class="menus" role="group" aria-label="Filters">
+        <button class="menu" type="button" aria-label="Status: Live" aria-haspopup="listbox"><span class="dot"></span>Live<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="menu" type="button" aria-label="Who gets it: anyone" aria-haspopup="listbox">For anyone<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="menu" type="button" aria-label="Kind: any" aria-haspopup="listbox">Any kind<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="menu" type="button" aria-label="Came from: anywhere" aria-haspopup="listbox">From anywhere<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+      </div>
     </div>
 
-    <nav class="tabs" aria-label="Results">
-      <a href="#" aria-current="page">Facts <span class="n">4</span></a>
-      <a href="#">Docs <span class="n">6</span></a>
-      <a href="#">Commits <span class="n">2</span></a>
-      <a href="#">Conversations <span class="n">11</span></a>
-    </nav>
-
-    <div class="split">
-      <div class="facts">
-        <a class="fact" href="#" aria-current="true"><span class="text">"All in containers" covers only the Hive side (service, Postgres, hive-worker). Hermes is a client on each teammate's machine, so tests run it on the host with throwaway profiles, not in a container.</span>
-          <span class="meta"><span class="badge who">Repo: hive</span><span>Decision</span><span class="sep">Learned from a conversation</span><span class="sep">Used 46 times</span></span></a>
-        <a class="fact" href="#"><span class="text">The Hive runs as its own Docker Compose project with its own Postgres volume, separate from the factory's stack.</span>
-          <span class="meta"><span class="badge who">Repo: hive</span><span>Decision</span><span class="sep">Written by a person</span><span class="sep">Used 35 times</span></span></a>
-        <a class="fact" href="#"><span class="text">The factory's uninstall script finds containers and volumes by label, so the Hive must never share the factory's Postgres.</span>
-          <span class="meta"><span class="badge who">Repo: hive</span><span>Must stay true</span><span class="sep">Written by a person</span><span class="sep">Used 30 times</span></span></a>
-        <a class="fact" href="#"><span class="text">Postgres for the Hive is exposed on host port 5544 because the factory's Postgres already uses 5432.</span>
-          <span class="meta"><span class="badge who">Repo: hive</span><span>Pitfall</span><span class="sep">Written by a person</span><span class="sep">Used 24 times</span></span></a>
+    <div class="kn-split">
+      <div class="kn-list">
+        <a class="krow" href="?view=fact"><span class="text">Never ask patients for date of birth in a form unless it is needed to book an appointment.</span>
+          <span class="meta"><span class="badge who">Repo: clinic-site-demo</span><span>Decision, 2 hours ago</span><span class="used">Used 3 times</span></span></a>
+        <a class="krow" href="?view=fact" aria-current="true"><span class="text">Every patient-facing form must tell the patient when they will hear back: the practice calls within one business day.</span>
+          <span class="meta"><span class="badge who">Repo: clinic-site-demo</span><span>Convention, 2 hours ago</span><span class="used">Used 5 times</span></span></a>
+        <a class="krow" href="?view=fact"><span class="text">Anything on a page that can change while a user is looking at it must update by itself without a reload, and plans for page changes should say how that live updating will be checked.</span>
+          <span class="meta"><span class="badge who">Repo: agentic-software-factory</span><span>Convention, 3 hours ago</span><span class="used">Used 5 times</span></span></a>
+        <a class="krow" href="?view=fact"><span class="text">Copy-link controls in the ASF UI should be a small icon-only button using the Material UI copy or link icon, not a heavy text 'Copy link' button.</span>
+          <span class="meta"><span class="badge who">Repo: agentic-software-factory</span><span>Decision, 4 hours ago</span><span class="used">Not used yet</span></span></a>
+        <a class="krow" href="?view=fact"><span class="text">Anything added to a page must fit a phone-width screen without sideways scrolling, and plans for page changes should say how that will be checked.</span>
+          <span class="meta"><span class="badge who">Repo: agentic-software-factory</span><span>Convention, yesterday</span><span class="used">Used 4 times</span></span></a>
+        <a class="krow" href="?view=fact"><span class="text">Any change that users of ASF will notice gets a line in CHANGELOG.md under [Unreleased].</span>
+          <span class="meta"><span class="badge who">Repo: agentic-software-factory</span><span>Convention, yesterday</span><span class="used">Used 18 times</span></span></a>
+        <a class="krow" href="?view=fact"><span class="text">Planner chat bubbles can render markdown, so raw **bold** marks showing in the chat is not an accepted limitation and should not be treated as a separate out-of-scope ticket.</span>
+          <span class="meta"><span class="badge who">Repo: agentic-software-factory</span><span>Decision, Nov 7</span><span class="used">Used 19 times</span></span></a>
       </div>
 
-      <aside class="card detail" aria-label="Selected fact">
-        <div class="row"><span class="badge who"><svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z"/><path d="M4 7l3-3h10l3 3"/></svg>Repo: hive</span><span class="badge">Decision</span><span class="badge"><span class="dot"></span>Live</span></div>
-        <p class="bigfact">"All in containers" covers only the Hive side (service, Postgres, hive-worker). Hermes is a client on each teammate's machine, so tests run it on the host with throwaway profiles, not in a container.</p>
-        <dl class="kv">
-          <dt>Who gets it</dt><dd>Agents working in the hive repo</dd>
-          <dt>Came from</dt><dd>Learned from a conversation with Jon, 5 days ago</dd>
-          <dt>Used</dt><dd>46 times, last 2 hours ago</dd>
-        </dl>
-        <div>
-          <span class="label">What Jon said</span>
-          <div class="quote" style="margin-top:var(--s-2)">"All in containers" means the Hive side. Hermes is the client on each teammate's machine, so it runs from throwaway host profiles, never a Hermes container.<span class="by">Factory plan chat, Nov 7</span></div>
+      <aside class="kn-pane" aria-label="Selected fact">
+        <div class="pane-top">
+          <span class="badge who"><svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z"/><path d="M4 7l3-3h10l3 3"/></svg>Repo: clinic-site-demo</span><span class="badge">Convention</span><span class="badge"><span class="dot"></span>Live</span>
+          <a class="btn quiet close" href="?fact=0" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></a>
         </div>
-        <div class="row">
+        <p class="bigfact">Every patient-facing form must tell the patient when they will hear back: the practice calls within one business day.</p>
+        <figure class="said">
+          <blockquote>Every form tells the patient when they'll hear back: we call within one business day.</blockquote>
+          <figcaption>Jon, in a factory plan approval, 2 hours ago<span class="check"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>Still matches what was said</span></figcaption>
+        </figure>
+        <dl class="kv">
+          <dt>Who gets it</dt><dd>Agents working in the clinic-site-demo repo</dd>
+          <dt>Used</dt><dd>5 times, last 2 hours ago</dd>
+          <dt>Approved</dt><dd>By Jon, 2 hours ago</dd>
+        </dl>
+        <div class="pane-actions">
           <a class="btn" href="#">Edit…</a>
           <a class="btn" href="#">Change who gets it…</a>
           <a class="btn quiet" href="#">Retire</a>
         </div>
         <details class="more"><summary>Details</summary>
-          <dl class="kv" style="margin-top:var(--s-3)"><dt>Id</dt><dd class="mono">9d1160a7</dd><dt>Recorded</dt><dd>Nov 7, 2026, 3:41 PM</dd></dl>
+          <dl class="kv" style="margin-top:var(--s-3)"><dt>Id</dt><dd class="mono">e9c03d20-…</dd><dt>Recorded</dt><dd>Nov 14, 2026, 12:35 PM</dd><dt>Conversation</dt><dd class="mono">5fab28cb-…, 8f1926dd-…</dd><dt>History</dt><dd>Approved by Jon, Nov 14, 12:37 PM</dd></dl>
         </details>
       </aside>
     </div>
   </main>
 </div>
 <script src="shell.js"></script>
+<script>document.querySelectorAll(".nav .count").forEach((c) => c.remove());</script>
+<script>
+  // Mockup states: ?fact=0 closes the pane; ?view=fact is the fact as its own page (what a phone shows after a tap).
+  const q = new URLSearchParams(location.search);
+  if (q.get("fact") === "0") { document.body.classList.add("no-fact"); document.querySelector(".krow[aria-current]").removeAttribute("aria-current"); }
+  if (q.get("view") === "fact") document.body.classList.add("view-fact");
+</script>
 </body>
 </html>

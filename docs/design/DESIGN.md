@@ -4,7 +4,7 @@ The one reference for how the dashboard looks, reads and behaves. Every dashboar
 
 Goal: any engineer, at any level, can open Hive and within a minute say what Hive knows, what is waiting for them, and what a button will do, without reading the manual.
 
-Mockups (static HTML, real Hive data from Nov 12): `docs/design/mockups/` — Home, Knowledge, Review, Admin › Notifications, each in dark and light, at 1440 and 390.
+Mockups (static HTML, real Hive data): `docs/design/mockups/` — Home, Knowledge, Review, Admin › Notifications, each in dark and light, at 1440 and 390. Review and Admin are from Nov 12. Home and Knowledge were redone on Nov 14 (`rows.css` holds their additions): `knowledge.html?fact=0` is the list with no fact open, `knowledge.html?view=fact` is a fact as its own page, `home.html?waiting=1` is Home with facts waiting.
 
 ## Principles
 
@@ -13,6 +13,7 @@ Mockups (static HTML, real Hive data from Nov 12): `docs/design/mockups/` — Ho
 3. **The fact first, the evidence second, the internals on request.** Ids, hashes, paths and raw timestamps live behind *Details*.
 4. **Explain in place.** One line under each page title says what the page is for. Each Hive word has a short hint. Empty states say what would appear and how.
 5. **The same on a phone.** Nothing wider than the screen at 320; every control 44px tall at phone width.
+6. **Rules divide, cards decide.** A list, the open fact and a summary are separated by 1px rules and space. A card is for one decision or one form. Nothing floats over the content it belongs to.
 
 ## Structure
 
@@ -60,8 +61,11 @@ Contrast: body text 7:1 or better, muted text 4.5:1 or better, on every surface 
 - **Button** — `secondary` (default: surface, 1px line) and `primary` (filled, `--action`). Exactly one primary per view. `quiet` for tertiary actions (Retire, Change…, prev/next). Heights 40 (48 for the main decision, 44 on phone). Label = verb + object, and a decision button says where it goes: "Approve for Repo: hive".
 - **Field** — label above (15px/500), 48px input, help line under it, error under its own field. Saved secrets show an empty password field with placeholder "Saved. Paste a new one to replace it" and a "Saved <date>. Hive never shows it again." line.
 - **Badge** — `who` (tint) for who gets it; plain for kind and status; `warn` for out of date / source changed.
-- **Card** — surface, 1px line, 8px radius, 24px padding. Never nested more than two deep.
-- **FactRow** — text 16px, then a meta line: who-gets-it badge, kind, where it came from, when / how often used. Whole row is the link. Selected row: tint + accent border.
+- **Card** — surface, 1px line, 8px radius, 24px padding. For a decision (the Review card) or a form (Admin). Not for list rows, the open fact or Home's summaries. Never nested more than two deep.
+- **FactRow** — text 16px (78 characters wide at most), then a 13px meta line: the who-gets-it badge, then a plain phrase with commas ("Convention, 2 hours ago"), and "Used 5 times" at the right end. No dots between items. Rows are divided by a 1px rule. Whole row is the link. Selected row: tint + a 3px accent edge on the left.
+- **Filter menus** — one line under the search box: the count on the left ("124 facts, newest first"), then quiet menus that read as their current value ("Live", "For anyone", "Any kind", "From anywhere"). Each is a native `<select>` with an accessible name, drawn without a border, 36px tall (44 on a phone); a menu set away from its default takes the tint. No label above, no row of pills. On a phone the menus scroll sideways inside their own strip.
+- **Pane** — the open item beside its list: a column of the page divided from the list by one vertical rule, sticky, as tall as the screen, scrolling on its own. It never overlaps the list. Under 1180px there is no pane: the row opens the item as its own page with a back link.
+- **Said** — what a person said, as a quote with a 3px accent rule on the left, 18px; under it one line: who, where, when, and whether it still matches. It appears once per source.
 - **Tabs** — underline style, count after the label.
 - **PageHeader** — h1, one lede line, optional single action on the right.
 - **EmptyState** — what would appear here, and how it gets here.
@@ -106,8 +110,8 @@ Dates: relative ("17 hours ago", "Nov 7" past a week) with the full date and tim
 
 ## Screens
 
-- **Home** — greeting and one-line explanation of Hive. *Needs you* (curators): waiting for review (the page's one primary button), possibly out of date, sources. *What Hive knows*: live facts as bars by who gets them, each with its hint; Teams (or how to create one); this month's spend in one sentence. *Recently added*: three FactRows. Non-curators see what Hive knows, their own facts, and how to add one; no review counts or cost.
-- **Knowledge** — one big search box; filter chips (Live on by default, Who gets it, Repo, Kind, Came from); result tabs Facts / Docs / Commits / Conversations with counts; FactRows on the left, the selected fact on the right (badges, the fact at 20px, Who gets it / Came from / Used, what the person said as a quote, Edit… / Change who gets it… / Retire, Details). Primary button: Add a fact.
+- **Home** — greeting and one-line explanation of Hive. *Needs you* (curators): three lines divided by rules, each a sentence with a muted line of explanation and its action on the right: waiting for review, possibly out of date, sources. The review line takes the tint and the page's one primary button ("Review 2 facts") only when something is waiting; otherwise it reads "Nothing is waiting for review." with a secondary button. *What Hive knows*: live facts as bars by who gets them, each with its hint; beside it, Teams (or how to create one) and this month's spend in one sentence. *Recently added*: three FactRows. No stat cards. Non-curators see what Hive knows, their own facts, and how to add one; no review counts or cost.
+- **Knowledge** — two tabs, Facts and Search. Facts: one search box ("Search facts"); the filter menus line (Live by default; who gets it, which folds the repo in, since a repo is one of the levels; kind; came from); FactRows on the left, the open fact in the pane on the right: badges (who gets it, kind, status) and Close; the fact at 22px; what the person said (Said), or the file and lines for a fact read from a repo; Who gets it / Used / Approved as three plain lines; Edit… / Change who gets it… / Retire for curators; Details (id, recorded time, conversation ids, review history, what it replaced). Primary button: Add a fact. Docs, commits and conversations stay on the Search tab until the two are merged.
 - **Review** — tabs New / Out of date. One card: position and prev/next; the proposed fact at 22px; *Who gets it* box with Change…; *Why Hive thinks so* = the person's own words as a quote with who, where and when; the agent's side folded. Footer: **Approve for <level>** (primary), Edit…, Reject, and "? keys". On phone the footer is fixed to the bottom: Approve full width, Edit and Reject below.
 - **Admin** — sub-tabs. Forms follow the Field recipe; one primary Save per form, named for what it saves; a status line beside it.
 
@@ -116,7 +120,7 @@ Dates: relative ("17 hours ago", "Nov 7" past a week) with the full date and tim
 On every route at 1440 and 390, light and dark: no raw API value as visible text; nothing under 13px; no sideways scroll; 44px targets at phone width; contrast as above; one primary button per view. The tasteskill checker (`consistency.mjs --quick`) runs against the mockups; its website-only checks (hero, one section per screen, call to action, share tags) do not apply.
 
 Waived on purpose:
-- `button-styles` on Knowledge: filter chips are toggles, not buttons, and are meant to look different from Add a fact and Edit….
+- `button-styles` on Knowledge: the filter menus are selects, not buttons, and are meant to look different from Add a fact and Edit….
 - `button-styles` on the phone for the skip link: it is off screen until focused.
 
-As of the Nov 12 mockups, every other applicable check passes on all four screens, in dark and light, at 1440 and 390.
+As of the Nov 12 mockups, every other applicable check passes on Review and Admin, in dark and light, at 1440 and 390. The Nov 14 Home and Knowledge mockups have no finding on the checks that apply (contrast, tap size, labels, focus, the phone menu button, off-screen content); the checker's one warning that is not website-only is Home's three explanation lines at 15px on a phone.

@@ -1,0 +1,118 @@
+/* Home and Knowledge (Nov 14): additions on top of hive.css. Same tokens, no new colours.
+   - Lists, the open fact and Home's summaries are divided by 1px rules. Cards stay for decisions and forms.
+   - Filters are one line of quiet menus that read as their current value, beside the count.
+   - The open fact is a pane of the page (never floating over the list); under 1180px it is its own page.
+   - A row's meta is a plain phrase with commas; the person's own words are the one loud thing in the pane. */
+.main.kn { max-width: 1400px; }
+.kn .page-head { margin-bottom: var(--s-5); }
+.back { display: none; }
+.sec-tabs { display: flex; gap: var(--s-5); border-bottom: 1px solid var(--line); margin: calc(-1 * var(--s-3)) 0 var(--s-6); }
+.sec-tabs a { display: inline-flex; align-items: center; min-height: 44px; margin-bottom: -1px; color: var(--muted); text-decoration: none; font-weight: 500; border-bottom: 2px solid transparent; }
+.sec-tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--accent); }
+
+.filterbar { display: flex; align-items: center; gap: var(--s-4); min-height: 52px; margin-top: var(--s-2); }
+.filterbar .count { color: var(--muted); font-size: 15px; margin-right: auto; white-space: nowrap; }
+.filterbar .count b { color: var(--ink); font-weight: 500; }
+.menus { display: flex; gap: var(--s-1); min-width: 0; }
+.menu { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--ink); font: 500 14px/1 var(--font-text); cursor: pointer; white-space: nowrap; }
+.menu:hover { background: var(--raise); }
+.menu svg { width: 14px; height: 14px; stroke: var(--muted); fill: none; stroke-width: 2; }
+.menu.set { background: var(--tint); color: var(--tint-ink); }
+.menu .dot, .badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+.kn-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 540px); align-items: start; }
+.kn-list, .kn-pane { border-top: 1px solid var(--line); }
+.no-fact .kn-split { grid-template-columns: minmax(0, 1fr); }
+.no-fact .kn-pane { display: none; }
+
+.kn-list { min-width: 0; margin-left: calc(-1 * var(--s-4)); }
+.krow { display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-4); text-decoration: none; color: inherit; border-bottom: 1px solid var(--line); }
+.krow:hover { background: var(--raise); }
+.krow[aria-current="true"] { background: var(--tint); box-shadow: inset 3px 0 0 var(--accent); }
+.krow .text { font-size: var(--t-body); line-height: 1.5; overflow-wrap: anywhere; max-width: 78ch; }
+.krow .meta { display: flex; align-items: center; gap: var(--s-1) var(--s-3); font-size: 13px; color: var(--muted); }
+.krow .meta .badge { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: inline-block; line-height: 26px; }
+.krow .used { margin-left: auto; white-space: nowrap; }
+
+.kn-pane { position: sticky; top: 0; height: 100vh; overflow: auto; border-left: 1px solid var(--line); padding: var(--s-5) 0 var(--s-6) var(--s-6); display: flex; flex-direction: column; gap: var(--s-5); min-width: 0; }
+.pane-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.pane-top .close { margin-left: auto; width: 36px; height: 36px; padding: 0; }
+.kn-pane .bigfact { font-size: 22px; line-height: 1.4; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.said { margin: 0; border-left: 3px solid var(--accent); padding: var(--s-1) 0 var(--s-1) var(--s-5); }
+.said blockquote { margin: 0; font-size: 18px; line-height: 1.5; }
+.said blockquote::before { content: "\201C"; } .said blockquote::after { content: "\201D"; }
+.said figcaption { margin-top: var(--s-2); font-size: 14px; color: var(--muted); display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-4); }
+.said .check { display: inline-flex; align-items: center; gap: 4px; }
+.said .check svg { width: 14px; height: 14px; stroke: var(--accent); fill: none; stroke-width: 2.4; }
+.pane-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.kn-pane .kv, .kn-pane details.more { margin: 0; }
+
+/* The list and the open fact sit side by side only when both have room. Below that a row opens the fact as its own page. */
+@media (max-width: 1180px) {
+  .kn-split { grid-template-columns: minmax(0, 1fr); }
+  .kn-pane { display: none; }
+  .krow .meta { flex-wrap: wrap; }
+  .view-fact .sec-tabs, .view-fact .page-head, .view-fact .search, .view-fact .filterbar, .view-fact .kn-list { display: none; }
+  .view-fact .back { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--muted); text-decoration: none; font-weight: 500; margin-bottom: var(--s-2); }
+  .view-fact .back::before { content: "\2039"; font-size: 22px; line-height: 1; }
+  .view-fact .kn-pane { display: flex; position: static; height: auto; border-left: 0; border-top: 0; padding: 0; max-width: 720px; }
+  .view-fact .pane-top .close { display: none; }
+}
+
+@media (max-width: 860px) {
+  .kn-list { margin: 0 calc(-1 * var(--s-4)); }
+  .filterbar { flex-direction: column; align-items: stretch; gap: 0; margin-top: var(--s-3); }
+  .menus { overflow-x: auto; margin: 0 calc(-1 * var(--s-4)); padding: 0 var(--s-4) var(--s-2); }
+  .menu { height: 44px; flex: none; }
+  .filterbar .count { order: 2; padding: var(--s-2) 0 var(--s-3); }
+  .krow .used { margin-left: 0; }
+  .view-fact .pane-actions .btn { flex: 1 1 auto; }
+  .view-fact .kn-pane .bigfact { font-size: 20px; }
+}
+
+
+/* ---------- Home v2: same language as Knowledge. Sentences and rules instead of stat cards. ---------- */
+.main.home { max-width: 1120px; }
+.home section { margin-top: var(--s-7); }
+.home .page-head + section { margin-top: 0; }
+.home h2 { margin-bottom: var(--s-3); }
+.is-clear .todo[data-state="waiting"], .is-waiting .todo[data-state="clear"] { display: none; }
+.todos { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.todo { display: flex; align-items: center; gap: var(--s-5); padding: var(--s-4) 0; border-bottom: 1px solid var(--line); }
+.todo > div { min-width: 0; margin-right: auto; }
+.todo .what { font-size: var(--t-lead); }
+.todo .what b, .home .sub b, .asides b { font-weight: 500; }
+.todo .why { color: var(--muted); font-size: 15px; margin-top: 2px; max-width: 70ch; }
+.todo .btn { flex: none; }
+.todo[data-state="waiting"] { box-shadow: inset 3px 0 0 var(--accent); background: var(--tint); padding-left: var(--s-4); padding-right: var(--s-4); margin: 0 calc(-1 * var(--s-4)); }
+.dot.lead { margin-right: var(--s-2); vertical-align: 2px; }
+
+.h-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--s-7); align-items: start; }
+.home .sub { color: var(--muted); font-size: 15px; margin: calc(-1 * var(--s-2)) 0 var(--s-4); }
+.home .sub b { color: var(--ink); }
+.lvls { border-top: 1px solid var(--line); }
+.lvl { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) 3ch; align-items: center; gap: var(--s-4); padding: var(--s-3) 0; border-bottom: 1px solid var(--line); }
+.lvl .name { font-weight: 500; overflow-wrap: anywhere; }
+.lvl .hint { display: block; font-weight: 400; font-size: 13px; color: var(--muted); }
+.lvl .track { display: block; height: 8px; border-radius: 4px; background: var(--raise); }
+.lvl .fill { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+.lvl .n { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+.asides { display: flex; flex-direction: column; gap: var(--s-6); }
+.asides p { margin-top: var(--s-2); }
+.asides p + p { margin-top: var(--s-3); }
+.h-row { display: flex; align-items: baseline; gap: var(--s-4); }
+.h-row a { margin-left: auto; font-size: 15px; }
+.kn-list.flush { margin-left: calc(-1 * var(--s-4)); margin-right: calc(-1 * var(--s-4)); }
+
+@media (max-width: 860px) {
+  .home section { margin-top: var(--s-6); }
+  .h-split { grid-template-columns: minmax(0, 1fr); gap: var(--s-6); }
+  .todo { flex-direction: column; align-items: stretch; gap: var(--s-3); }
+  .todo .btn { align-self: flex-start; }
+  .more-link { display: inline-flex; align-items: center; min-height: 44px; }
+  .h-row { align-items: center; }
+  .todo .btn.primary { align-self: stretch; }
+  .lvl { grid-template-columns: minmax(0, 1fr) 3ch; row-gap: var(--s-2); }
+  .lvl .track { grid-column: 1 / -1; order: 3; }
+  .kn-list.flush { margin: 0 calc(-1 * var(--s-4)); }
+}
