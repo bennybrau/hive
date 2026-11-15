@@ -58,6 +58,7 @@ describe("levelLabel", () => {
     [{ scope: "personal:u1" }, "Just me", "Only your own agents."],
     [{ scope: "repo:gh/acme/proj" }, "Repo: proj", "Agents working in the proj repo."],
     [{ scope: "repo:local" }, "Repo: local", "Agents working in the local repo."],
+    [{ scope: "repo:" }, "Repo: ", "Agents working in the repo you pick."],
     [{ scope: "team:billing" }, "Team: Billing", "This team first; others can still find it."],
     [{ scope: "global" }, "Everyone", "Agents in every repository, for every team."],
   ] as [Labelled, string, string][])("labels %o as %s", (fact, label, hint) => {

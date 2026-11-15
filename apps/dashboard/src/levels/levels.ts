@@ -57,7 +57,8 @@ export function levelLabel(fact: Labelled, teams: Team[] = [], mine: MyTeam[] = 
   if (l.level === "repository") {
     const key = fact.scope.slice("repo:".length);
     const name = key.slice(key.lastIndexOf("/") + 1);
-    return { label: `Repo: ${name}`, hint: `Agents working in the ${name} repo.` };
+    // No repo picked yet: the "Another repo…" option asks for this hint before a repo is chosen.
+    return { label: `Repo: ${name}`, hint: name ? `Agents working in the ${name} repo.` : "Agents working in the repo you pick." };
   }
   if (l.team) return { label: `Team: ${l.team.name}`, hint: "This team first; others can still find it." };
   return { label: "Everyone", hint: "Agents in every repository, for every team." };
