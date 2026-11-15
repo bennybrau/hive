@@ -14,9 +14,10 @@ test("sign in, see the role, sign out", async ({ page }) => {
 
   await page.getByLabel("Token").fill(TOKEN);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/facts$/);
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
   await expect(page.getByLabel("role")).toHaveText("Member");
-  await expect(page.getByRole("heading", { name: "Facts" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(/^Good (morning|afternoon|evening), /);
 
   // The hive serves index.html for client routes, and the token survives a reload of the tab.
   await page.reload();
@@ -37,9 +38,12 @@ test("on a phone no page is wider than the screen, and the menu opens from the t
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(CURATOR);
   await page.getByRole("button", { name: "Sign in" }).tap();
-  await expect(page).toHaveURL(/\/facts$/);
+  await page.getByRole("button", { name: "Menu" }).tap(); // on a phone the menu sits behind the Menu button
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
+  await page.getByRole("button", { name: "Close" }).tap();
 
-  for (const path of ["/facts", "/search", "/review", "/stale", "/playbooks", "/teams", "/repos", "/stats", "/settings"]) {
+  for (const path of ["/", "/facts", "/search", "/review", "/stale", "/playbooks", "/teams", "/repos", "/stats", "/settings"]) {
     await page.evaluate((p) => {
       history.pushState(null, "", p);
       dispatchEvent(new PopStateEvent("popstate"));

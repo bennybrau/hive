@@ -9,6 +9,7 @@ automatically. The dashboard is where a person looks in and decides.
 - [Signing in](#signing-in)
 - [Finding your way around](#finding-your-way-around): the menu and where each page lives
 - [Words you'll see](#words-youll-see)
+- [Home](#home): what needs you, what the hive knows, and what's new
 - [Facts](#facts): browse everything the hive knows
 - [Search](#search): ask across facts, conversations, commits and docs
 - [Sources](#sources): the code and docs the hive has read
@@ -21,7 +22,7 @@ automatically. The dashboard is where a person looks in and decides.
 
 | | Member | Curator |
 |---|---|---|
-| Knowledge (Facts, Search), Admin › Sources (Repos) | ✓ | ✓ |
+| Home, Knowledge (Facts, Search), Admin › Sources (Repos) | ✓ | ✓ |
 | **Read again now** on Sources | | ✓ |
 | Review (New, Out of date), Playbooks, Teams, Admin › Usage and cost (Stats), Admin › Notifications (Settings) | | ✓ |
 
@@ -53,6 +54,7 @@ The menu runs down the left side. On a phone it sits behind the **Menu** button 
 
 | Menu item | Its pages (tabs along the top) | Who |
 |---|---|---|
+| **Home** | [Home](#home), at `/`, where signing in lands | everyone |
 | **Knowledge** | [Facts](#facts), [Search](#search) | everyone |
 | **Review** | New ([Review](#review-curators)), Out of date (facts nobody has used in a while) | curators |
 | **Playbooks** | step-by-step instructions agents follow for a kind of task | curators |
@@ -60,7 +62,7 @@ The menu runs down the left side. On a phone it sits behind the **Menu** button 
 | **Admin** | [Sources](#sources), [Usage and cost](#usage-and-cost-curators), [Notifications](#notifications-curators) | everyone sees Sources; the rest is curators only |
 
 A number next to **Review** is how many facts are waiting for a curator. The page addresses haven't changed
-(`/facts`, `/review`, `/stale`, `/repos`, `/stats`, `/settings`), so old links and the daily digest's link still
+(`/` is Home; `/facts`, `/review`, `/stale`, `/repos`, `/stats`, `/settings`), so old links and the daily digest's link still
 work. The screenshots in this manual show the dashboard before the redesign; they are replaced as each page is
 rebuilt.
 
@@ -94,6 +96,34 @@ How a fact goes live:
 - Shared facts written by a **curator** are live at once.
 - Shared facts written by a **member**, and everything **learned from a conversation**, start as **Waiting for
   review** in [Review](#review-curators).
+
+## Home
+
+Signing in lands on Home, at `/`. It greets you by the time of day and reads the hive again whenever you come
+back to the tab; it doesn't refresh on its own while you're looking at it.
+
+**Needs you** (curators only): three lines, each with its action at the right end.
+
+- **Review**: how many facts are waiting for review, and how long ago the newest came in, with **Review 2 facts**.
+  That is the page's only filled button, and it appears only when something is waiting; otherwise the line reads
+  "Nothing is waiting for review." with **Open Review**.
+- **Out of date**: how many facts nobody has used in the hive's stale window (60 days by default), with **See the
+  list** ([Out of date](#out-of-date-curators)).
+- **Sources**: when the repos were last read and whether any couldn't be read, with **Check sources**
+  ([Sources](#sources)).
+
+**What Hive knows**: live facts as bars by who gets them (**Just me**, each repo, each team, **Everyone**), the
+longest bar being the level with the most. Each bar opens [Facts](#facts) filtered to that level. Beside it:
+
+- **Teams**: how many teams there are (for a member, how many you're in). Curators get **Create a team** or **See
+  teams**.
+- **This month** (curators only): what learning from conversations has cost since the 1st (UTC), how many
+  conversations that covered and how many facts it proposed, with a link to [Usage and cost](#usage-and-cost-curators).
+
+**Recently added**: the three newest live facts, each opening in Facts, and **All … facts**.
+
+A hive with no live facts yet says so in place of the bars, and Recently added is left out. Members see What Hive
+knows, Teams and Recently added; there are no review counts or cost on their Home.
 
 ## Facts
 

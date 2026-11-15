@@ -10,7 +10,8 @@ test("a curator opens Stats and sees cost, facts, workers and backlog", async ({
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(CURATOR);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/facts$/);
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Admin" }).click();
   await page.getByRole("navigation", { name: "Admin pages" }).getByRole("link", { name: "Usage and cost" }).click();
   await expect(page).toHaveURL(/\/stats$/);
@@ -33,7 +34,8 @@ test("a member sees no Usage and cost link and a Curator-only note at /stats", a
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(MEMBER);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/facts$/);
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Admin" }).click();
   await expect(page).toHaveURL(/\/repos$/);
   await expect(page.getByRole("link", { name: "Usage and cost" })).toHaveCount(0);

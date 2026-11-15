@@ -9,7 +9,8 @@ async function signIn(page: import("@playwright/test").Page, token: string) {
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(token);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/facts$/);
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Admin" }).click();
   await expect(page).toHaveURL(/\/repos$/);
 }

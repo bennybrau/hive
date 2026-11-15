@@ -15,7 +15,8 @@ test("a curator creates a playbook and the brief picks it up", async ({ page }) 
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(CURATOR);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/facts$/);
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
   await page.getByRole("link", { name: "Playbooks" }).click();
   await expect(page).toHaveURL(/\/playbooks$/);
   await page.getByRole("button", { name: "New playbook" }).click();

@@ -13,11 +13,23 @@ function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
+/** What Home shows for an empty hive. */
+const HOME = { facts: { live: 0, by_level: [] }, recent: [], repos: { count: 0, last_read_at: null, problems: 0 }, teams: { count: 0 } };
+
 /** A fake hive that accepts only `good-token`. */
-const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+const fetchMock = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
   const auth = new Headers(init?.headers).get("authorization");
-  return auth === "Bearer good-token" ? json(200, STATUS) : json(401, { error: "unauthorized" });
+  if (auth !== "Bearer good-token") return json(401, { error: "unauthorized" });
+  return String(url) === "/v1/home" ? json(200, HOME) : json(200, STATUS);
 });
+
+/** A curator's hive: status and Home as usual, `body` for every other call. */
+const asCurator = (body: unknown) => async (url: RequestInfo | URL) =>
+  String(url) === "/v1/status"
+    ? json(200, { ...STATUS, instance: { ...STATUS.instance, role: "curator" } })
+    : String(url) === "/v1/home"
+      ? json(200, HOME)
+      : json(200, body);
 
 function authOf(call: number): string | null {
   return new Headers(fetchMock.mock.calls[call]![1]?.headers).get("authorization");
@@ -40,19 +52,21 @@ afterEach(() => {
 });
 
 describe("dashboard shell", () => {
-  it("signs in, stores the token, sends it on later calls, and lands on /facts", async () => {
+  it("signs in, stores the token, sends it on later calls, and lands on Home at /", async () => {
     render(<App />);
     await signIn("good-token");
     expect(await screen.findByText("bennys-laptop")).toBeTruthy();
     expect(screen.getByLabelText("role").textContent).toBe("Member");
-    expect(screen.getByRole("heading", { name: "Facts" })).toBeTruthy();
-    expect(location.pathname).toBe("/facts");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/^Good (morning|afternoon|evening), U1$/);
+    expect(location.pathname).toBe("/");
+    const main = screen.getByRole("navigation", { name: "Main" });
+    expect(within(main).getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBe("page");
     expect(sessionStorage.getItem("hive.token")).toBe("good-token");
     expect(fetchMock.mock.calls[0]![0]).toBe("/v1/status");
     expect(authOf(0)).toBe("Bearer good-token");
 
     await apiFetch("/v1/facts");
-    // The Facts view makes its own calls first; ours is the last one.
+    // Home makes its own calls first; ours is the last one.
     const last = fetchMock.mock.calls.length - 1;
     expect(fetchMock.mock.calls[last]![0]).toBe("/v1/facts");
     expect(authOf(last)).toBe("Bearer good-token");
@@ -62,15 +76,11 @@ describe("dashboard shell", () => {
     sessionStorage.setItem("hive.token", "good-token");
     const { unmount } = render(<App />);
     await screen.findByText("bennys-laptop");
-    expect(screen.getByRole("link", { name: "Facts" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBe("page");
     expect(screen.queryByRole("link", { name: "Review" })).toBeNull();
     unmount();
 
-    fetchMock.mockImplementation(async (url) =>
-      String(url) === "/v1/status"
-        ? json(200, { ...STATUS, instance: { ...STATUS.instance, role: "curator" } })
-        : json(200, { candidates: [], flagged: [], last_distill_at: null }),
-    );
+    fetchMock.mockImplementation(asCurator({ candidates: [], flagged: [], last_distill_at: null }));
     render(<App />);
     fireEvent.click(await screen.findByRole("link", { name: "Review" }));
     expect(location.pathname).toBe("/review");
@@ -85,11 +95,7 @@ describe("dashboard shell", () => {
     expect(screen.queryByRole("link", { name: "Playbooks" })).toBeNull();
     unmount();
 
-    fetchMock.mockImplementation(async (url) =>
-      String(url) === "/v1/status"
-        ? json(200, { ...STATUS, instance: { ...STATUS.instance, role: "curator" } })
-        : json(200, { playbooks: [], facts: [], has_more: false, repos: [] }),
-    );
+    fetchMock.mockImplementation(asCurator({ playbooks: [], facts: [], has_more: false, repos: [] }));
     render(<App />);
     fireEvent.click(await screen.findByRole("link", { name: "Playbooks" }));
     expect(location.pathname).toBe("/playbooks");
@@ -105,11 +111,7 @@ describe("dashboard shell", () => {
     expect(screen.queryByRole("link", { name: "Out of date" })).toBeNull();
     unmount();
 
-    fetchMock.mockImplementation(async (url) =>
-      String(url) === "/v1/status"
-        ? json(200, { ...STATUS, instance: { ...STATUS.instance, role: "curator" } })
-        : json(200, { facts: [], has_more: false, stale_days: 60 }),
-    );
+    fetchMock.mockImplementation(asCurator({ facts: [], has_more: false, stale_days: 60 }));
     history.replaceState(null, "", "/stale");
     render(<App />);
     expect(await screen.findByText("Nothing is out of date")).toBeTruthy();
@@ -127,11 +129,7 @@ describe("dashboard shell", () => {
     expect(screen.queryByRole("link", { name: "Teams" })).toBeNull();
     unmount();
 
-    fetchMock.mockImplementation(async (url) =>
-      String(url) === "/v1/status"
-        ? json(200, { ...STATUS, instance: { ...STATUS.instance, role: "curator" } })
-        : json(200, { teams: [] }),
-    );
+    fetchMock.mockImplementation(asCurator({ teams: [] }));
     render(<App />);
     fireEvent.click(await screen.findByRole("link", { name: "Teams" }));
     expect(location.pathname).toBe("/teams");

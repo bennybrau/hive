@@ -36,6 +36,9 @@ test("search finds a fresh personal fact and opens it", async ({ page }) => {
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(TOKEN);
   await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Knowledge" }).click();
   await expect(page).toHaveURL(/\/facts$/);
 
   await page.getByRole("navigation", { name: "Knowledge pages" }).getByRole("link", { name: "Search" }).click();

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch, getToken, onSignOut, type Status } from "./api";
 import { Facts } from "./facts/Facts";
+import { Home } from "./home/Home";
 import { Playbooks } from "./playbooks/Playbooks";
 import { Repos } from "./repos/Repos";
 import { Review } from "./review/Review";
@@ -47,15 +48,13 @@ export function App() {
     };
   }, [status]);
 
-  useEffect(() => {
-    if (path === "/") navigate("/facts");
-  }, [path]);
-
   if (status === "loading") return null;
   if (!status) return <SignIn onSignedIn={setStatus} />;
   return (
     <Shell status={status} path={path}>
-      {path === "/facts" || path.startsWith("/facts/") ? (
+      {path === "/" ? (
+        <Home name={status.instance.user_id || status.instance.name} role={status.instance.role} />
+      ) : path === "/facts" || path.startsWith("/facts/") ? (
         <Facts />
       ) : path === "/review" ? (
         <Review role={status.instance.role} />

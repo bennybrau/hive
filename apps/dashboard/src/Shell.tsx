@@ -3,6 +3,12 @@ import { apiFetch, signOut, type Status } from "./api";
 import { Button, Link, Tabs, isCurrent, type Tab } from "./ui";
 
 const ICONS = {
+  home: (
+    <>
+      <path d="M3 11l9-7 9 7" />
+      <path d="M5 10v10h14V10" />
+    </>
+  ),
   knowledge: <path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4" />,
   review: (
     <>
@@ -57,6 +63,7 @@ interface Section {
  * moves to its new address when it is rebuilt.
  */
 export const SECTIONS: Section[] = [
+  { key: "home", label: "Home", curatorOnly: false, tabs: [{ to: "/", label: "Home", match: (p) => p === "/" }] },
   {
     key: "knowledge",
     label: "Knowledge",

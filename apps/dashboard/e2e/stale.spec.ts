@@ -39,7 +39,8 @@ test("a curator keeps, fixes, retires and pins stale facts", async ({ page }) =>
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(CURATOR);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/facts$/);
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Review" }).click();
   await page.getByRole("navigation", { name: "Review pages" }).getByRole("link", { name: "Out of date" }).click();
   await expect(page).toHaveURL(/\/stale$/);
@@ -103,7 +104,8 @@ test("a member sees no Out of date link and a curators-only note at /stale", asy
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(MEMBER);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/facts$/);
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
   await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Review" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Out of date" })).toHaveCount(0);
   await page.evaluate(() => {

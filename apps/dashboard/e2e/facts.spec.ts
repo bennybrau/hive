@@ -36,6 +36,9 @@ test("filter, search and open a fresh personal fact", async ({ page }) => {
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(TOKEN);
   await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Knowledge" }).click();
   await expect(page).toHaveURL(/\/facts$/);
 
   await page.getByLabel("Who gets it").selectOption("personal");
@@ -71,6 +74,10 @@ test("on a phone a fact opens as its own page, and the back link returns to the 
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(TOKEN);
   await page.getByRole("button", { name: "Sign in" }).tap();
+  await page.getByRole("button", { name: "Menu" }).tap(); // on a phone the menu sits behind the Menu button
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Knowledge" }).tap();
   await expect(page).toHaveURL(/\/facts$/);
   await page.getByLabel("Search facts").fill(marker);
   await page.getByLabel("Search facts").press("Enter");
@@ -111,10 +118,10 @@ test("a curator edits, moves and retires a fact from the open fact", async ({ pa
   await page.goto(`${HIVE}/`);
   await page.getByLabel("Token").fill(CURATOR);
   await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL(/\/facts$/);
-  // The address is /facts before the token has been checked, so wait for the signed-in page: loading another
+  // The address is / before the token has been checked, so wait for the signed-in page: loading another
   // address any sooner drops the sign-in and lands on the token box again.
   await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
+  await expect(page).toHaveURL(/:\/\/[^/]+\/$/);
   await page.goto(`${HIVE}/facts/${id}`);
   const panel = page.getByRole("complementary", { name: "Selected fact" });
   await expect(panel.getByText(text)).toBeVisible();

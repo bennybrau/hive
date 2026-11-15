@@ -28,16 +28,16 @@ afterEach(() => {
 const menuNames = () => within(screen.getByRole("navigation", { name: "Main" })).getAllByRole("link").map((a) => a.textContent);
 
 describe("shell menu", () => {
-  it("members get Knowledge and Admin only, with no curator group and no review count fetch", () => {
+  it("members get Home, Knowledge and Admin only, with no curator group and no review count fetch", () => {
     render(<Shell status={status("member")} path="/facts">{null}</Shell>);
-    expect(menuNames()).toEqual(["Knowledge", "Admin"]);
+    expect(menuNames()).toEqual(["Home", "Knowledge", "Admin"]);
     expect(screen.queryByText("Curator", { selector: ".group" })).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("curators get Knowledge, then the curator group (Review, Playbooks, Teams), then Admin", () => {
+  it("curators get Home, Knowledge, then the curator group (Review, Playbooks, Teams), then Admin", () => {
     render(<Shell status={status("curator")} path="/facts">{null}</Shell>);
-    expect(menuNames()).toEqual(["Knowledge", "Review", "Playbooks", "Teams", "Admin"]);
+    expect(menuNames()).toEqual(["Home", "Knowledge", "Review", "Playbooks", "Teams", "Admin"]);
     expect(screen.getByText("Curator", { selector: ".group" })).toBeTruthy();
   });
 
@@ -87,6 +87,15 @@ describe("shell menu", () => {
     const tabs = screen.getByRole("navigation", { name: `${item} pages` });
     expect(within(tabs).getByRole("link", { name: tab }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByText(item, { selector: ".topbar .where" })).toBeTruthy();
+  });
+
+  it("on / only Home is current, with no tabs", () => {
+    render(<Shell status={status("member")} path="/">{null}</Shell>);
+    const main = screen.getByRole("navigation", { name: "Main" });
+    const current = within(main).getAllByRole("link").filter((a) => a.getAttribute("aria-current") === "page");
+    expect(current.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([["Home", "/"]]);
+    expect(screen.queryByRole("navigation", { name: "Home pages" })).toBeNull();
+    expect(screen.getByText("Home", { selector: ".topbar .where" })).toBeTruthy();
   });
 
   it("sections with one page show no tabs, and a member's Admin is just Sources", () => {

@@ -132,6 +132,23 @@ export function saidCaption(source: { author: string | null; where: string; at: 
   return line && `${line[0]!.toUpperCase()}${line.slice(1)}`;
 }
 
+/** Home's greeting by the hour of the day (0–23): morning 5–11, afternoon 12–17, evening otherwise. */
+export function greeting(hour: number): string {
+  if (hour >= 5 && hour < 12) return "Good morning";
+  if (hour >= 12 && hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+/** A number and its noun: count(1, "fact", "facts") = "1 fact", count(2, …) = "2 facts". */
+export function count(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** Money in US dollars with cents: "$8.57", "$0.00". */
+export function dollars(n: number): string {
+  return `$${n.toFixed(2)}`;
+}
+
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["second", 60],
   ["minute", 60],

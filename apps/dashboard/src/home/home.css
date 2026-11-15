@@ -1,0 +1,51 @@
+/* Home (ported from docs/design/mockups/rows.css): Needs you, What Hive knows with its asides, Recently added. */
+.page.home { max-width: 1120px; }
+.home section { margin-top: var(--s-7); }
+.home .ui-page-head + section { margin-top: 0; }
+.home h2 { margin: 0 0 var(--s-3); font-size: var(--t-h2); font-weight: 500; line-height: 1.3; letter-spacing: -0.015em; }
+.home p { margin: 0; }
+.home b { font-weight: 500; }
+
+.todos { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.todo { display: flex; align-items: center; gap: var(--s-5); padding: var(--s-4) 0; border-bottom: 1px solid var(--line); }
+.todo > div { min-width: 0; margin-right: auto; overflow-wrap: anywhere; }
+.todo .what { font-size: var(--t-lead); }
+.todo .why { color: var(--muted); font-size: 15px; margin-top: 2px; max-width: 70ch; }
+.todo .btn { flex: none; }
+.todo[data-state="waiting"] { box-shadow: inset 3px 0 0 var(--accent); background: var(--tint); padding-left: var(--s-4); padding-right: var(--s-4); margin: 0 calc(-1 * var(--s-4)); }
+.home .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.dot.lead { margin-right: var(--s-2); vertical-align: 2px; }
+
+.h-split { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: var(--s-7); align-items: start; }
+.h-split > * { min-width: 0; }
+.home .sub { color: var(--muted); font-size: 15px; margin: calc(-1 * var(--s-2)) 0 var(--s-4); }
+.home .sub b { color: var(--ink); }
+.lvls { border-top: 1px solid var(--line); }
+.lvl { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) 3ch; align-items: center; gap: var(--s-4); padding: var(--s-3) 0; border-bottom: 1px solid var(--line); color: inherit; text-decoration: none; }
+.lvl:hover { background: var(--raise); }
+.lvl:focus-visible { outline-offset: -2px; }
+.lvl .name { min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+.lvl .hint { display: block; font-weight: 400; font-size: 13px; color: var(--muted); }
+.lvl .track { display: block; height: 8px; border-radius: 4px; background: var(--raise); }
+.lvl .fill { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+.lvl .n { text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+.asides { display: flex; flex-direction: column; gap: var(--s-6); overflow-wrap: anywhere; }
+.asides h2 { margin: 0; }
+.asides p { margin-top: var(--s-2); }
+.asides p + p { margin-top: var(--s-3); }
+.h-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--s-4); }
+.h-row a { margin-left: auto; font-size: 15px; }
+.home-list { min-width: 0; margin: 0 calc(-1 * var(--s-4)); border-top: 1px solid var(--line); }
+
+@media (max-width: 860px) {
+  .home section { margin-top: var(--s-6); }
+  .h-split { grid-template-columns: minmax(0, 1fr); gap: var(--s-6); }
+  .todo { flex-direction: column; align-items: stretch; gap: var(--s-3); }
+  .todo .btn { align-self: flex-start; }
+  .todo .btn.primary { align-self: stretch; }
+  .home a.btn { min-height: 44px; }
+  .more-link { display: inline-flex; align-items: center; min-height: 44px; }
+  .h-row { align-items: center; }
+  .lvl { grid-template-columns: minmax(0, 1fr) 3ch; row-gap: var(--s-2); min-height: 44px; }
+  .lvl .track { grid-column: 1 / -1; order: 3; }
+}

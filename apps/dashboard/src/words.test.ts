@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { JOB, KIND, ORIGIN, PHRASE, RAW_VALUES, REVIEW, ROLE, STATUS, VERIFY, WHERE, levelLabel, saidCaption, usedLine, usedTimes, when, word } from "./words";
+import { JOB, KIND, ORIGIN, PHRASE, RAW_VALUES, REVIEW, ROLE, STATUS, VERIFY, WHERE, count, dollars, greeting, levelLabel, saidCaption, usedLine, usedTimes, when, word } from "./words";
 
 const NOW = Date.parse("2026-11-12T18:00:00Z");
 const ago = (secs: number) => new Date(NOW - secs * 1000).toISOString();
@@ -121,5 +121,32 @@ describe("when", () => {
 
   it("an unparseable value comes back as itself", () => {
     expect(when("soon", NOW)).toEqual({ text: "soon", title: "soon" });
+  });
+});
+
+describe("Home's words", () => {
+  it("greets by the hour: morning 5–11, afternoon 12–17, evening otherwise", () => {
+    expect([4, 5, 11, 12, 17, 18, 23, 0].map(greeting)).toEqual([
+      "Good evening",
+      "Good morning",
+      "Good morning",
+      "Good afternoon",
+      "Good afternoon",
+      "Good evening",
+      "Good evening",
+      "Good evening",
+    ]);
+  });
+
+  it("counts with the singular for one and the plural otherwise", () => {
+    expect(count(1, "fact", "facts")).toBe("1 fact");
+    expect(count(2, "fact", "facts")).toBe("2 facts");
+    expect(count(0, "repo", "repos")).toBe("0 repos");
+  });
+
+  it("shows dollars with cents", () => {
+    expect(dollars(8.5712)).toBe("$8.57");
+    expect(dollars(0)).toBe("$0.00");
+    expect(dollars(12)).toBe("$12.00");
   });
 });

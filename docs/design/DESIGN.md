@@ -30,7 +30,9 @@ Left sidebar on desktop (232px), top bar with a Menu button under 860px.
 
 The person's name and role sit at the foot of the sidebar; Sign out is in its menu. When a page is rebuilt it moves to its new address and the old one redirects: `/facts` and `/search` → `/knowledge`, `/stale` → `/review/out-of-date`, `/repos` → `/admin/sources`, `/stats` → `/admin/usage`, `/settings` → `/admin/notifications`.
 
-**As built in the foundation step:** the sidebar, the top bar and section tabs, with every page at its old address. Home is not in the menu yet; it arrives with its own page, and until then `/` opens Knowledge › Facts. Members see Knowledge and Admin › Sources only.
+**As built in the foundation step:** the sidebar, the top bar and section tabs, with every page at its old address. Members see Home, Knowledge and Admin › Sources only.
+
+**As built for Home (#148):** Home is first in the menu for everyone and `/` opens it; signing in lands there. It reads `GET /v1/home` when it opens and when the tab comes back into view, with no polling.
 
 **As built for Facts (#147):** the search box, the filter line, FactRows and the open fact as a pane (its own page with a back link under 1180px), still at `/facts`; it moves to `/knowledge` when Search is folded in. The pane's Edit… / Change who gets it… / Retire buttons are not built yet.
 
