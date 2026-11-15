@@ -109,3 +109,52 @@ and live probes), before WP1b.
 
 **Decision:** the cost problem is fixed. Continue with WP6 (playbooks) and WP7 (use counts, retirement); WP8 re-runs
 this. Before WP8, turn the Hive plugin on for real Hermes use for a week so that run can report real-session spend.
+
+## Head to head: Hive vs a hand-kept CLAUDE.md (2026-11-15)
+
+The question engineers ask first: why not paste the same knowledge into CLAUDE.md? A third arm, **file**, answers it:
+no Hive, but run in a worktree whose CLAUDE.md has every fact the on-arm can read pasted in under "Team knowledge"
+(59 active facts, ASF repo + organisation, about 8.5k characters). All three arms ran in detached worktrees of ASF
+`a1ada58`, same model (`claude-opus-5-5`), same 16 questions, answer key and judge, 3 runs each (144 sessions, seed
+`3111383528`, 3 at a time): `scripts/experiment/run.sh --arms off,on,file --repeats 3 --jobs 3`. Results kept locally
+in `scripts/experiment/results/claudemd-20261115b`.
+
+Before any question, the runner now checks each arm is what it claims (canaries): the file session quotes the Team
+knowledge section, the off session finds none, the on session received a Hive brief; afterwards it checks one
+`POST /v1/brief` per on-arm session (48 of 48).
+
+| | off (CLAUDE.md as it is) | on (CLAUDE.md + Hive) | file (CLAUDE.md + every Hive fact) |
+|---|---|---|---|
+| correct (judge) | 71% (34/48) | 75% (36/48) | 77% (37/48) |
+| cost per question | $0.092 | $0.084 | $0.091 |
+| input tokens per question | 196k | 184k | 209k |
+
+Hive's own spend in the window: $0.041. Net vs off: +$0.31 over 48 questions.
+
+By where the answer lives (off / on / file): code 50 / 67 / 78%, commits 75 / 83 / 83%, docs 100 / 89 / 89%,
+"doesn't exist" 100 / 100 / 83%, the run-record question (`why-4`) 33 / 0 / 0%.
+
+**Reading it:**
+- **No arm is clearly ahead.** One answer is 2 points. On and file differ by one answer, on and off by two. Across
+  four runs of the same questions the off arm alone has scored 75, 67, 75 and 71%.
+- **Hive and a pasted file are level on accuracy**, and both are a few points above the plain repo, inside the noise.
+- **Hive was the cheapest arm**, 8% under off (0.7¢ a question), with the fewest input tokens. The file arm costs the
+  same as off: its extra 8.5k characters are loaded on every turn.
+- **14 of 48 on-arm answers cited a Hive fact** (7 distinct). Three of those were graded wrong, each for leaving out a
+  key point, not for what the fact said.
+- **The run-record question is still missed with the brief** (`why-4`, 0 of 3): the detail lives in an ASF run's plan
+  and review, and the brief did not deliver it.
+- The answer key is unchanged and not stale (checked against `d404cdc` and `a1ada58`). `how-1` is debatable: the key
+  calls `ticketProvider` required, and the api has always filled it in itself; every arm fails it.
+
+**An earlier run (2026-11-14, 2 runs each) is void for the on arm.** Its on sessions sent no `POST /v1/brief` and
+their recalls carried no `repo_key`: under a gateway-served CLI the plugin detects the repo from the gateway's
+working directory, not the caller's, so it found none. The runner now sets `HIVE_REPO_KEY` for the on profile; the
+plugin's detection is still to be fixed. That run's off and file arms were sound (75% and 75%, 24/32 each). Whether
+the Nov 7–8 runs had the brief is not known.
+
+**Decision:** stop quoting 81% vs 67%; the gap did not reproduce (now 75% vs 71%). What the numbers support: on
+questions the repo can answer, Hive is as accurate as a hand-kept file holding the same facts, and slightly cheaper.
+They do not show Hive beating a file. What Hive adds and a file doesn't is the loop: a person's correction is
+captured, reviewed, and reaches the next ticket without anyone editing a file (shown live in the Nov 13 rehearsal).
+That loop is what to measure next: corrections that didn't have to be repeated, on real tickets.

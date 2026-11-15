@@ -4,7 +4,7 @@ Does the Hive make Hermes cheaper at answering questions about ASF, without maki
 16 questions with an answer key (#19). The runner asks each one with the Hive memory provider off and on, grades
 every answer against its key, and prints the comparison:
 
-    scripts/experiment/run.sh [--only id,id] [--repeats N] [--seed S] [--out DIR]
+    scripts/experiment/run.sh [--only id,id] [--repeats N] [--seed S] [--out DIR] [--arms off,on[,file]] [--jobs N]
     python3 scripts/experiment/report.py DIR [--since TIMESTAMP]
 
 **Run it on the Hermes host.** It needs the stack running (`scripts/redeploy.sh`) with the hive-worker, `hermes` on
@@ -14,6 +14,15 @@ run in `ASF_DIR`:
 - **`hive-exp-off`:** no memory provider, no hive plugin, no `HIVE_*` env. The run checks that `memory status`
   shows no hive.
 - **`hive-exp-on`:** the hive plugin with a member token minted for the run.
+
+- **`hive-exp-file`** (only with `--arms off,on,file`): no Hive, run in a worktree whose CLAUDE.md has every fact the
+  on-arm can read appended under "Team knowledge": the hand-kept file the Hive is compared against.
+
+Profile names get a timestamp suffix. Every arm runs in a detached worktree of `ASF_DIR` at `ASF_REF` (default
+`origin/main`), and `--jobs N` runs N sessions at once. The on profile sets `HIVE_REPO_KEY`, because under a
+gateway-served CLI the plugin can't detect the repo itself. Before the runs, a canary session per arm checks the arm
+is what it claims (file: quotes the Team knowledge section; off: finds none; on: received a Hive brief), and after
+them the run fails unless Hive logged one `POST /v1/brief` per on-arm session.
 
 The question × arm × run list is shuffled with `--seed`, which is saved in `DIR/seed` so an order can be replayed.
 Each run is one fresh `hermes -z "<question>" --usage-file`. The script aborts if a run reports a different model.
