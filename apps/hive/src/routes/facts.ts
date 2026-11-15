@@ -35,7 +35,12 @@ const anchorSchema = {
 } as const;
 
 /** List, detail and the stale list also show how much a fact is used and whether it's pinned; other responses keep FACT_COLUMNS. */
-const FACT_USE_COLUMNS = `${FACT_COLUMNS}, use_count, cite_count, last_used_at, pinned`;
+export const FACT_USE_COLUMNS = `${FACT_COLUMNS}, use_count, cite_count, last_used_at, pinned`;
+
+/** The columns of a listed fact: FACT_USE_COLUMNS plus `stale`. */
+export function listColumns(staleDays: number): string {
+  return `${FACT_USE_COLUMNS}, ${staleSql(staleDays)} as stale`;
+}
 
 export interface CreateBody {
   text: string;
@@ -66,7 +71,7 @@ export async function remember(pool: pg.Pool, who: Instance, b: CreateBody, onWr
 }
 
 export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => void, staleDays: number): void {
-  const listColumns = `${FACT_USE_COLUMNS}, ${staleSql(staleDays)} as stale`;
+  const columns = listColumns(staleDays);
 
   /** remember: authored by the calling instance. distilled/ingested facts come from jobs, not this endpoint. */
   app.post<{ Body: CreateBody }>(
@@ -141,7 +146,7 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
       params.push(limit + 1, qs.offset ?? 0); // one extra row tells us whether there's another page
       const [{ rows }, count] = await Promise.all([
         pool.query<Fact>(
-          `select ${listColumns} from facts where ${where.join(" and ")}
+          `select ${columns} from facts where ${where.join(" and ")}
            order by recorded_at desc, id desc limit $${params.length - 1} offset $${params.length}`,
           params,
         ),
@@ -191,7 +196,7 @@ export function factRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => v
       const who = req.instance!;
       const [scopeSql, params] = readableScopes(who, undefined, 2);
       const { rows } = await pool.query<Fact>(
-        `select ${listColumns} from facts where id = $1 and ${scopeSql}`,
+        `select ${columns} from facts where id = $1 and ${scopeSql}`,
         [req.params.id, ...params],
       );
       if (!rows[0]) return reply.code(404).send({ error: "no such fact" });

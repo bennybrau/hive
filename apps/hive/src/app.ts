@@ -15,6 +15,7 @@ import { playbookRoutes } from "./routes/playbooks.js";
 import { reviewRoutes } from "./routes/review.js";
 import { reviewDigestRoutes, type ReviewDigestDeps } from "./routes/review-digest.js";
 import { healthRoutes } from "./routes/health.js";
+import { homeRoutes } from "./routes/home.js";
 import { searchRoutes } from "./routes/search.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { statsRoutes } from "./routes/stats.js";
@@ -79,6 +80,7 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
     settingsRoutes(v1, pool, opts.secretKey ?? null);
     reviewDigestRoutes(v1, pool, opts.secretKey ?? null, opts.reviewDigest ?? {});
     statsRoutes(v1, pool);
+    homeRoutes(v1, pool, opts.staleDays ?? 60);
     webhookRoutes(v1, pool, opts.secretKey ?? null);
     workerRoutes(v1, {
       pool,

@@ -12,6 +12,33 @@ may only use `/v1/worker/*` and `/v1/status`; every other `/v1` call is a 403
 - `GET /health` — public. `{ok, db, version}`; 503 when Postgres is down.
 - `GET /v1/status` — `{instance, counts:{facts,episodes,instances,repos}, embeddings:{model, state: ok|error|off, error, backlog}}`.
 
+## Home
+
+- `GET /v1/home` — everything the dashboard's Home shows, in one call. Fact counts cover what the caller can read
+  (the same scopes as `GET /v1/facts`): another user's personal facts are in none of them. Months are UTC.
+
+  ```
+  {
+    facts: {
+      live,                                  // active facts, the sum of by_level
+      by_level: [{scope, count}]             // active facts per scope, most first; your own personal:<user> is "personal"
+    },
+    recent: [fact],                          // the three newest active facts, as in GET /v1/facts?status=active&limit=3
+    repos: {count, last_read_at, problems},  // last_read_at: when a repo was last read (null if none); problems: repos with an ingest_error
+    teams: {count},                          // a curator: every team; a member: the teams you are in
+    // curator only; a member's response has none of these keys:
+    waiting,                                 // candidates, as on GET /v1/review/queue (flagged facts not counted)
+    waiting_latest_at,                       // the newest candidate's recorded_at, or null
+    out_of_date,                             // facts on GET /v1/facts/stale
+    stale_days,
+    month: {
+      cost_usd,                              // every llm_call this month, a number
+      conversations,                         // episodes distilled this month
+      proposed                               // distilled facts recorded this month, any status
+    }
+  }
+  ```
+
 ## Facts
 
 - `POST /v1/facts` — remember. Body `{text, kind, scope, repo_key?, team?, locus?, anchors?, supersedes?}`.
