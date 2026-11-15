@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
 import { apiFetch } from "../api";
 import { levelLabel, type MyTeam, type Team } from "../levels/levels";
 import { WhoGetsThis } from "../levels/WhoGetsThis";
@@ -22,6 +22,7 @@ async function failure(res: Response): Promise<string> {
  * Edit…, Change who gets it… and Retire, under the open fact's three plain lines. Live facts only. A curator gets all
  * three; a member gets Retire on their own Just me fact (a retract), and nothing on a shared one.
  * `onSaved` gets the fact to open next (the new wording, or the fact a move merged into), or null to reload this one.
+ * `onEditing` hears whether a form is open, and false once these actions are gone.
  */
 export function FactActions({
   fact,
@@ -30,6 +31,7 @@ export function FactActions({
   mine,
   me,
   onSaved,
+  onEditing,
 }: {
   fact: Fact;
   anchorRepo: string | null;
@@ -37,6 +39,7 @@ export function FactActions({
   mine: MyTeam[];
   me: Me;
   onSaved: (next: string | null) => void;
+  onEditing?: (open: boolean) => void;
 }) {
   const [editing, setEditing] = useState<Editing>(null);
   const [text, setText] = useState(fact.text);
@@ -44,6 +47,9 @@ export function FactActions({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => onEditing?.(editing !== null), [editing, onEditing]);
+  useEffect(() => () => onEditing?.(false), [onEditing]);
 
   if (fact.status !== "active") return null;
   const curator = me.role === "curator";

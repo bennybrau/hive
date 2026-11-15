@@ -145,3 +145,38 @@ test("a curator edits, moves and retires a fact from the open fact", async ({ pa
   await expect(panel.locator("dl.kv dd", { hasText: `e2e probe ${marker}` }).first()).toBeVisible();
   await expect(panel.getByRole("button", { name: "Edit…" })).toHaveCount(0);
 });
+
+test("a member adds a Just me fact, sees it open and in the list, and retires it", async ({ page }) => {
+  expect(TOKEN, "HIVE_E2E_TOKEN is not set").not.toBe("");
+  expect(RUN, "HIVE_E2E_RUN is not set").not.toBe("");
+  const marker = `${RUN}n${Date.now()}`;
+  const text = `Dashboard e2e added fact ${marker}: written from the Add a fact form.`;
+
+  await page.goto(`${HIVE}/`);
+  await page.getByLabel("Token").fill(TOKEN);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  // Go to Facts through the menu: that holds whether signing in lands on Facts or, once Home is built, on Home.
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Knowledge" }).click();
+  await expect(page).toHaveURL(/\/facts$/);
+
+  await page.getByRole("button", { name: "Add a fact" }).click();
+  await expect(page).toHaveURL(/\/facts\/new$/);
+  const form = page.getByRole("complementary", { name: "Add a fact" });
+  await expect(form.getByRole("radio", { name: "Just me" })).toBeChecked();
+  await form.getByLabel("The fact").fill(text);
+  await form.getByLabel("Kind").selectOption({ label: "Pitfall" });
+  await form.getByRole("button", { name: "Add this fact" }).click();
+
+  await expect(page).toHaveURL(/\/facts\/[0-9a-f-]+$/);
+  const id = new URL(page.url()).pathname.split("/").at(-1)!;
+  created.push(id);
+  const panel = page.getByRole("complementary", { name: "Selected fact" });
+  await expect(panel.locator(".bigfact")).toHaveText(text);
+  await expect(panel.getByText("Just me", { exact: true })).toBeVisible();
+  await expect(page.locator(".kn-list").getByRole("link", { name: text })).toBeVisible();
+
+  await panel.getByRole("button", { name: "Retire", exact: true }).click();
+  await panel.getByLabel("Why? This is kept with the fact.").fill(`e2e probe ${marker}`);
+  await panel.getByRole("button", { name: "Retire this fact" }).click();
+  await expect(panel.locator("dl.kv dt", { hasText: "Retired" })).toBeVisible();
+});

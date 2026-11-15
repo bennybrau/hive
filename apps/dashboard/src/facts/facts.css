@@ -43,6 +43,15 @@
 .pane-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
 .pane-edit { display: grid; gap: var(--s-3); min-width: 0; }
 .pane-edit .who-gets-this { margin: 0; }
+.add-fact { gap: var(--s-5); }
+.add-fact h2 { margin: 0; font-size: var(--t-lead); font-weight: 500; }
+/* In a pane form, "Who should get this?" reads as one more field: the same label size, the same space around it. */
+.pane-edit .who-gets-this { gap: var(--s-2); }
+.pane-edit .who-gets-this legend { margin-bottom: var(--s-1); font-size: 15px; font-weight: 500; }
+.pane-edit .who-gets-this .help { font-size: var(--t-small); color: var(--muted); }
+/* The pane scrolls on its own, so a focus ring drawn outside a box at its right edge is cut off. Draw it inside. */
+.kn-pane .ui-field :is(textarea, select, input):focus-visible, .kn-pane .who-option select:focus-visible { outline-offset: -2px; }
+@media (max-width: 860px) { .pane-edit .who-option select { min-height: 44px; } }
 .kn-pane h3 { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
 .kn-pane .chain ul, .kn-pane .history { margin: 0; padding-left: 18px; }
 .kn-pane .history { padding: 0; list-style: none; }

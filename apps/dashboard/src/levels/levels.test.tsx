@@ -1,7 +1,8 @@
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LevelBadge } from "./LevelBadge";
 import { levelLabel, levelOf, matchesLevel, type Labelled, type MyTeam, type Team } from "./levels";
+import { WhoGetsThis } from "./WhoGetsThis";
 
 const TEAMS: Team[] = [{ key: "billing", name: "Billing", created_at: "2026-10-01T00:00:00Z", members: [], repos: [] }];
 const MINE: MyTeam[] = [{ key: "billing", name: "Billing", role: "member" }];
@@ -83,5 +84,28 @@ describe("matchesLevel", () => {
     ["global", "personal:u1", false],
   ])("level %s against scope %s is %s", (value, scope, ok) => {
     expect(matchesLevel({ scope }, value)).toBe(ok);
+  });
+});
+
+describe("WhoGetsThis", () => {
+  const labels = (c: HTMLElement) => [...c.querySelectorAll(".who-option label")].map((l) => l.textContent);
+  const draw = (props: Partial<Parameters<typeof WhoGetsThis>[0]>) => {
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ repo_keys: ["acme/widgets", "acme/other"] })));
+    const { container } = render(<WhoGetsThis teams={TEAMS} mine={MINE} value="personal" onChange={() => {}} {...props} />);
+    return container;
+  };
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("for a new fact, has no current level and no anchor, and puts Just me first", async () => {
+    const c = draw({ fresh: true, anchorRepo: "acme/widgets" });
+    await waitFor(() => expect(c.querySelectorAll("select option").length).toBe(2));
+    expect(labels(c)).toEqual(["Just me", "A repo…", "Team: Billing", "Everyone"]);
+    expect(c.textContent).not.toContain("(current)");
+    expect(c.querySelector<HTMLInputElement>("input[type=radio]")!.checked).toBe(true);
+  });
+
+  it("for an existing fact, still starts with its current level", () => {
+    const c = draw({ fact: { scope: "global" }, anchorRepo: "acme/widgets", allowPersonal: true, value: "global" });
+    expect(labels(c)).toEqual(["Everyone (current)", "Repo: widgets", "Another repo…", "Team: Billing", "Just me"]);
   });
 });

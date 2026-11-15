@@ -29,6 +29,8 @@ interface Props {
   pane?: ReactNode;
   /** Bumped after a save in the open fact, so the list fetches again. */
   reload: number;
+  /** A fact just added: drawn first while the list doesn't hold it (a candidate under Live, or a later page). */
+  extra?: Fact;
 }
 
 interface Option {
@@ -76,7 +78,7 @@ function Menu({ label, value, options, onChange }: { label: string; value: strin
   );
 }
 
-export function FactsTable({ filters, onChange, openId, onOpen, pane, reload }: Props) {
+export function FactsTable({ filters, onChange, openId, onOpen, pane, reload, extra }: Props) {
   const searching = filters.q !== "";
   const [body, setBody] = useState<{ facts: Fact[]; has_more?: boolean; total?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -116,9 +118,13 @@ export function FactsTable({ filters, onChange, openId, onOpen, pane, reload }: 
   }, [url, reload]);
 
   // A list page comes back filtered by the server; search can't filter, so its hits are narrowed here.
-  const shown = useMemo(
+  const listed = useMemo(
     () => (body && searching ? body.facts.filter((f) => matchesFilters(f, filters)) : (body?.facts ?? null)),
     [body, searching, filters],
+  );
+  const shown = useMemo(
+    () => (listed && extra && !listed.some((f) => f.id === extra.id) ? [extra, ...listed] : listed),
+    [listed, extra],
   );
 
   // Who gets it: a repo is one of the levels. A level from the URL that isn't loaded (yet) still shows as itself.
@@ -181,15 +187,15 @@ export function FactsTable({ filters, onChange, openId, onOpen, pane, reload }: 
       </form>
 
       <div className="filterbar">
-        {shown && (
+        {listed && (
           <p className="count">
             {searching ? (
               <>
-                <b>{shown.length}</b> {shown.length === 1 ? "match" : "matches"}, best first
+                <b>{listed.length}</b> {listed.length === 1 ? "match" : "matches"}, best first
               </>
             ) : (
               <>
-                <b>{body?.total ?? shown.length}</b> {(body?.total ?? shown.length) === 1 ? "fact" : "facts"}, newest first
+                <b>{body?.total ?? listed.length}</b> {(body?.total ?? listed.length) === 1 ? "fact" : "facts"}, newest first
               </>
             )}
           </p>

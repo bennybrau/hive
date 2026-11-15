@@ -87,6 +87,12 @@ describe("words", () => {
     expect(PHRASE.retireThis).toBe("Retire this fact");
     expect(PHRASE.retireWhy).toBe("Why? This is kept with the fact.");
   });
+
+  it("names adding a fact", () => {
+    expect(PHRASE.addFact).toBe("Add a fact");
+    expect(PHRASE.addThis).toBe("Add this fact");
+    expect(PHRASE.needsReview).toBe("A curator reviews it before agents get it.");
+  });
 });
 
 describe("when", () => {

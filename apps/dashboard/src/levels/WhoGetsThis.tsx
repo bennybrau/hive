@@ -30,6 +30,8 @@ function useRepoKeys(): string[] {
 /**
  * "Who should get this?": the fact's current level first, then its anchor repo, another repo, the teams, Everyone and
  * (with allowPersonal) Just me. `value` is the chosen scope; the fact's own scope means no change.
+ * With `fresh` (a fact not written yet) there is no current level and no anchor: Just me first, then another repo, the
+ * teams and Everyone.
  */
 export function WhoGetsThis({
   fact,
@@ -37,33 +39,38 @@ export function WhoGetsThis({
   teams,
   mine,
   allowPersonal = false,
+  fresh = false,
   value,
   onChange,
 }: {
-  fact: Labelled;
+  fact?: Labelled;
   anchorRepo?: string | null;
   teams: Team[];
   mine: MyTeam[];
   allowPersonal?: boolean;
+  fresh?: boolean;
   value: string;
   onChange: (scope: string, label: string) => void;
 }) {
   const id = useId();
   const keys = useRepoKeys();
   const label = (scope: string) => levelLabel({ scope }, teams, mine);
-  const anchorScope = anchorRepo ? `repo:${anchorRepo}` : null;
-  const others = keys.filter((k) => `repo:${k}` !== fact.scope && `repo:${k}` !== anchorScope);
+  const own = fresh ? undefined : fact?.scope;
+  const anchorScope = anchorRepo && !fresh ? `repo:${anchorRepo}` : null;
+  const others = keys.filter((k) => `repo:${k}` !== own && `repo:${k}` !== anchorScope);
   const [other, setOther] = useState("");
   const otherKey = others.includes(other) ? other : (others[0] ?? "");
-  const otherChosen = value.startsWith("repo:") && value !== fact.scope && value !== anchorScope;
+  const otherChosen = value.startsWith("repo:") && value !== own && value !== anchorScope;
 
-  const current = levelLabel(fact, teams, mine);
-  const before: Option[] = [{ scope: fact.scope, label: `${current.label} (current)`, hint: current.hint }];
-  if (anchorScope && anchorScope !== fact.scope) before.push({ scope: anchorScope, ...label(anchorScope) });
+  const current = fact && !fresh ? levelLabel(fact, teams, mine) : null;
+  const before: Option[] = current
+    ? [{ scope: own!, label: `${current.label} (current)`, hint: current.hint }]
+    : [{ scope: "personal", ...label("personal:") }];
+  if (anchorScope && anchorScope !== own) before.push({ scope: anchorScope, ...label(anchorScope) });
   const after: Option[] = [...teams.map((t) => `team:${t.key}`), "global"]
-    .filter((s) => s !== fact.scope)
+    .filter((s) => s !== own)
     .map((s) => ({ scope: s, ...label(s) }));
-  if (allowPersonal && !fact.scope.startsWith("personal:")) after.push({ scope: "personal", ...label("personal:") });
+  if (allowPersonal && own !== undefined && !own.startsWith("personal:")) after.push({ scope: "personal", ...label("personal:") });
 
   const radio = (o: Option, i: string) => (
     <div className="who-option" key={o.scope}>
@@ -73,7 +80,7 @@ export function WhoGetsThis({
         name={id}
         checked={value === o.scope}
         aria-describedby={`${id}-${i}-hint`}
-        onChange={() => onChange(o.scope, o.scope === fact.scope ? current.label : o.label)}
+        onChange={() => onChange(o.scope, current && o.scope === own ? current.label : o.label)}
       />
       <label htmlFor={`${id}-${i}`} title={o.scope}>
         {o.label}
@@ -102,9 +109,9 @@ export function WhoGetsThis({
           aria-describedby={`${id}-other-hint`}
           onChange={() => pickOther(otherKey)}
         />
-        <label htmlFor={`${id}-other`}>Another repo…</label>
+        <label htmlFor={`${id}-other`}>{fresh ? "A repo…" : "Another repo…"}</label>
         <select
-          aria-label="Another repo"
+          aria-label={fresh ? "A repo" : "Another repo"}
           value={otherKey}
           disabled={others.length === 0}
           title={otherKey ? `repo:${otherKey}` : undefined}

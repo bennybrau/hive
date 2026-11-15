@@ -120,7 +120,8 @@ function By({ who, iso }: { who: string | null; iso: string }) {
 /**
  * The open fact: who gets it and its state, the fact, what was said (or the file), three plain lines, its actions, the
  * chain, then Details. After a save, `onReplace` opens the fact that took its place (a new wording, or a merge), or the
- * pane reloads; either way `onSaved` tells the list.
+ * pane reloads; either way `onSaved` tells the list. `notice` is a status line under the badges ("That's already a
+ * fact."); `onEditing` hears whether one of its forms is open.
  */
 export function FactDetail({
   id,
@@ -129,6 +130,8 @@ export function FactDetail({
   onOpen,
   onReplace,
   onSaved,
+  onEditing,
+  notice,
 }: {
   id: string;
   me: Me | null;
@@ -136,6 +139,8 @@ export function FactDetail({
   onOpen: (id: string) => void;
   onReplace: (id: string) => void;
   onSaved: () => void;
+  onEditing?: (open: boolean) => void;
+  notice?: string | null;
 }) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -182,6 +187,11 @@ export function FactDetail({
           </svg>
         </Button>
       </div>
+      {notice && (
+        <p className="help" role="status">
+          {notice}
+        </p>
+      )}
       {error && (
         <p className="error" role="alert">
           {error}
@@ -283,6 +293,7 @@ export function FactDetail({
                 else setReload((r) => r + 1);
                 onSaved();
               }}
+              onEditing={onEditing}
             />
           )}
 

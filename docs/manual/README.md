@@ -151,6 +151,22 @@ A member sees none of these on shared facts. On their own live **Just me** facts
 only, with the same required reason. If a save fails, the reason shows under the box and what you typed stays.
 The list behind the pane updates after every save.
 
+**Adding a fact.** **Add a fact**, at the top right of the page, opens a form in the pane (on a phone, as its own
+page):
+
+- **The fact**: what agents should know, at least 3 characters.
+- **Kind**: **Decision** (the default), **Must stay true**, **Pitfall**, **Preference**, **Convention** or **How it
+  works**.
+- **Who should get this?**: **Just me** (the default), **A repo…**, a team or **Everyone**. A curator can pick
+  any team, a member only their own. When a member picks anything but **Just me**, the form says **A curator reviews
+  it before agents get it.**: the fact starts as **Waiting for review**.
+
+**Add this fact** saves it and opens it in place of the form, with the menus kept. It also shows at the top of the
+list, even when the menus wouldn't include it (for example a fact waiting for review under **Live**), until you
+change them. If the same text is already a fact there, that fact opens instead, with **That's already a fact.** If
+the save fails, the reason shows under the box and what you typed stays. **Cancel** or `Esc` closes the form. While
+the form, or a form on an open fact, is open, **Add a fact** is hidden.
+
 `Esc` or **Close** closes the pane and puts you back on the fact's row. The open fact is part of the page address, so
 a link opens straight to it.
 
@@ -338,7 +354,7 @@ Gmail refuses the normal password.
 |---|---|---|
 | Facts | `j` / `k` (or arrows) | move through the table |
 | Facts | `Enter` | open the selected fact |
-| Facts | `Esc` | close the fact panel |
+| Facts | `Esc` | close the fact panel, or the Add a fact form |
 | Review | `j` / `k` (or `↓` / `↑`) | next / previous fact |
 | Review | `a` | approve, for the level shown |
 | Review | `f` | edit the text (Edit…) |

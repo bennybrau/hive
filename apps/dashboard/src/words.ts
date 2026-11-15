@@ -103,6 +103,9 @@ export const PHRASE = {
   saveWording: "Save the new wording",
   retireThis: "Retire this fact",
   retireWhy: "Why? This is kept with the fact.",
+  addFact: "Add a fact",
+  addThis: "Add this fact",
+  needsReview: "A curator reviews it before agents get it.",
 } as const;
 
 /** The word for a value; an unknown value (a newer server) shows as itself rather than blank. */
