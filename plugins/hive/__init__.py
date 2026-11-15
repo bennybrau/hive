@@ -79,6 +79,22 @@ def repo_key_from_remote(url: str) -> str:
     return f"gh/{path}" if host.lower() == "github.com" else f"{host.lower()}/{path}"
 
 
+def session_cwd(kwargs: dict[str, Any]) -> str:
+    """The directory the session works in. Hermes passes no ``cwd`` to initialize(), and when a gateway serves the
+    session the process directory is the gateway's own, not the caller's: ask Hermes (session directory, then the
+    configured one, then the launch directory). Without that the repo goes undetected and no brief is sent."""
+    if kwargs.get("cwd"):
+        return str(kwargs["cwd"])
+    try:
+        from agent.runtime_cwd import resolve_agent_cwd
+        return str(resolve_agent_cwd())
+    except Exception:  # a Hermes without runtime_cwd, or a deleted launch directory
+        try:
+            return os.getcwd()
+        except OSError:
+            return ""
+
+
 def detect_repo_key(cwd: str) -> str:
     try:
         out = subprocess.run(["git", "-C", cwd, "remote", "get-url", "origin"],
@@ -497,8 +513,7 @@ class HiveMemoryProvider(MemoryProvider):
             self._curator = None
         self._session_id = session_id
         self._agent_context = kwargs.get("agent_context") or "primary"
-        cwd = kwargs.get("cwd") or os.getcwd()
-        self._cwd = str(cwd or "")
+        self._cwd = session_cwd(kwargs)
         self._repo_key = (get_secret("HIVE_REPO_KEY", "") or "").strip() or detect_repo_key(self._cwd)
         self._prefetch_k = _int_env("HIVE_PREFETCH_K", DEFAULT_PREFETCH_K)
         self._prefetch_min_sim = _float_env("HIVE_PREFETCH_MIN_SIM", DEFAULT_PREFETCH_MIN_SIM)

@@ -43,7 +43,9 @@ negations ("I don't remember").
 
 Subagents, cron jobs and memory flushes read but never write.
 
-The repo comes from `git remote get-url origin` in the session's directory (`github.com/o/r` → `gh/o/r`);
+The repo comes from `git remote get-url origin` in the session's directory (`github.com/o/r` → `gh/o/r`).
+That is the directory the session was started in, also when a gateway serves it (Hermes' own session
+directory, not the gateway process's);
 `hive_remember` defaults to that repo's scope, or `global` outside a repo. Shared facts from members are
 **candidates** until the curator approves them; personal facts are only ever visible to you.
 `scope=team` writes into your team (pass `team: <key>` if you're in more than one). Facts are labelled by level:

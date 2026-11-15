@@ -187,6 +187,85 @@ def test_repo_key_detected_from_the_session_cwd(monkeypatch, fake, tmp_path):
     assert p._repo_key == "gh/acme/web"
 
 
+def _repo_with_origin(path, url="git@github.com:acme/web.git"):
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    subprocess.run(["git", "-C", str(path), "remote", "add", "origin", url], check=True)
+    return path
+
+
+@pytest.fixture()
+def session_cwd():
+    """Pin Hermes' session directory the way a gateway does for a session it serves, and undo it after."""
+    from agent import runtime_cwd
+    tokens = []
+
+    def pin(path):
+        tokens.append(runtime_cwd.set_session_cwd(str(path)))
+    yield pin
+    for token in reversed(tokens):
+        runtime_cwd.reset_session_cwd(token)
+
+
+def test_repo_key_comes_from_the_session_directory_not_the_serving_process(monkeypatch, fake, tmp_path, session_cwd):
+    # A gateway serves the session: its own directory is not a repo, the caller's is, and Hermes passes no `cwd`.
+    repo = _repo_with_origin(tmp_path / "repo")
+    gateway_dir = tmp_path / "gateway"
+    gateway_dir.mkdir()
+    monkeypatch.chdir(gateway_dir)
+    monkeypatch.delenv("HIVE_REPO_KEY", raising=False)
+    monkeypatch.delenv("TERMINAL_CWD", raising=False)
+    monkeypatch.setenv("HIVE_URL", fake.url)
+    monkeypatch.setenv("HIVE_TOKEN", GOOD)
+    session_cwd(repo)
+    fake.brief = {"facts": [F2], "gotchas": [], "tokens": {"total": 40}}
+    p = hive.HiveMemoryProvider()
+    p.initialize("s1", hermes_home="/tmp", platform="cli", agent_context="primary")
+    assert p._repo_key == "gh/acme/web"
+    assert p._cwd == str(repo)
+    p.prefetch("add a waitlist form", session_id="s1")
+    assert [r["body"]["repo_key"] for r in fake.last("/v1/brief")] == ["gh/acme/web"]
+    assert fake.last("/v1/recall") == []
+
+
+def test_an_explicit_cwd_beats_the_session_directory(monkeypatch, fake, tmp_path, session_cwd):
+    repo = _repo_with_origin(tmp_path / "repo")
+    other = _repo_with_origin(tmp_path / "other", "git@github.com:acme/other.git")
+    monkeypatch.delenv("HIVE_REPO_KEY", raising=False)
+    monkeypatch.setenv("HIVE_URL", fake.url)
+    monkeypatch.setenv("HIVE_TOKEN", GOOD)
+    session_cwd(other)
+    p = hive.HiveMemoryProvider()
+    p.initialize("s1", cwd=str(repo))
+    assert p._repo_key == "gh/acme/web"
+
+
+def test_repo_key_uses_the_process_directory_on_a_hermes_without_runtime_cwd(monkeypatch, fake, tmp_path):
+    repo = _repo_with_origin(tmp_path / "repo")
+    monkeypatch.chdir(repo)
+    monkeypatch.setitem(sys.modules, "agent.runtime_cwd", None)  # `from agent.runtime_cwd import ...` now fails
+    monkeypatch.delenv("HIVE_REPO_KEY", raising=False)
+    monkeypatch.setenv("HIVE_URL", fake.url)
+    monkeypatch.setenv("HIVE_TOKEN", GOOD)
+    p = hive.HiveMemoryProvider()
+    p.initialize("s1", hermes_home="/tmp", platform="cli", agent_context="primary")
+    assert p._repo_key == "gh/acme/web"
+    assert p._cwd and Path(p._cwd).resolve() == repo.resolve()  # a real path: changed files are read from it too
+
+
+def test_repo_key_falls_back_to_the_process_directory(monkeypatch, fake, tmp_path):
+    # A plain CLI process: no session directory is pinned and none is configured, so the launch directory is it.
+    repo = _repo_with_origin(tmp_path / "repo")
+    monkeypatch.chdir(repo)
+    monkeypatch.delenv("HIVE_REPO_KEY", raising=False)
+    monkeypatch.delenv("TERMINAL_CWD", raising=False)
+    monkeypatch.setenv("HIVE_URL", fake.url)
+    monkeypatch.setenv("HIVE_TOKEN", GOOD)
+    p = hive.HiveMemoryProvider()
+    p.initialize("s1", hermes_home="/tmp", platform="cli", agent_context="primary")
+    assert p._repo_key == "gh/acme/web"
+
+
 # --- prefetch -------------------------------------------------------------------------
 
 def _git(cwd, *args):
