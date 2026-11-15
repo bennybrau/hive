@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { JOB, KIND, ORIGIN, RAW_VALUES, REVIEW, ROLE, STATUS, VERIFY, WHERE, levelLabel, saidCaption, usedLine, usedTimes, when, word } from "./words";
+import { JOB, KIND, ORIGIN, PHRASE, RAW_VALUES, REVIEW, ROLE, STATUS, VERIFY, WHERE, levelLabel, saidCaption, usedLine, usedTimes, when, word } from "./words";
 
 const NOW = Date.parse("2026-11-12T18:00:00Z");
 const ago = (secs: number) => new Date(NOW - secs * 1000).toISOString();
@@ -78,6 +78,14 @@ describe("words", () => {
   it("lists the raw values the page guard looks for, and none of the words that are fine as they are", () => {
     expect(RAW_VALUES).toEqual(expect.arrayContaining(["candidate", "retracted", "distilled", "ingested", "gotcha", "invariant", "drifted", "unverifiable_here", "global", "distill", "embed"]));
     expect(RAW_VALUES).not.toContain("decision");
+  });
+
+  it("names the open fact's actions", () => {
+    expect(PHRASE.changeWho).toBe("Change who gets it…");
+    expect(PHRASE.retire).toBe("Retire");
+    expect(PHRASE.saveWording).toBe("Save the new wording");
+    expect(PHRASE.retireThis).toBe("Retire this fact");
+    expect(PHRASE.retireWhy).toBe("Why? This is kept with the fact.");
   });
 });
 

@@ -98,6 +98,11 @@ export const PHRASE = {
   written: "Written",
   replaces: "Replaces",
   replacedBy: "Replaced by",
+  changeWho: "Change who gets it…",
+  retire: "Retire",
+  saveWording: "Save the new wording",
+  retireThis: "Retire this fact",
+  retireWhy: "Why? This is kept with the fact.",
 } as const;
 
 /** The word for a value; an unknown value (a newer server) shows as itself rather than blank. */

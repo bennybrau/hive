@@ -3,8 +3,10 @@ import { apiFetch } from "../api";
 import { useTeams } from "../levels/levels";
 import { Badge, Button } from "../ui";
 import { KIND, levelLabel, PHRASE, REVIEW, saidCaption, STATUS, usedLine, VERIFY, when, word } from "../words";
+import { FactActions } from "./FactActions";
 import { githubBlobUrl } from "./github";
 import type { Fact } from "./query";
+import type { Me } from "./useMe";
 
 interface Source {
   kind: string;
@@ -115,10 +117,29 @@ function By({ who, iso }: { who: string | null; iso: string }) {
   );
 }
 
-/** The open fact: who gets it and its state, the fact, what was said (or the file), three plain lines, the chain, then Details. */
-export function FactDetail({ id, onClose, onOpen }: { id: string; onClose: () => void; onOpen: (id: string) => void }) {
+/**
+ * The open fact: who gets it and its state, the fact, what was said (or the file), three plain lines, its actions, the
+ * chain, then Details. After a save, `onReplace` opens the fact that took its place (a new wording, or a merge), or the
+ * pane reloads; either way `onSaved` tells the list.
+ */
+export function FactDetail({
+  id,
+  me,
+  onClose,
+  onOpen,
+  onReplace,
+  onSaved,
+}: {
+  id: string;
+  me: Me | null;
+  onClose: () => void;
+  onOpen: (id: string) => void;
+  onReplace: (id: string) => void;
+  onSaved: () => void;
+}) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
   const { teams, mine } = useTeams();
 
   useEffect(() => {
@@ -136,7 +157,7 @@ export function FactDetail({ id, onClose, onOpen }: { id: string; onClose: () =>
     return () => {
       live = false;
     };
-  }, [id]);
+  }, [id, reload]);
 
   const f = detail?.fact;
   const who = f && levelLabel(f, teams, mine);
@@ -248,6 +269,22 @@ export function FactDetail({ id, onClose, onOpen }: { id: string; onClose: () =>
               </>
             )}
           </dl>
+
+          {me && (
+            <FactActions
+              key={f.id}
+              fact={f}
+              anchorRepo={detail.anchors[0]?.repo_key ?? null}
+              teams={teams}
+              mine={mine}
+              me={me}
+              onSaved={(next) => {
+                if (next && next !== f.id) onReplace(next);
+                else setReload((r) => r + 1);
+                onSaved();
+              }}
+            />
+          )}
 
           <Chain title={PHRASE.replaces} links={detail.supersedes} onOpen={onOpen} />
           <Chain title={PHRASE.replacedBy} links={detail.superseded_by} onOpen={onOpen} />

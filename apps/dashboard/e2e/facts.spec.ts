@@ -94,3 +94,50 @@ test("on a phone a fact opens as its own page, and the back link returns to the 
   await expect(page.getByRole("link", { name: text })).toBeFocused();
   await context.close();
 });
+
+test("a curator edits, moves and retires a fact from the open fact", async ({ page }) => {
+  expect(CURATOR, "HIVE_E2E_CURATOR_TOKEN is not set").not.toBe("");
+  expect(RUN, "HIVE_E2E_RUN is not set").not.toBe("");
+  const marker = `${RUN}a${Date.now()}`;
+  const text = `Dashboard e2e actions fact ${marker}: first wording.`;
+  const res = await page.request.post(`${HIVE}/v1/facts`, {
+    headers: { authorization: `Bearer ${CURATOR}` },
+    data: { text, kind: "gotcha", scope: "personal" },
+  });
+  expect(res.status()).toBe(201);
+  const id = (await res.json()).fact.id as string;
+  created.push(id);
+
+  await page.goto(`${HIVE}/`);
+  await page.getByLabel("Token").fill(CURATOR);
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/facts$/);
+  await page.goto(`${HIVE}/facts/${id}`);
+  const panel = page.getByRole("complementary", { name: "Selected fact" });
+  await expect(panel.getByText(text)).toBeVisible();
+
+  // Edit…: the new wording opens in place of the old one, which is under Replaces.
+  const wording = `Dashboard e2e actions fact ${marker}: second wording.`;
+  await panel.getByRole("button", { name: "Edit…" }).click();
+  await panel.getByLabel("Edit the fact").fill(wording);
+  await panel.getByRole("button", { name: "Save the new wording" }).click();
+  await expect(page).not.toHaveURL(new RegExp(`/facts/${id}$`));
+  const next = new URL(page.url()).pathname.split("/").at(-1)!;
+  created.push(next);
+  await expect(panel.locator(".bigfact")).toHaveText(wording);
+  await expect(panel.locator(".chain").getByRole("link", { name: text })).toBeVisible();
+
+  // Change who gets it…: from Just me to Everyone.
+  await panel.getByRole("button", { name: "Change who gets it…" }).click();
+  await panel.getByRole("radio", { name: "Everyone" }).check();
+  await panel.getByRole("button", { name: "Move to Everyone" }).click();
+  await expect(panel.getByText("Agents in every repository, for every team.")).toBeVisible();
+
+  // Retire: the reason is kept with the fact.
+  await panel.getByRole("button", { name: "Retire", exact: true }).click();
+  await panel.getByLabel("Why? This is kept with the fact.").fill(`e2e probe ${marker}`);
+  await panel.getByRole("button", { name: "Retire this fact" }).click();
+  await expect(panel.locator("dl.kv dt", { hasText: "Retired" })).toBeVisible();
+  await expect(panel.locator("dl.kv dd", { hasText: `e2e probe ${marker}` })).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Edit…" })).toHaveCount(0);
+});

@@ -27,6 +27,8 @@ interface Props {
   onOpen: (id: string) => void;
   /** The open fact. It sits beside the rows, under the search box and the filter line. */
   pane?: ReactNode;
+  /** Bumped after a save in the open fact, so the list fetches again. */
+  reload: number;
 }
 
 interface Option {
@@ -74,7 +76,7 @@ function Menu({ label, value, options, onChange }: { label: string; value: strin
   );
 }
 
-export function FactsTable({ filters, onChange, openId, onOpen, pane }: Props) {
+export function FactsTable({ filters, onChange, openId, onOpen, pane, reload }: Props) {
   const searching = filters.q !== "";
   const [body, setBody] = useState<{ facts: Fact[]; has_more?: boolean; total?: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +113,7 @@ export function FactsTable({ filters, onChange, openId, onOpen, pane }: Props) {
     return () => {
       live = false;
     };
-  }, [url]);
+  }, [url, reload]);
 
   // A list page comes back filtered by the server; search can't filter, so its hits are narrowed here.
   const shown = useMemo(

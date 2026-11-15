@@ -39,6 +39,10 @@
 .kn-pane .kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--s-2) var(--s-4); margin: 0; }
 .kn-pane .kv dt { color: var(--muted); }
 .kn-pane .kv dd { margin: 0; overflow-wrap: anywhere; }
+/* Edit…, Change who gets it… and Retire; an open form takes their place, its buttons under the box. */
+.pane-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+.pane-edit { display: grid; gap: var(--s-3); min-width: 0; }
+.pane-edit .who-gets-this { margin: 0; }
 .kn-pane h3 { font-size: 13px; font-weight: 600; margin: 0 0 6px; }
 .kn-pane .chain ul, .kn-pane .history { margin: 0; padding-left: 18px; }
 .kn-pane .history { padding: 0; list-style: none; }

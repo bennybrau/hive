@@ -131,9 +131,25 @@ bottom:
   it says where it is now.
 - Three plain lines: **Who gets it** (in a sentence), **Used** ("5 times, last 2 hours ago") and **Approved** (who
   approved a learned fact, and when) or **Written** (who wrote it, and when). A retired or replaced fact also says why.
+- On a live fact, what you can do with it (see below).
 - **Replaces / Replaced by**: the older and newer versions of this fact, each with its status. Click one to open it.
 - **Details** (closed until you click it): the fact's id, the full time it was recorded, its author, the
   conversations it came from, its history in words ("Approved with a fix by …"), and the files or areas it is about.
+
+**Changing a fact.** Under the three plain lines of a live fact, a curator has three buttons. Each opens a small form
+in place of the buttons; **Cancel** or `Esc` closes it and leaves the fact open.
+
+- **Edit…**: change the wording, then **Save the new wording**. The new wording becomes a new fact, which opens in
+  place of the old one (the menus are kept); the old one is listed under **Replaces**.
+- **Change who gets it…**: pick a level (the fact's own repo first, then **Another repo…**, the teams, **Everyone**
+  and **Just me**), then **Move to** that level. If a fact with the same text is already there, the two merge and that
+  one opens.
+- **Retire**: say why (**Why? This is kept with the fact.**, at least 3 characters), then **Retire this fact**. Agents
+  stop getting it; it shows as Retired, with your reason under **Retired**.
+
+A member sees none of these on shared facts. On their own live **Just me** facts (ones they wrote) they get **Retire**
+only, with the same required reason. If a save fails, the reason shows under the box and what you typed stays.
+The list behind the pane updates after every save.
 
 `Esc` or **Close** closes the pane and puts you back on the fact's row. The open fact is part of the page address, so
 a link opens straight to it.

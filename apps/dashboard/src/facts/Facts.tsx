@@ -5,6 +5,7 @@ import { PHRASE } from "../words";
 import { FactDetail } from "./FactDetail";
 import { FactsTable } from "./FactsTable";
 import { readFilters, writeFilters, type Filters } from "./query";
+import { useMe } from "./useMe";
 
 function openIdOf(path: string): string | null {
   const m = /^\/facts\/([^/]+)\/?$/.exec(path);
@@ -15,6 +16,8 @@ function openIdOf(path: string): string | null {
 export function Facts() {
   const [loc, setLoc] = useState(() => ({ path: location.pathname, search: location.search }));
   const listRef = useRef<HTMLDivElement>(null);
+  const me = useMe();
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     const update = () => setLoc({ path: location.pathname, search: location.search });
@@ -35,6 +38,13 @@ export function Facts() {
     history.pushState({ fromList: true }, "", `/facts/${encodeURIComponent(id)}${location.search}`);
     dispatchEvent(new PopStateEvent("popstate"));
   }, []);
+
+  // A save that replaced the open fact (a new wording, or a merge) opens the new one in place of it, filters kept.
+  const replace = useCallback((id: string) => {
+    history.replaceState(history.state, "", `/facts/${encodeURIComponent(id)}${location.search}`);
+    dispatchEvent(new PopStateEvent("popstate"));
+  }, []);
+  const saved = useCallback(() => setReload((r) => r + 1), []);
 
   const close = useCallback(() => navigate(`/facts${location.search}`), []);
 
@@ -85,7 +95,19 @@ export function Facts() {
           onChange={setFilters}
           openId={openId}
           onOpen={open}
-          pane={openId && <FactDetail id={openId} onClose={close} onOpen={(id) => navigate(`/facts/${encodeURIComponent(id)}${location.search}`)} />}
+          reload={reload}
+          pane={
+            openId && (
+              <FactDetail
+                id={openId}
+                me={me}
+                onClose={close}
+                onOpen={(id) => navigate(`/facts/${encodeURIComponent(id)}${location.search}`)}
+                onReplace={replace}
+                onSaved={saved}
+              />
+            )
+          }
         />
       </div>
     </main>
