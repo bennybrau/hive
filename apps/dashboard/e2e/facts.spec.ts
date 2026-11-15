@@ -112,6 +112,9 @@ test("a curator edits, moves and retires a fact from the open fact", async ({ pa
   await page.getByLabel("Token").fill(CURATOR);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/facts$/);
+  // The address is /facts before the token has been checked, so wait for the signed-in page: loading another
+  // address any sooner drops the sign-in and lands on the token box again.
+  await expect(page.getByRole("navigation", { name: "Main" })).toBeVisible();
   await page.goto(`${HIVE}/facts/${id}`);
   const panel = page.getByRole("complementary", { name: "Selected fact" });
   await expect(panel.getByText(text)).toBeVisible();
@@ -138,6 +141,7 @@ test("a curator edits, moves and retires a fact from the open fact", async ({ pa
   await panel.getByLabel("Why? This is kept with the fact.").fill(`e2e probe ${marker}`);
   await panel.getByRole("button", { name: "Retire this fact" }).click();
   await expect(panel.locator("dl.kv dt", { hasText: "Retired" })).toBeVisible();
-  await expect(panel.locator("dl.kv dd", { hasText: `e2e probe ${marker}` })).toBeVisible();
+  // The reason shows twice: on the Retired line, and in the history under Details. The first is the visible one.
+  await expect(panel.locator("dl.kv dd", { hasText: `e2e probe ${marker}` }).first()).toBeVisible();
   await expect(panel.getByRole("button", { name: "Edit…" })).toHaveCount(0);
 });
