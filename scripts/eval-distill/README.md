@@ -38,8 +38,12 @@ Each window is at most 45k characters, so it fits one chunk. `cases/<id>.json` h
   `{"episode": "<ref>"}` for an `asf_dialog` episode copied from the Hive as stored, or
   `{"synthetic": "..."}` for a written one, whose `notes` then start with SYNTHETIC.
 
-Eleven of the 15 session cases should produce nothing: chit-chat, status checks, routine work, a code review, and
+Nine of the 12 session cases should produce nothing: chit-chat, status checks, routine work, and
 sessions whose only facts the assistant found or proved without the user stating them.
+
+Three other real windows (`asf-open-source`, `asf-tailscale`, `asf-review-findings`) were removed before the
+repository went public because they held private names and addresses. Results recorded before then, here and in
+`docs/`, were scored with them included.
 
 Three more cases, `bot-*`, are synthetic: written in the same format to check that facts come from what the person
 said. In two the assistant proposes or summarises and the user only says ok or thanks (nothing to keep); in one the
