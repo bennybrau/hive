@@ -62,7 +62,8 @@ Connect Claude Code (or any MCP client) to `<HIVE_URL>/mcp`: see [docs/CLAUDE_CO
 ## Install (no checkout)
 
 Published images: `ghcr.io/bennybrau/hive` (service + dashboard) and `ghcr.io/bennybrau/hive-worker`, for
-linux/amd64 and linux/arm64. Each `vX.Y.Z` release attaches the compose file and `hive.env.example`. Needs only Docker.
+linux/amd64 and linux/arm64. Each `vX.Y.Z` release attaches the compose file, `hive.env.example` and
+`hive-plugin.tar.gz` (the Hermes plugin, top directory `hive/`). Needs only Docker.
 
 ```bash
 mkdir hive && cd hive

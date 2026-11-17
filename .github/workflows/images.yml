@@ -1,6 +1,7 @@
 # Build and publish the hive and hive-worker images to GHCR (linux/amd64 + linux/arm64) so installs pull instead of
 # building. A push to main publishes `:main` and `:sha-<7>`. Pushing a `vX.Y.Z` tag publishes `:X.Y.Z`, `:X.Y` and
-# `:latest`, then creates the GitHub release with docker-compose.release.yml and .env.example attached.
+# `:latest`, then creates the GitHub release with docker-compose.release.yml, hive.env.example (.env.example) and
+# hive-plugin.tar.gz (the Hermes plugin, top directory hive/) attached.
 name: images
 on:
   push:
@@ -52,11 +53,14 @@ jobs:
           flavor: |
             latest=${{ startsWith(github.ref, 'refs/tags/v') }}
 
-      # The worker pins the Claude Code CLI at build time (see apps/worker/Dockerfile).
+      # The worker pins the Claude Code CLI at build time (see apps/worker/Dockerfile). HIVE_VERSION is what the hive
+      # reports on /health (the worker ignores it).
       - id: build-args
         run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then version="${GITHUB_REF_NAME#v}"; else version="main-${GITHUB_SHA::7}"; fi
           {
             echo "build_args<<EOF"
+            echo "HIVE_VERSION=${version}"
             if [ "${{ matrix.app }}" = worker ]; then echo "CLAUDE_CODE_VERSION=2.1.284"; fi
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -88,4 +92,6 @@ jobs:
         # GitHub renames uploaded dotfiles (.env.example -> default.env.example), so ship it as hive.env.example.
         run: |
           cp .env.example hive.env.example
-          gh release create "$GITHUB_REF_NAME" docker-compose.release.yml hive.env.example --generate-notes --verify-tag
+          tar -czf hive-plugin.tar.gz --exclude=tests --exclude=__pycache__ -C plugins hive
+          gh release create "$GITHUB_REF_NAME" docker-compose.release.yml hive.env.example hive-plugin.tar.gz \
+            --generate-notes --verify-tag

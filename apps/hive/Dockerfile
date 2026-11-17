@@ -24,6 +24,9 @@ COPY --from=build /app/apps/hive/dist ./dist
 # The dashboard, served at / (HIVE_DASHBOARD_DIR defaults here).
 COPY --from=build /app/apps/dashboard/dist ./public
 COPY apps/hive/migrations ./migrations
+# Reported by /health. CI passes the release version (or main-<sha>); a local build says dev.
+ARG HIVE_VERSION=dev
+ENV HIVE_VERSION=$HIVE_VERSION
 USER node
 EXPOSE 8800
 # Healthy once /health answers OK (published images carry this; compose needn't repeat it).

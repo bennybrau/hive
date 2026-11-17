@@ -19,7 +19,7 @@ services:
       retries: 30
 
   hive:
-    image: ghcr.io/bennybrau/hive:${HIVE_VERSION:-latest}
+    image: ${HIVE_IMAGE:-ghcr.io/bennybrau/hive}:${HIVE_VERSION:-latest}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -51,7 +51,7 @@ services:
 
   # The fact agent. Healthcheck built into the image (heartbeat file).
   hive-worker:
-    image: ghcr.io/bennybrau/hive-worker:${HIVE_VERSION:-latest}
+    image: ${HIVE_WORKER_IMAGE:-ghcr.io/bennybrau/hive-worker}:${HIVE_VERSION:-latest}
     restart: unless-stopped
     depends_on:
       hive:
