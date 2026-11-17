@@ -62,12 +62,13 @@ Connect Claude Code (or any MCP client) to `<HIVE_URL>/mcp`: see [docs/CLAUDE_CO
 ## Install (no checkout)
 
 Published images: `ghcr.io/bennybrau/hive` (service + dashboard) and `ghcr.io/bennybrau/hive-worker`, for
-linux/amd64 and linux/arm64. Each `vX.Y.Z` release attaches the compose file and `.env.example`. Needs only Docker.
+linux/amd64 and linux/arm64. Each `vX.Y.Z` release attaches the compose file and `hive.env.example`. Needs only Docker.
 
 ```bash
 mkdir hive && cd hive
-gh release download v0.1.0 -R bennybrau/hive -p docker-compose.release.yml -p .env.example
-mv docker-compose.release.yml docker-compose.yml && mv .env.example .env
+V=v0.1.0; R=https://github.com/bennybrau/hive/releases/download/$V
+curl -fsSL -o docker-compose.yml $R/docker-compose.release.yml
+curl -fsSL -o .env $R/hive.env.example
 # in .env: POSTGRES_PASSWORD=$(openssl rand -hex 24), HIVE_SECRET_KEY=$(openssl rand -hex 32), HIVE_VERSION=0.1.0
 docker compose up -d --wait
 docker compose exec hive node dist/cli/mint-token.js --name alice-laptop --user alice --role curator   # your HIVE_TOKEN
