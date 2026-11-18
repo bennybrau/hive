@@ -189,7 +189,7 @@ remove (the volumes are already gone).
 `upgrade` and `uninstall` stop before any compose call when the project's containers run from another directory,
 or when Docker can't list them, as the installer does: name this install's project with `--project <name>`.
 
-## Backups
+## Backups and restore
 
 The `backup` service dumps the database every night at `HIVE_BACKUP_TIME` (default `03:00`, in `TZ`, default
 `UTC`) to `hive-YYYYMMDD-HHMM.dump` (`pg_dump -Fc`). The dumps go in the `hive-backups` volume, or in
@@ -208,3 +208,51 @@ In a checkout, `scripts/backup-now.sh [--dir <d>] [--project <p>]` does the same
 `doctor` (but falls back to the checkout instead of `~/hive`) and refuses, like `upgrade`, when the project runs
 from another directory or Docker can't list it. `docker compose -p <project> logs backup` shows one line per dump:
 the file, its size and how long it took.
+
+### The restore drill
+
+Now and then, restore a dump next to the live database to check that it restores:
+
+```
+scripts/restore.sh latest [--dir <d>] [--project <p>]
+```
+
+`latest` is the newest dump; or name one, `hive-YYYYMMDD-HHMM.dump`. It restores into a new database,
+`hive_restore_<YYYYMMDDHHMMSS>` (`--into <name>` to pick one; it never overwrites an existing database), then prints
+each table's rows restored and live, with `*` on the ones that differ. The live database keeps changing after the
+dump, so differences there are expected; the count is informational. It exits 0 when the restore worked, and ends
+with the command to drop the copy:
+
+```
+docker compose --project-directory <d> -p <p> exec -T postgres dropdb -U hive hive_restore_<...>
+```
+
+It finds the install and refuses another directory's project as `backup-now.sh` does. Without a checkout, fetch it
+into the install directory, where it finds the install by its `.env`:
+
+```
+cd ~/hive && curl -fsSL -o restore.sh https://raw.githubusercontent.com/bennybrau/hive/main/scripts/restore.sh
+bash restore.sh latest
+```
+
+### Restoring over the live database
+
+```
+scripts/restore.sh <file|latest> --into hive --yes
+```
+
+This replaces every fact, token and setting with the dump's (`pg_restore --clean`). It stops `hive` and
+`hive-worker`, restores, and starts them again (also when the restore fails). Without `--yes` it refuses. Take a
+`backup once` first if the current data might still matter.
+
+### Copies off this machine
+
+A dump in the `hive-backups` volume dies with the disk. Set `HIVE_BACKUP_DIR` (and `HIVE_BACKUP_COPY_DIR`) to host
+directories you copy elsewhere, or copy one out of the volume:
+
+```
+docker compose -p <project> cp backup:/backups/hive-YYYYMMDD-HHMM.dump .
+```
+
+To restore a dump from elsewhere, put it back first (`docker compose -p <project> cp ./hive-YYYYMMDD-HHMM.dump
+backup:/backups/`, or into `HIVE_BACKUP_DIR`), then run `restore.sh` with its name.

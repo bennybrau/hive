@@ -94,7 +94,7 @@ Repos to ingest: set `HIVE_REPOS_HOST_ROOT` in `.env` (unset = none). Ollama in 
 `OLLAMA_URL=http://ollama:11434` and `docker compose --profile ollama up -d`. Upgrade: change `HIVE_VERSION`, then
 `docker compose pull && docker compose up -d --wait`.
 
-## Backups
+## Backups and restore
 
 The `backup` service runs `pg_dump` every night at `HIVE_BACKUP_TIME` (default 03:00, in `TZ`, default UTC). The
 dumps are `hive-YYYYMMDD-HHMM.dump` (`pg_dump -Fc`, mode 600) in the `hive-backups` volume, or in `HIVE_BACKUP_DIR`
@@ -105,6 +105,13 @@ NAS, a synced folder) to get a copy of each dump there, with the same retention.
 Take one now: `scripts/backup-now.sh` in a checkout, or from the install directory
 `docker compose -p <project> run --rm --no-deps -T backup once`. `install.sh doctor` warns when the newest dump is
 over 26 hours old, or when there is none.
+
+Practice a restore now and then: `scripts/restore.sh latest` restores the newest dump into a new database
+`hive_restore_<timestamp>`, leaving the live one alone, prints each table's rows restored and live, and prints the
+command to drop it. `scripts/restore.sh <file> --into hive --yes` restores over the live database (hive and
+hive-worker are stopped meanwhile). Keep copies off this machine with `HIVE_BACKUP_DIR` / `HIVE_BACKUP_COPY_DIR`, or
+`docker compose -p <project> cp backup:/backups/<file> .`. No checkout: see
+[docs/INSTALL.md](docs/INSTALL.md#backups-and-restore).
 
 ## Tests
 

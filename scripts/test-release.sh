@@ -63,5 +63,17 @@ WLOG="$(dc logs --no-log-prefix hive-worker)"
 grep -m1 '^{' <<<"$WLOG" | node -e \
   'const l=JSON.parse(require("fs").readFileSync(0,"utf8"));process.exit(typeof l.level==="number"&&l.msg?0:1)' \
   || fail "worker log is not JSON lines"
+
+# --- the restore drill: a row, a backup, restore.sh into a new db, the counts match ---------------
+dc exec -T postgres psql -U hive -d hive -v ON_ERROR_STOP=1 -c \
+  "insert into instances (name, user_id, token_hash) values ('release-test', 'release-test', 'release-test-hash')" \
+  || fail "cannot seed an instance"
+dc run --rm --no-deps -T backup once || fail "backup once failed"
+DRILL="$("$ROOT/scripts/restore.sh" latest --dir "$DIR" --project "$PROJECT")" || { echo "$DRILL"; fail "restore.sh failed"; }
+echo "$DRILL"
+for t in facts episodes anchors instances; do
+  grep -qE "^${t} +([0-9]+) +\\1$" <<<"$DRILL" || fail "restore drill: ${t} restored != live"
+done
+grep -qE '^instances +[1-9]' <<<"$DRILL" || fail "restore drill: the seeded instance was not restored"
 cd "$ROOT"
 echo "release compose ok"
