@@ -61,6 +61,17 @@ Connect Claude Code (or any MCP client) to `<HIVE_URL>/mcp`: see [docs/CLAUDE_CO
 
 ## Install (no checkout)
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/bennybrau/hive/main/scripts/install.sh | bash
+```
+
+Needs only Docker and curl. It asks a few questions (each has a default; Enter takes it), brings the Hive up in
+`~/hive` and prints the dashboard URL and a token per person, with the line to connect Claude Code and Hermes.
+Re-run `~/hive/install.sh` to change an answer. Every prompt, its env var for `--non-interactive`, and `--project`
+for a second Hive on one host: [docs/INSTALL.md](docs/INSTALL.md).
+
+### Manual install
+
 Published images: `ghcr.io/bennybrau/hive` (service + dashboard) and `ghcr.io/bennybrau/hive-worker`, for
 linux/amd64 and linux/arm64. Each `vX.Y.Z` release attaches the compose file, `hive.env.example` and
 `hive-plugin.tar.gz` (the Hermes plugin, top directory `hive/`). Needs only Docker.

@@ -55,6 +55,8 @@ jobs:
       - run: docker run --rm hive-worker:ci claude --version
       # the release compose runs on these images from an empty dir: healthy, /health ok, no build:, non-root
       - run: scripts/test-release.sh
+      # the installer against fake docker/curl/uname: preflight, .env keys, --project, the override, prompts
+      - run: bash scripts/install.test.sh
 
   plugin:
     name: hermes plugin (pytest vs pinned hermes-agent)
