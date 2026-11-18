@@ -82,7 +82,8 @@ beforeAll(async () => {
   pool = createPool(TEST_DB_URL, 4);
   await pool.query("drop schema public cascade; create schema public;");
   const dir = mkdtempSync(path.join(tmpdir(), "hive-migrations-"));
-  for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql") && f < "0017")) {
+  // 0020 (repo URL columns) is independent of 0017; the repo routes used below need it.
+  for (const f of readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith(".sql") && (f < "0017" || f.startsWith("0020_")))) {
     copyFileSync(path.join(MIGRATIONS_DIR, f), path.join(dir, f));
   }
   await migrate(pool, dir);

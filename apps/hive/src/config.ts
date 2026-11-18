@@ -16,6 +16,10 @@ export interface Config {
   reposRoot: string;
   /** The same directory as seen on the host, so repos can be registered by their host path. */
   reposHostRoot: string;
+  /** Where repos registered by URL are cloned (Docker: the writable hive-clones volume). */
+  clonesRoot: string;
+  /** Accept file:// and local-path clone URLs. Tests only (HIVE_ALLOW_FILE_URLS=1). */
+  allowFileUrls: boolean;
   /** Minutes between automatic ingest + verify passes over all repos; 0 = only on demand. */
   repoSyncMinutes: number;
   /** First ingest of a repo reads at most this many recent commits. */
@@ -73,6 +77,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     vectorMinSimilarity: num(env, "HIVE_VECTOR_MIN_SIM", 0.55, (n) => n >= 0 && n <= 1),
     reposRoot: env.HIVE_REPOS_ROOT || env.HIVE_REPOS_HOST_ROOT || process.cwd(),
     reposHostRoot: env.HIVE_REPOS_HOST_ROOT || env.HIVE_REPOS_ROOT || process.cwd(),
+    clonesRoot: env.HIVE_CLONES_ROOT || "/data/repos",
+    allowFileUrls: env.HIVE_ALLOW_FILE_URLS === "1",
     repoSyncMinutes: num(env, "HIVE_REPO_SYNC_MINUTES", 15, (n) => n >= 0),
     maxCommits: num(env, "HIVE_MAX_COMMITS", 2000, (n) => Number.isInteger(n) && n > 0),
     secretKey: secretKey(env),

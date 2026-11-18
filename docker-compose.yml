@@ -41,6 +41,8 @@ services:
       # Register them by their host path; the hive never writes to them.
       HIVE_REPOS_ROOT: /repos
       HIVE_REPOS_HOST_ROOT: ${HIVE_REPOS_HOST_ROOT:-${HOME}/dev}
+      # Repos registered by URL are cloned here (the hive-clones volume) and fetched before each ingest.
+      HIVE_CLONES_ROOT: /data/repos
       HIVE_REPO_SYNC_MINUTES: ${HIVE_REPO_SYNC_MINUTES:-15}
       # Encrypts the stored agent credential; empty = it can't be set.
       HIVE_SECRET_KEY: ${HIVE_SECRET_KEY:-}
@@ -50,6 +52,7 @@ services:
       HIVE_TELEGRAM_API_URL: ${HIVE_TELEGRAM_API_URL:-https://api.telegram.org}
     volumes:
       - ${HIVE_REPOS_HOST_ROOT:-${HOME}/dev}:/repos:ro
+      - hive-clones:/data/repos
     # Docker Desktop (Mac) resolves host.docker.internal to the host itself. Do NOT add
     # extra_hosts: host-gateway here - it overrides that with the bridge IP and Ollama
     # (bound to 127.0.0.1) becomes unreachable. On a Linux host, set OLLAMA_URL in .env instead.
@@ -84,3 +87,4 @@ services:
 
 volumes:
   pgdata:
+  hive-clones:

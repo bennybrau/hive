@@ -27,6 +27,8 @@ COPY apps/hive/migrations ./migrations
 # Reported by /health. CI passes the release version (or main-<sha>); a local build says dev.
 ARG HIVE_VERSION=dev
 ENV HIVE_VERSION=$HIVE_VERSION
+# Clones of repos registered by URL (the hive-clones volume); a new volume copies this owner.
+RUN mkdir -p /data/repos && chown node:node /data/repos
 USER node
 EXPOSE 8800
 # Healthy once /health answers OK (published images carry this; compose needn't repeat it).

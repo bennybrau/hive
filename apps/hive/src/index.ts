@@ -28,6 +28,9 @@ const repoSync = createRepoSync(pool, {
   maxCommits: config.maxCommits,
   intervalMin: config.repoSyncMinutes,
   onWrite: () => worker?.kick(),
+  clonesRoot: config.clonesRoot,
+  allowFileUrls: config.allowFileUrls,
+  secretKey: config.secretKey,
 });
 
 // Without a key no webhook can exist (their secrets are encrypted under it).
@@ -54,7 +57,13 @@ const app = buildApp(pool, {
   dashboardDir: config.dashboardDir,
   staleDays: config.staleDays,
   reviewDigest: { telegramApiUrl: config.telegramApiUrl },
-  repos: { roots: { root: config.reposRoot, hostRoot: config.reposHostRoot }, sync: repoSync },
+  repos: {
+    roots: { root: config.reposRoot, hostRoot: config.reposHostRoot },
+    sync: repoSync,
+    clonesRoot: config.clonesRoot,
+    allowFileUrls: config.allowFileUrls,
+    secretKey: config.secretKey,
+  },
 });
 await app.listen({ host: config.host, port: config.port });
 

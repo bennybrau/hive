@@ -37,6 +37,8 @@ services:
       # Unset = an empty named volume (no repos; facts and search still work).
       HIVE_REPOS_ROOT: /repos
       HIVE_REPOS_HOST_ROOT: ${HIVE_REPOS_HOST_ROOT:-/repos}
+      # Repos registered by URL are cloned here (the hive-clones volume) and fetched before each ingest.
+      HIVE_CLONES_ROOT: /data/repos
       HIVE_REPO_SYNC_MINUTES: ${HIVE_REPO_SYNC_MINUTES:-15}
       HIVE_SECRET_KEY: ${HIVE_SECRET_KEY:-}
       HIVE_WEBHOOK_MAX_ATTEMPTS: ${HIVE_WEBHOOK_MAX_ATTEMPTS:-6}
@@ -44,6 +46,7 @@ services:
       HIVE_STALE_DAYS: ${HIVE_STALE_DAYS:-60}
     volumes:
       - ${HIVE_REPOS_HOST_ROOT:-hive-repos}:/repos:ro
+      - hive-clones:/data/repos
     # Docker Desktop (Mac) resolves host.docker.internal to the host itself. On a Linux host, set OLLAMA_URL in .env.
     ports:
       - "${HIVE_BIND:-127.0.0.1}:${HIVE_PORT:-8800}:8800"
@@ -75,4 +78,5 @@ services:
 volumes:
   pgdata:
   hive-repos:
+  hive-clones:
   ollama:

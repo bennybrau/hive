@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { realpath, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -11,6 +11,87 @@ export class RepoError extends Error {}
 export async function git(cwd: string, args: string[]): Promise<string> {
   const { stdout } = await run("git", ["-C", cwd, ...args], { maxBuffer: 256 * 1024 * 1024, encoding: "utf8" });
   return stdout;
+}
+
+/**
+ * A clone URL the hive may fetch: only `https://github.com/<owner>/<repo>(.git)`. ssh, scp-style, http,
+ * other hosts and file: are refused; `allowFile` (tests) also lets file:// URLs and absolute paths through.
+ */
+export function parseCloneUrl(url: string, opts: { allowFile?: boolean } = {}): string {
+  const u = url.trim();
+  const gh = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(\.git)?\/?$/.exec(u);
+  if (gh && ![gh[1], gh[2]].some((s) => s === "." || s === "..")) return `https://github.com/${gh[1]}/${gh[2]}${gh[3] ?? ""}`;
+  if (opts.allowFile && (u.startsWith("file:///") || path.isAbsolute(u))) return u;
+  throw new RepoError(`unsupported clone URL: ${u} (only https://github.com/<owner>/<repo> is accepted)`);
+}
+
+const basicAuth = (token: string) => Buffer.from(`x-access-token:${token}`).toString("base64");
+
+/** The token rides in per-command git config (env), never argv, the remote URL or .git/config. */
+function gitEnv(token: string | null): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_TERMINAL_PROMPT: "0" };
+  if (token) {
+    env.GIT_CONFIG_COUNT = "1";
+    env.GIT_CONFIG_KEY_0 = "http.extraHeader";
+    env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${basicAuth(token)}`;
+  }
+  return env;
+}
+
+/** git's stderr -> a short ingest_error, with the token (and its base64) removed. */
+export function gitErrorText(stderr: string, token: string | null): string {
+  let s = stderr;
+  if (token) s = s.split(token).join("***").split(basicAuth(token)).join("***");
+  if (/authentication failed|could not read (username|password)|invalid username or (password|token)|terminal prompts disabled|\b40[13]\b/i.test(s)) {
+    return "authentication failed: the token was refused or expired";
+  }
+  if (/repository not found|not found|does not appear to be a git repository|\b404\b/i.test(s)) return "repository not found";
+  const fatal = s.split("\n").map((l) => l.trim()).filter((l) => /^(fatal|error):/i.test(l)).pop() ?? s.trim().split("\n").pop() ?? "";
+  const reason = fatal.replace(/^(fatal|error):\s*/i, "").replace(/^unable to access '[^']*':\s*/i, "").slice(0, 200);
+  return `network: ${reason || "git failed"}`;
+}
+
+async function gitAuthed(cwd: string | null, args: string[], token: string | null): Promise<void> {
+  try {
+    await run("git", cwd ? ["-C", cwd, ...args] : args, { env: gitEnv(token), maxBuffer: 16 * 1024 * 1024, encoding: "utf8" });
+  } catch (err) {
+    throw new RepoError(gitErrorText(String((err as { stderr?: unknown }).stderr ?? ""), token));
+  }
+}
+
+/**
+ * Clone `url` to `dest` (`<clonesRoot>/<key>`): into a temp dir under clonesRoot first, then renamed,
+ * so a failed clone leaves nothing behind.
+ */
+export async function cloneRepo(url: string, dest: string, clonesRoot: string, token: string | null): Promise<void> {
+  await mkdir(clonesRoot, { recursive: true });
+  const tmp = await mkdtemp(path.join(clonesRoot, ".clone-"));
+  try {
+    await gitAuthed(null, ["clone", "--quiet", "--", url, tmp], token);
+    await mkdir(path.dirname(dest), { recursive: true });
+    await rename(tmp, dest);
+  } catch (err) {
+    await rm(tmp, { recursive: true, force: true });
+    if (err instanceof RepoError) throw err;
+    throw new RepoError(`clone into ${dest} failed: ${(err as Error).message}`);
+  }
+}
+
+/** Bring a clone to the remote's `branch`: fetch origin, then reset the working tree to it (verify reads that tree). */
+export async function fetchRepo(dir: string, url: string, branch: string, token: string | null): Promise<void> {
+  await gitAuthed(dir, ["remote", "set-url", "origin", url], null);
+  await gitAuthed(dir, ["fetch", "--quiet", "--prune", "origin"], token);
+  await gitAuthed(dir, ["reset", "--quiet", "--hard", `refs/remotes/origin/${branch}`], null);
+}
+
+/** True when `p` resolves to a directory strictly inside `root` (symlinks followed). */
+export async function isUnder(p: string, root: string): Promise<boolean> {
+  try {
+    const [real, rootReal] = await Promise.all([realpath(p), realpath(root)]);
+    return real.startsWith(rootReal + path.sep);
+  } catch {
+    return false;
+  }
 }
 
 /** git remote URL -> repo key. github.com/<o>/<r> -> gh/<o>/<r>; other hosts -> <host>/<path>. Same rule as the plugin. */
