@@ -55,10 +55,13 @@ const AGO = new Date(Date.now() - 3 * 3600_000).toISOString();
 
 // Two repos, so each anchor state shows once with a non-zero count and once with zero.
 const REPOS: Repo[] = ["acme/widgets", "acme/gears"].map((key, i) => ({
-  key, host_path: `/srv/${key}`, remote_url: null, default_branch: "main", last_ingested_sha: SHA, last_ingested_at: i ? null : AGO,
+  key, source: "path" as const, url: null, has_token: false, last_fetched_at: null, host_path: `/srv/${key}`, remote_url: null, default_branch: "main", last_ingested_sha: SHA, last_ingested_at: i ? null : AGO,
   ingest_error: null, docs: 3, chunks: 9, commits: 4,
   anchors: Object.fromEntries(Object.keys(VERIFY).map((v) => [v, i ? 0 : 2])) as Repo["anchors"],
 }));
+REPOS.push({
+  ...REPOS[0]!, key: "gh/acme/cloud", source: "url", url: "https://github.com/acme/cloud", has_token: true, last_fetched_at: AGO, host_path: null,
+});
 
 const count = (keys: readonly string[]) => Object.fromEntries(keys.map((k, i) => [k, i + 1]));
 const STATS: StatsBody = {

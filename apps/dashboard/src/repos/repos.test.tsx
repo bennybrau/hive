@@ -6,7 +6,8 @@ const SHA = "0123456789abcdef0123456789abcdef01234567";
 
 function repo(key: string, over: Partial<Repo> = {}): Repo {
   return {
-    key, host_path: `/Users/jon/dev/${key.split("/").at(-1)}`, remote_url: null, default_branch: "main",
+    key, source: "path", url: null, has_token: false, last_fetched_at: null,
+    host_path: `/Users/jon/dev/${key.split("/").at(-1)}`, remote_url: null, default_branch: "main",
     last_ingested_sha: SHA, last_ingested_at: new Date(Date.now() - 3 * 3600_000).toISOString(), ingest_error: null,
     docs: 12, chunks: 80, commits: 300,
     anchors: { verified: 4, drifted: 1, missing: 2, unverifiable_here: 0, unverified: 3 },
@@ -27,11 +28,16 @@ const SYNC = {
 let repos: Repo[];
 let files: unknown[];
 let ingest: () => Response;
-const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+let add: () => Response;
+let token: () => Response;
+let remove: () => Response;
+const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = new URL(String(input), "http://hive");
-  if (url.pathname === "/v1/repos") return json({ repos });
+  if (url.pathname === "/v1/repos") return init?.method === "POST" ? add() : json({ repos });
   if (url.pathname === "/v1/repos/files") return json({ files });
   if (url.pathname === "/v1/repos/ingest") return ingest();
+  if (String(input) === "/v1/repos/gh%2Facme%2Fproj/token") return token();
+  if (String(input) === "/v1/repos/gh%2Facme%2Fproj") return remove();
   return json({ error: "not found" }, 404);
 });
 const calls = (path: string) => fetchMock.mock.calls.filter(([u]) => new URL(String(u), "http://hive").pathname === path);
@@ -40,6 +46,9 @@ beforeEach(() => {
   repos = [repo("gh/acme/proj", { ingest_error: "git failed: bad object" }), repo("local/notes", { last_ingested_at: null, last_ingested_sha: null })];
   files = [];
   ingest = () => json(SYNC);
+  add = () => json({ repo: { key: "gh/acme/new" } }, 201);
+  token = () => json({ repo: { key: "gh/acme/proj", has_token: true } });
+  remove = () => json({ ok: true });
   fetchMock.mockClear();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -142,5 +151,156 @@ describe("repos view", () => {
     render(<Repos role="member" />);
     await screen.findByRole("heading", { name: "gh/acme/proj" });
     expect(screen.queryByRole("button", { name: "Read again now" })).toBeNull();
+  });
+});
+
+const URL_REPO = { source: "url", url: "https://github.com/acme/proj", host_path: null, has_token: true, last_fetched_at: new Date(Date.now() - 3600_000).toISOString() } as const;
+const SECRET = "github_pat_SECRET123";
+const form = () => screen.getByRole("heading", { name: "Add by URL" }).closest("form") as HTMLElement;
+const sent = (path: string, i = 0) => JSON.parse(String(calls(path)[i]![1]!.body)) as unknown;
+const posts = () => calls("/v1/repos").filter(([, init]) => init?.method === "POST");
+
+describe("sources by URL", () => {
+  it("each row says where it comes from; a URL repo shows only that a token is set", async () => {
+    repos = [repo("gh/acme/proj", URL_REPO), repo("local/notes"), repo("gh/acme/fresh", { ...URL_REPO, has_token: false, last_fetched_at: null })];
+    render(<Repos role="curator" />);
+    await screen.findByRole("heading", { name: "gh/acme/proj" });
+    const proj = item("gh/acme/proj");
+    expect(within(proj).getByText("https://github.com/acme/proj").tagName).toBe("CODE");
+    expect(within(proj).getByText(/Cloned from/)).toBeTruthy();
+    expect(within(proj).getByText("token set")).toBeTruthy();
+    expect(within(proj).getByText("1 hour ago")).toBeTruthy();
+    expect(within(proj).queryByText("Folder on this machine")).toBeNull();
+    const notes = item("local/notes");
+    expect(within(notes).getByText(/Folder on this machine/)).toBeTruthy();
+    expect(within(notes).getByText("/Users/jon/dev/notes").closest("details")).toBeTruthy();
+    expect(within(notes).queryByText(/Cloned from/)).toBeNull();
+    const fresh = item("gh/acme/fresh");
+    expect(within(fresh).getByText("Not fetched yet")).toBeTruthy();
+    expect(within(fresh).queryByText("token set")).toBeNull();
+  });
+
+  it("a curator adds a repo by URL: exact body, busy while cloning, token cleared, then a refetch", async () => {
+    let finish!: (r: Response) => void;
+    add = () => new Promise<Response>((r) => (finish = r)) as unknown as Response;
+    render(<Repos role="curator" />);
+    await screen.findByRole("heading", { name: "gh/acme/proj" });
+    const f = within(form());
+    fireEvent.change(f.getByLabelText("GitHub URL"), { target: { value: "https://github.com/acme/new" } });
+    fireEvent.change(f.getByLabelText("Key (optional)"), { target: { value: "acme-new" } });
+    const tokenInput = f.getByLabelText("Access token (optional, for private repos)") as HTMLInputElement;
+    expect(tokenInput.type).toBe("password");
+    expect(tokenInput.autocomplete).toBe("off");
+    expect(f.getByText("Defaults to gh/owner/repo")).toBeTruthy();
+    fireEvent.change(tokenInput, { target: { value: SECRET } });
+    fireEvent.click(f.getByRole("button", { name: "Add repo" }));
+    expect(((await f.findByRole("button", { name: "Cloning…" })) as HTMLButtonElement).disabled).toBe(true);
+    expect(sent("/v1/repos", 1)).toEqual({ url: "https://github.com/acme/new", key: "acme-new", token: SECRET });
+    expect(tokenInput.value).toBe("");
+
+    repos = [...repos, repo("acme-new", URL_REPO)];
+    finish(json({ repo: { key: "acme-new" } }, 201));
+    await screen.findByRole("heading", { name: "acme-new" });
+    expect((f.getByLabelText("GitHub URL") as HTMLInputElement).value).toBe("");
+    expect((f.getByLabelText("Key (optional)") as HTMLInputElement).value).toBe("");
+    expect(f.getByRole("button", { name: "Add repo" })).toBeTruthy();
+    expect(document.body.innerHTML).not.toContain(SECRET);
+  });
+
+  it("leaves out an empty key and token", async () => {
+    render(<Repos role="curator" />);
+    await screen.findByRole("heading", { name: "gh/acme/proj" });
+    const f = within(form());
+    fireEvent.change(f.getByLabelText("GitHub URL"), { target: { value: "https://github.com/acme/new" } });
+    fireEvent.click(f.getByRole("button", { name: "Add repo" }));
+    await waitFor(() => expect(posts()).toHaveLength(1));
+    expect(sent("/v1/repos", 1)).toEqual({ url: "https://github.com/acme/new" });
+  });
+
+  it("says why an add failed, and clears the token every time", async () => {
+    render(<Repos role="curator" />);
+    await screen.findByRole("heading", { name: "gh/acme/proj" });
+    const f = within(form());
+    const tokenInput = f.getByLabelText("Access token (optional, for private repos)") as HTMLInputElement;
+    const tryAdd = async (res: Response, text: string) => {
+      add = () => res;
+      fireEvent.change(f.getByLabelText("GitHub URL"), { target: { value: "https://github.com/acme/proj" } });
+      fireEvent.change(tokenInput, { target: { value: SECRET } });
+      fireEvent.click(f.getByRole("button", { name: "Add repo" }));
+      await waitFor(() => expect(f.getByRole("alert").textContent).toBe(text));
+      expect(tokenInput.value).toBe("");
+      expect(document.body.innerHTML).not.toContain(SECRET);
+    };
+    await tryAdd(json({ error: "repo gh/acme/proj is already registered (by path)" }, 409), "That key is already registered.");
+    await tryAdd(json({ error: "HIVE_SECRET_KEY is not set" }, 503), "Hive can't store tokens: HIVE_SECRET_KEY is not set on the server.");
+    await tryAdd(json({ error: "authentication failed: the token was refused" }, 400), "authentication failed: the token was refused");
+    expect((f.getByLabelText("GitHub URL") as HTMLInputElement).value).toBe("https://github.com/acme/proj");
+    expect(calls("/v1/repos").filter(([, init]) => init?.method !== "POST")).toHaveLength(1);
+  });
+
+  it("replaces a URL repo's token with a PUT to the encoded key", async () => {
+    repos = [repo("gh/acme/proj", URL_REPO)];
+    render(<Repos role="curator" />);
+    await screen.findByRole("heading", { name: "gh/acme/proj" });
+    const proj = item("gh/acme/proj");
+    fireEvent.click(within(proj).getByRole("button", { name: "Replace token" }));
+    const input = within(proj).getByLabelText("New access token") as HTMLInputElement;
+    expect(input.type).toBe("password");
+    expect(input.autocomplete).toBe("off");
+    fireEvent.change(input, { target: { value: SECRET } });
+    fireEvent.click(within(proj).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls("/v1/repos")).toHaveLength(2));
+    const [path, init] = fetchMock.mock.calls.find(([u]) => String(u) === "/v1/repos/gh%2Facme%2Fproj/token")!;
+    expect(path).toBe("/v1/repos/gh%2Facme%2Fproj/token");
+    expect(init!.method).toBe("PUT");
+    expect(JSON.parse(String(init!.body))).toEqual({ token: SECRET });
+    expect(within(proj).queryByLabelText("New access token")).toBeNull();
+    expect(document.body.innerHTML).not.toContain(SECRET);
+  });
+
+  it("asks in the row before removing; Cancel sends nothing, Yes deletes and refetches", async () => {
+    repos = [repo("gh/acme/proj", URL_REPO), repo("local/notes")];
+    render(<Repos role="curator" />);
+    await screen.findByRole("heading", { name: "gh/acme/proj" });
+    const proj = item("gh/acme/proj");
+    expect(within(item("local/notes")).queryByRole("button", { name: "Remove" })).toBeNull();
+    fireEvent.click(within(proj).getByRole("button", { name: "Remove" }));
+    expect(within(proj).getByText("Remove gh/acme/proj? Its indexed docs and clone are deleted; facts stay.")).toBeTruthy();
+    expect(within(proj).queryByRole("button", { name: "Read again now" })).toBeNull();
+    fireEvent.click(within(proj).getByRole("button", { name: "Cancel" }));
+    expect(within(proj).getByRole("button", { name: "Read again now" })).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
+
+    fireEvent.click(within(proj).getByRole("button", { name: "Remove" }));
+    const yes = within(proj).getByRole("button", { name: "Yes" });
+    expect(yes.className).toBe("danger");
+    repos = [repos[1]!];
+    fireEvent.click(yes);
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "gh/acme/proj" })).toBeNull());
+    const del = fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE");
+    expect(del.map(([u]) => String(u))).toEqual(["/v1/repos/gh%2Facme%2Fproj"]);
+    expect(calls("/v1/repos")).toHaveLength(2);
+  });
+
+  it("shows a failed remove in the row", async () => {
+    repos = [repo("gh/acme/proj", URL_REPO)];
+    remove = () => json({ error: "repo gh/acme/proj not found" }, 404);
+    render(<Repos role="curator" />);
+    await screen.findByRole("heading", { name: "gh/acme/proj" });
+    const proj = item("gh/acme/proj");
+    fireEvent.click(within(proj).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(proj).getByRole("button", { name: "Yes" }));
+    expect((await within(proj).findByRole("alert")).textContent).toBe("repo gh/acme/proj not found");
+    expect(within(proj).getByRole("button", { name: "Remove" })).toBeTruthy();
+  });
+
+  it("members see no add form and no token or remove buttons", async () => {
+    repos = [repo("gh/acme/proj", URL_REPO)];
+    render(<Repos role="member" />);
+    await screen.findByRole("heading", { name: "gh/acme/proj" });
+    expect(screen.queryByRole("heading", { name: "Add by URL" })).toBeNull();
+    expect(screen.queryByLabelText("GitHub URL")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Replace token" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
   });
 });
