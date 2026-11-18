@@ -31,7 +31,8 @@ export FAKE_LOG="$TMP/argv.log" FAKE_STDIN="$TMP/stdin.log"
 # FAKE_VOLUMES (existing volume names), FAKE_PS_PROJECT + FAKE_PS_WORKDIR (a project's containers),
 # FAKE_CURATORS (live curator count), FAKE_USERS (users that already have a token), FAKE_PS_HEALTH (every service's
 # health in `docker compose ps`, default healthy), FAKE_PS_FAIL=1 (`docker ps` fails), FAKE_PULL_FAIL=1 (`compose pull`
-# fails), FAKE_IMAGES (images `image inspect` finds; `compose config --images` prints hive's two at $HIVE_VERSION).
+# fails), FAKE_IMAGES (images `image inspect` finds; `compose config --images` prints hive's two at $HIVE_VERSION),
+# FAKE_BACKUP_NEWEST (what `run ... backup newest` prints; default a 1 h old dump, `fail` = it exits 1).
 cat > "$FAKE_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
 printf 'docker %s\n' "$*" >> "$FAKE_LOG"
@@ -64,6 +65,9 @@ case "$1" in
         done
         echo "{\"id\":\"x\",\"name\":\"n\",\"user_id\":\"$user\",\"role\":\"$role\",\"token\":\"tok-$user-$role\"}" ;;
       *" pull"*) [ "${FAKE_PULL_FAIL:-}" = 1 ] && exit 1 ;;
+      *"run --rm --no-deps -T backup newest"*)
+        [ "${FAKE_BACKUP_NEWEST:-}" = fail ] && { echo "no such service: backup" >&2; exit 1; }
+        echo "${FAKE_BACKUP_NEWEST:-3600 hive-20261117-0300.dump}" ;;
       *"config --images"*) echo "ghcr.io/bennybrau/hive:${HIVE_VERSION:-}"; echo "ghcr.io/bennybrau/hive-worker:${HIVE_VERSION:-}" ;;
       *" ps "*) for s in postgres hive hive-worker; do echo "$s running ${FAKE_PS_HEALTH:-healthy}"; done ;;
       *"psql"*"role='curator'"*) echo "${FAKE_CURATORS:-0}" ;;
@@ -445,6 +449,32 @@ assert_contains "$out" "running, unhealthy" "doctor names the unhealthy containe
 out="$(run HIVE_HOME="$TMP/home$CASE/nothing" bash "$INSTALL_SH" doctor 2>&1)"; code=$?
 assert_eq "$code" "2" "doctor without a .env exits 2"
 
+# doctor's backups line: a warning, never a failure
+new_day2_case
+out="$(run bash "$INSTALL_SH" doctor 2>&1)"; code=$?
+assert_eq "$code" "0" "doctor with a fresh backup exits 0"
+assert_contains "$out" "backups: newest hive-20261117-0300.dump (1 h old)" "doctor names the newest backup and its age"
+assert_contains "$(cat "$FAKE_LOG")" "-p hive run --rm --no-deps -T backup newest" "doctor asks the backup service"
+out="$(run FAKE_BACKUP_NEWEST="93600 hive-20261116-0300.dump" bash "$INSTALL_SH" doctor 2>&1)"; code=$?
+assert_contains "$out" "backups: newest hive-20261116-0300.dump (26 h old)" "a 26 h old backup is still fine"
+out="$(run FAKE_BACKUP_NEWEST="97200 hive-20261116-0300.dump" bash "$INSTALL_SH" doctor 2>&1)"; code=$?
+assert_eq "$code" "0" "a 27 h old backup only warns"
+assert_contains "$out" "! backups: the newest (hive-20261116-0300.dump) is 27 h old" "a 27 h old backup => warns with the age"
+out="$(run FAKE_BACKUP_NEWEST=none bash "$INSTALL_SH" doctor 2>&1)"; code=$?
+assert_eq "$code" "0" "no backup only warns"
+assert_contains "$out" "! backups: none yet" "no backup => warns"
+assert_contains "$out" "backup once" "no backup => says how to take one"
+out="$(run FAKE_BACKUP_NEWEST=fail bash "$INSTALL_SH" doctor 2>&1)"; code=$?
+assert_eq "$code" "0" "unreadable backups only warn"
+assert_contains "$out" "! cannot read the backups" "unreadable backups => warns"
+out="$(run FAKE_BACKUP_NEWEST="garbage" bash "$INSTALL_SH" doctor 2>&1)"; code=$?
+assert_contains "$out" "! cannot read the backups" "an unexpected answer => warns"
+printf 'HIVE_BACKUPS=off\n' >> "$H/.env"
+: > "$FAKE_LOG"
+out="$(run FAKE_BACKUP_NEWEST=none bash "$INSTALL_SH" doctor 2>&1)"; code=$?
+assert_contains "$out" "✓ backups: off" "HIVE_BACKUPS=off => ok, off"
+assert_not_contains "$(cat "$FAKE_LOG")" "backup newest" "HIVE_BACKUPS=off => the backup service isn't asked"
+
 new_day2_case
 out="$(run bash "$INSTALL_SH" upgrade --project p2 2>&1)"; code=$?
 assert_eq "$code" "0" "upgrade succeeds"
@@ -493,6 +523,7 @@ assert_eq "$code" "0" "uninstall succeeds"
 assert_contains "$(cat "$FAKE_LOG")" "-p hive down --remove-orphans" "uninstall runs compose down"
 assert_not_contains "$(cat "$FAKE_LOG")" " -v" "uninstall without --purge keeps the volumes"
 assert_file "$H/.env" "uninstall without --purge keeps the dir"
+assert_contains "$out" "the backups and $H are kept" "uninstall without --purge says the backups are kept"
 : > "$FAKE_LOG"
 out="$(run bash "$INSTALL_SH" uninstall --purge --non-interactive 2>&1)"; code=$?
 [ "$code" -ne 0 ] && pass || fail "--purge without --yes, non-interactive => refused"
@@ -506,6 +537,7 @@ assert_file "$H/.env" "--purge with the wrong name => the dir stays"
 printf 'hive\n' > "$TMP/tty"
 out="$(run HIVE_TTY="$TMP/tty" bash "$INSTALL_SH" uninstall --purge 2>&1)"; code=$?
 assert_eq "$code" "0" "--purge with the project name typed succeeds"
+assert_contains "$out" "in project hive, its backups, and $H" "the --purge prompt says the backups go too"
 assert_contains "$(cat "$FAKE_LOG")" "-p hive down -v --remove-orphans" "--purge removes the volumes"
 assert_no_file "$H" "--purge deletes the install dir"
 
@@ -530,6 +562,29 @@ cp "$H/.env" "$H/docker-compose.yml" "$TMP/home$CASE/"
 out="$(run bash "$INSTALL_SH" uninstall --purge --yes --dir "$TMP/home$CASE" 2>&1)"; code=$?
 assert_file "$TMP/home$CASE/.env" "--purge on \$HOME => the dir stays"
 assert_contains "$out" "not deleting" "--purge on \$HOME => warns"
+
+# --purge never deletes a backup bind dir: one at or under the install dir keeps the dir
+for spec in "HIVE_BACKUP_DIR=backups:@H@/backups" "HIVE_BACKUP_COPY_DIR=./copy/:@H@/copy" \
+  "HIVE_BACKUP_DIR=~/hive/b:@H@/b" "HIVE_BACKUP_DIR=@H@:@H@"; do
+  new_day2_case
+  spec=${spec//@H@/$H}; kv=${spec%:*}; want=${spec##*:}
+  printf '%s\n' "$kv" >> "$H/.env"
+  mkdir -p "$want"; echo dump > "$want/hive-20261117-0300.dump"
+  out="$(run bash "$INSTALL_SH" uninstall --purge --yes 2>&1)"; code=$?
+  assert_eq "$code" "0" "--purge with $kv succeeds"
+  assert_file "$want/hive-20261117-0300.dump" "--purge with $kv => the backups stay"
+  assert_contains "$out" "it holds the backups (${kv%%=*}=$want)" "--purge with $kv => says why"
+done
+new_day2_case
+printf 'HIVE_BACKUP_DIR=%s\n' "$TMP/home$CASE/elsewhere" >> "$H/.env"
+mkdir -p "$TMP/home$CASE/elsewhere"; echo dump > "$TMP/home$CASE/elsewhere/hive-20261117-0300.dump"
+out="$(run bash "$INSTALL_SH" uninstall --purge --yes 2>&1)"; code=$?
+assert_no_file "$H" "--purge with HIVE_BACKUP_DIR outside the install dir => the install dir goes"
+assert_file "$TMP/home$CASE/elsewhere/hive-20261117-0300.dump" "--purge => a HIVE_BACKUP_DIR outside it is untouched"
+new_day2_case
+printf 'HIVE_BACKUP_DIR=%s\n' "${H}-other" >> "$H/.env"
+out="$(run bash "$INSTALL_SH" uninstall --purge --yes 2>&1)"; code=$?
+assert_no_file "$H" "--purge with HIVE_BACKUP_DIR=<install dir>-other (a sibling, not inside) => the install dir goes"
 
 # another dir's containers under the same project: no compose call at all
 new_day2_case
