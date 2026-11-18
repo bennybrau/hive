@@ -11,6 +11,7 @@ line.
 
 ```
 install.sh [install] [--version <v>] [--dir <path>] [--project <name>] [--non-interactive] [--no-up] [--force]
+install.sh join --url <hive url> [--token <t>] [--version <v>] [--force]
 ```
 
 - `--no-up` writes the install directory and starts nothing.
@@ -70,7 +71,36 @@ The summary shows the dashboard URL and the curator token. The token is shown on
 For the curator and for each new teammate, it prints:
 
 - a `claude mcp add --transport http hive <url>/mcp --header "Authorization: Bearer <token>"` line;
-- a Hermes block (`HIVE_URL`, `HIVE_TOKEN`), plus the link to [plugins/hive/README.md](../plugins/hive/README.md).
+- a Hermes line, `curl -fsSL .../install.sh | bash -s -- join --url <url> --token <token>`, to run on that
+  person's Hermes machine (see [join](#join)).
+
+## join
+
+```
+install.sh join --url <hive url> [--token <t>] [--version <v>] [--force]
+```
+
+`join` connects the Hermes on this machine to a Hive. It needs curl and `hermes` on PATH, and no Docker. The token
+defaults to `HIVE_TOKEN` (which keeps it out of your shell history). `join` passes it to curl in a mode-600 config
+file, not on a command line. Every check runs before anything is written:
+
+- `<url>/health` answers `ok`, and gives the Hive's version;
+- `<url>/v1/status` accepts the token;
+- `hermes` is on PATH;
+- `$HERMES_HOME/plugins/hive` is not a symlink (a checkout, from the manual install). `--force` replaces the link
+  and leaves what it points to alone.
+
+Then it:
+
+1. downloads the plugin for the Hive's version: a release `X.Y.Z` takes that release's `hive-plugin.tar.gz`, and a
+   `main-<sha7>` build takes `plugins/hive` from the repo at that commit. Any other version (`dev`, or the `0.0.1`
+   of a build without a version) stops and asks for `--version <v>`. An old plugin dir is replaced.
+2. sets `HIVE_URL` and `HIVE_TOKEN` in `$HERMES_HOME/.env` (mode 600). Other keys are kept, and a re-join replaces
+   the two keys rather than adding them again.
+3. runs `hermes config set memory.provider hive`, then `hermes memory status`. It fails unless the status's
+   `Provider:` line names `hive`.
+
+`HERMES_HOME` (default `~/.hermes`) moves the plugin dir, `.env` and the Hermes config together.
 
 ## `--project`: a second Hive on one host
 

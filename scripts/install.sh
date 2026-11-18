@@ -6,6 +6,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/bennybrau/hive/main/scripts/install.sh | bash
 #   ~/hive/install.sh                                  # re-run: keeps .env, fills what is missing
 #   HIVE_DISTILL=skip ~/hive/install.sh --non-interactive
+#   curl -fsSL .../install.sh | bash -s -- join --url http://hive:8800 --token hive_...   # connect this Hermes
 #
 # Every prompt, its default and its env var: docs/INSTALL.md. All checks run before anything is written.
 # The whole body is in main(), called on the last line, so a truncated download runs nothing.
@@ -43,6 +44,7 @@ usage() {
 Hive install wizard.
 
 Usage: install.sh [install] [options]
+       install.sh join --url <hive url> [--token <t>] [--version <v>] [--force]
 
   --version <v>       Hive release to install, e.g. 0.2.0 (default: the latest release)
   --dir <path>        install directory (default ~/hive)
@@ -57,6 +59,14 @@ Environment (the --non-interactive answers; interactive mode shows them as the d
   HIVE_DISTILL=claude|ollama|skip CLAUDE_CODE_OAUTH_TOKEN HIVE_DISTILL_MODEL HIVE_REPOS_HOST_ROOT
   HIVE_CURATOR_USER HIVE_CURATOR_NAME HIVE_MEMBERS=ann,bob HIVE_CURATOR_TOKEN
 Sources: HIVE_COMPOSE_SRC=<path> (a local compose file instead of the release's), HIVE_INSTALL_URL.
+
+join: connect this machine's Hermes to a Hive. Installs the hive plugin into $HERMES_HOME/plugins/hive, writes
+HIVE_URL and HIVE_TOKEN into $HERMES_HOME/.env and makes hive the memory provider.
+  --url <u>           the Hive's URL
+  --token <t>         this instance's token (default: $HIVE_TOKEN)
+  --version <v>       plugin version, X.Y.Z or main-<sha7> (default: the version the Hive reports)
+  --force             replace a plugin dir that is a symlink (e.g. into a checkout)
+  HERMES_HOME         the Hermes home (default ~/.hermes): plugin dir, .env and config
 EOF
 }
 
@@ -223,9 +233,8 @@ person_block() { # $1 = who, $2 = token
   ${C_BOLD}$1${C_RESET}
     Claude Code:
       claude mcp add --transport http hive ${PUBLIC_URL}/mcp --header "Authorization: Bearer $2"
-    Hermes (in the Hermes .env, then install the plugin: https://github.com/${REPO}/blob/main/plugins/hive/README.md):
-      HIVE_URL=${PUBLIC_URL}
-      HIVE_TOKEN=$2
+    Hermes:
+      curl -fsSL https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh | bash -s -- join --url ${PUBLIC_URL} --token $2
 EOF
 }
 
@@ -534,12 +543,124 @@ EOF
   printf '\n'
 }
 
+# --- join -------------------------------------------------------------------
+# Where the hive plugin of Hive version $1 comes from: a release's hive-plugin.tar.gz (top dir hive/), or for a
+# main build the repo tarball at that commit (<repo>-<sha>/plugins/hive). Anything else has no plugin to fetch.
+plugin_source_url() {
+  if [[ "$1" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then printf '%s\n' "${RELEASES}/download/v$1/hive-plugin.tar.gz"
+  elif [[ "$1" =~ ^main-[0-9a-f]{7}$ ]]; then printf '%s\n' "https://codeload.github.com/${REPO}/tar.gz/${1#main-}"
+  else die "no plugin download for Hive version '$1': re-run with --version <v> (a release X.Y.Z, or main-<sha7>)" 2; fi
+}
+
+cmd_join() {
+  local url="" token="${HIVE_TOKEN:-}" force=0 version=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --url) url="${2:?--url needs a value}"; shift 2 ;;
+      --token) token="${2:?--token needs a value}"; shift 2 ;;
+      --version) version="${2:?--version needs a value}"; version=${version#v}; shift 2 ;;
+      --force) force=1; shift ;;
+      --help|-h) usage; exit 0 ;;
+      *) printf 'unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+    esac
+  done
+  [ -n "$url" ] || die "join needs --url <hive url>" 2
+  while [ "${url%/}" != "$url" ]; do url=${url%/}; done
+  local hh plugins target env_file
+  hh="$(expand_dir "${HERMES_HOME:-~/.hermes}")"
+  plugins="$hh/plugins"; target="$plugins/hive"; env_file="$hh/.env"
+
+  # --- preflight ----------------------------------------------------------------
+  section "Preflight (${url})"
+  local health="" hive_version="" code cfg
+  if ! command -v curl >/dev/null 2>&1; then die "curl not found: install curl, then re-run"; fi
+  health="$(curl -fsS -m 10 "${url}/health" 2>/dev/null || true)"
+  if [[ "$health" =~ \"ok\"[[:space:]]*:[[:space:]]*true ]]; then
+    hive_version="$(printf '%s' "$health" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')"
+    ok "hive health (version ${hive_version:-unknown})"
+  else
+    bad "${url}/health does not answer ok" "${health:-no answer}; check the URL and that the Hive is up"
+  fi
+  if [ -z "$token" ]; then
+    bad "no token" "pass --token <t> or set HIVE_TOKEN"
+  else
+    cfg="$(mktemp)"; chmod 600 "$cfg"
+    printf 'header = "Authorization: Bearer %s"\n' "$token" > "$cfg"
+    code="$(curl -sS -m 10 -K "$cfg" -o /dev/null -w '%{http_code}' "${url}/v1/status" 2>/dev/null || true)"
+    rm -f "$cfg"
+    if [ "$code" = "200" ]; then ok "token accepted (/v1/status)"
+    else bad "/v1/status answered ${code:-nothing} with this token" "check the token (a revoked or mistyped one gets 401)"; fi
+  fi
+  if command -v hermes >/dev/null 2>&1; then ok "hermes"
+  else bad "hermes not found on PATH" "install Hermes first, then re-run"; fi
+  if [ -L "$target" ] && [ "$force" -ne 1 ]; then
+    bad "${target} is a symlink (to $(readlink "$target"))" "it is probably a checkout; re-run with --force to replace the link (its target is kept)"
+  else ok "plugin dir ${target}"; fi
+  stop_if_failed
+
+  # 0.0.1 is the server's built-in default, not a release: only an explicit --version 0.0.1 means it.
+  if [ -z "$version" ]; then
+    [ "$hive_version" != "0.0.1" ] || die "the Hive reports version 0.0.1 (not a release build): re-run with --version <v>" 2
+    version=${hive_version:-unknown}
+  fi
+  local src
+  src="$(plugin_source_url "$version")" || exit $?
+
+  # --- plugin ---------------------------------------------------------------------
+  section "Install (${hh})"
+  JOIN_TGZ="$(mktemp)"; JOIN_STAGE=""
+  trap 'rm -rf "$JOIN_TGZ" ${JOIN_STAGE:+"$JOIN_STAGE"}' EXIT
+  curl -fsSL -o "$JOIN_TGZ" "$src" || die "cannot download the plugin: ${src}"
+  mkdir -p "$plugins"
+  JOIN_STAGE="$(mktemp -d "$plugins/.hive-join.XXXXXX")"   # same filesystem as the target, so mv is a rename
+  mkdir "$JOIN_STAGE/x"
+  tar -xzf "$JOIN_TGZ" -C "$JOIN_STAGE/x" || die "cannot unpack ${src}"
+  local new="" d
+  if [ -d "$JOIN_STAGE/x/hive" ]; then new="$JOIN_STAGE/x/hive"
+  else for d in "$JOIN_STAGE"/x/*/plugins/hive; do [ -d "$d" ] && new=$d && break; done; fi
+  [ -n "$new" ] || die "no hive/ or */plugins/hive in ${src}"
+  if [ -L "$target" ]; then
+    rm -f "$target"   # the link only; what it points to is left alone
+    ok "removed the symlink ${target}"
+  elif [ -e "$target" ]; then
+    mv "$target" "$JOIN_STAGE/old"
+  fi
+  mv "$new" "$target"
+  rm -rf "$JOIN_STAGE"; JOIN_STAGE=""
+  ok "plugin ${target} (from ${src})"
+
+  # --- .env -------------------------------------------------------------------------
+  (umask 077; touch "$env_file")
+  set_env_key "$env_file" HIVE_URL "$url"
+  set_env_key "$env_file" HIVE_TOKEN "$token"
+  chmod 600 "$env_file"
+  ok "${env_file}: HIVE_URL, HIVE_TOKEN (mode 600)"
+
+  # --- activate -----------------------------------------------------------------------
+  HERMES_HOME="$hh" hermes config set memory.provider hive >/dev/null || die "hermes config set memory.provider hive failed"
+  local status line provider_line="" first
+  status="$(HERMES_HOME="$hh" hermes memory status 2>&1)" || die "hermes memory status failed: ${status}"
+  # Only the active provider counts: a hive listed under "Installed plugins" is not the provider.
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^[[:space:]]*Provider: ]]; then provider_line=$line; break; fi
+  done <<< "$status"
+  first="${provider_line#*Provider:}"
+  read -r first _ <<< "$first" || true
+  [ "$first" = "hive" ] || die "hive is not the active memory provider (hermes memory status: ${provider_line:-no Provider line})"
+  ok "memory provider: hive"
+
+  section "Joined"
+  info "Hermes at ${hh} uses the Hive at ${url}; start a new Hermes session to pick it up."
+  printf '\n'
+}
+
 main() {
   local cmd=install
   case "${1:-}" in
     install) shift ;;
+    join) cmd=join; shift ;;
     -*|"") ;;
-    *) printf 'unknown command: %s (only install for now)\n' "$1" >&2; usage >&2; exit 2 ;;
+    *) printf 'unknown command: %s (install or join)\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
   "cmd_${cmd}" "$@"
 }
