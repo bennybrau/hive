@@ -3,7 +3,7 @@
 #
 #   bash scripts/install.test.sh
 #
-# Fake `docker`, `curl` and `uname` on PATH log their argv to $FAKE_LOG and serve canned answers, steered by
+# Fake `docker`, `curl`, `uname` and `hermes` on PATH log their argv to $FAKE_LOG and serve canned answers, steered by
 # FAKE_* env vars (see the fakes below). Every case installs into its own temp HIVE_HOME.
 set -uo pipefail
 
@@ -67,20 +67,25 @@ esac
 exit 0
 EOF
 
-# curl: FAKE_OLLAMA=1 (a host Ollama answers), FAKE_NO_GITHUB=1 (no latest release). Records stdin when the body is read from it.
+# curl: FAKE_OLLAMA=1 (a host Ollama answers), FAKE_NO_GITHUB=1 (no latest release), FAKE_HEALTH_VERSION (/health),
+# FAKE_STATUS_CODE (/v1/status, default 200). Plugin tarballs come from $FAKE_TARS. Records stdin when the body is read from it.
 cat > "$FAKE_BIN/curl" <<'EOF'
 #!/usr/bin/env bash
 printf 'curl %s\n' "$*" >> "$FAKE_LOG"
-out=""; prev=""; url=""
+out=""; prev=""; url=""; wfmt=""
 for a in "$@"; do
   [ "$prev" = "-o" ] && out=$a
+  [ "$prev" = "-w" ] && wfmt=$a
   case "$a" in http*) url=$a ;; @-) cat >> "$FAKE_STDIN"; printf '\n' >> "$FAKE_STDIN" ;; esac
   prev=$a
 done
 case "$url" in
   *api.github.com*) [ "${FAKE_NO_GITHUB:-}" = 1 ] && exit 22; echo '{"tag_name": "v9.9.9"}' ;;
   *:11434*) [ "${FAKE_OLLAMA:-}" = 1 ] || exit 7 ;;
-  */health) echo '{"ok":true}' ;;
+  */health) echo "{\"ok\":true,\"db\":\"up\",\"version\":\"${FAKE_HEALTH_VERSION:-1.2.3}\"}" ;;
+  */v1/status) [ -n "$wfmt" ] && printf '%s' "${FAKE_STATUS_CODE:-200}" ;;
+  *hive-plugin.tar.gz) cp "$FAKE_TARS/release.tar.gz" "$out" ;;
+  *codeload.github.com*) cp "$FAKE_TARS/codeload.tar.gz" "$out" ;;
   */agent-credential) printf 204 ;;
   *docker-compose.release.yml) printf 'name: hive\n' > "$out" ;;
   *hive.env.example) printf '# example\nPOSTGRES_PASSWORD=\nHIVE_BIND=127.0.0.1\nHIVE_PORT=8800\n' > "$out" ;;
@@ -95,7 +100,25 @@ cat > "$FAKE_BIN/uname" <<'EOF'
 printf 'uname %s\n' "$*" >> "$FAKE_LOG"
 echo "${FAKE_UNAME:-Linux}"
 EOF
+
+# hermes: logs its argv and HERMES_HOME; FAKE_HERMES_STATUS is what `hermes memory status` prints.
+cat > "$FAKE_BIN/hermes" <<'EOF'
+#!/usr/bin/env bash
+printf 'hermes %s (HERMES_HOME=%s)\n' "$*" "${HERMES_HOME:-}" >> "$FAKE_LOG"
+if [ "$1 $2" = "memory status" ]; then
+  printf '%s\n' "${FAKE_HERMES_STATUS:-$(printf 'Memory status\n  Built-in:  on\n  Provider:  hive\n')}"
+fi
+exit 0
+EOF
 chmod +x "$FAKE_BIN"/*
+
+# The plugin tarballs: a release's (top dir hive/) and GitHub's repo tarball (hive-<sha>/plugins/hive).
+export FAKE_TARS="$TMP/tars"
+mkdir -p "$FAKE_TARS/r/hive" "$FAKE_TARS/c/hive-abc1234/plugins/hive"
+printf 'name: hive\n' > "$FAKE_TARS/r/hive/plugin.yaml"; echo release > "$FAKE_TARS/r/hive/FROM"
+printf 'name: hive\n' > "$FAKE_TARS/c/hive-abc1234/plugins/hive/plugin.yaml"; echo codeload > "$FAKE_TARS/c/hive-abc1234/plugins/hive/FROM"
+tar -czf "$FAKE_TARS/release.tar.gz" -C "$FAKE_TARS/r" hive
+tar -czf "$FAKE_TARS/codeload.tar.gz" -C "$FAKE_TARS/c" hive-abc1234
 
 for d in /bin /usr/bin "$FAKE_BIN"; do
   for f in "$d"/*; do
@@ -195,7 +218,8 @@ assert_contains "$(cat "$FAKE_LOG")" "--user alice --role curator --json" "curat
 assert_contains "$out" "tok-alice-curator" "summary prints the curator token"
 assert_contains "$out" "not stored anywhere else" "summary says the token is shown once"
 assert_contains "$out" "claude mcp add --transport http hive http://" "summary has the claude mcp add line"
-assert_contains "$out" "HIVE_TOKEN=tok-alice-curator" "summary has a Hermes block"
+assert_contains "$out" "| bash -s -- join --url http://" "summary has the Hermes join line"
+assert_contains "$out" ":$PORT --token tok-alice-curator" "the join line has the URL and the curator token"
 assert_no_file "$H/docker-compose.override.yml" "embed=container => no override"
 
 new_case
@@ -374,7 +398,7 @@ assert_contains "$(cat "$FAKE_STDIN")" "TYPEDTOKEN" "the typed token is sent"
 assert_eq "$(grep -c 'mint-token.js --name ann --user ann ' "$FAKE_LOG")" "1" "one token for ann"
 assert_eq "$(grep -c 'mint-token.js --name bob --user bob ' "$FAKE_LOG")" "1" "one token for bob"
 assert_eq "$(grep -c 'role member' "$FAKE_LOG")" "2" "no other member tokens"
-assert_contains "$out" "HIVE_TOKEN=tok-ann-member" "summary has ann's Hermes block"
+assert_contains "$out" "join --url http://127.0.0.1:$PORT --token tok-ann-member" "summary has ann's Hermes join line"
 assert_contains "$out" "Bearer tok-bob-member" "summary has bob's claude mcp add line"
 
 new_case
@@ -394,6 +418,98 @@ new_case
 run HIVE_DISTILL=skip HIVE_MEMBERS="ann,bob" FAKE_USERS=ann bash "$INSTALL_SH" --non-interactive >/dev/null 2>&1
 assert_eq "$(grep -c -- '--user ann ' "$FAKE_LOG")" "0" "an existing member is skipped"
 assert_eq "$(grep -c -- '--user bob ' "$FAKE_LOG")" "1" "a new member gets one token"
+
+# --- join ----------------------------------------------------------------------------------
+JTOKEN="hive_JOINSECRETTOKEN"
+new_join_case() { new_case; HH="$TMP/home$CASE/hermes"; }
+join() { # install.sh join with HERMES_HOME=$HH; extra env first, then the join options
+  local envs=()
+  while [ $# -gt 0 ] && [[ "$1" == *=* ]]; do envs+=("$1"); shift; done
+  ( cd "$TMP" && env HOME="$TMP/home$CASE" PATH="$FAKE_BIN:$PATH" HERMES_HOME="$HH" ${envs[@]+"${envs[@]}"} \
+      bash "$INSTALL_SH" join "$@" )
+}
+jget() { awk -F= -v k="$1" '$1==k{print substr($0, length(k)+2)}' "$HH/.env" | tail -1; }
+
+new_join_case
+out="$(join HIVE_TOKEN="$JTOKEN" --url http://hive.test:8800/ 2>&1)"; code=$?
+assert_eq "$code" "0" "join succeeds"
+assert_eq "$(cat "$HH/plugins/hive/FROM" 2>/dev/null)" "release" "join installs the release plugin"
+assert_contains "$(cat "$FAKE_LOG")" "releases/download/v1.2.3/hive-plugin.tar.gz" "X.Y.Z from /health => the release asset"
+assert_eq "$(jget HIVE_URL)" "http://hive.test:8800" "HIVE_URL in .env, trailing / trimmed"
+assert_eq "$(jget HIVE_TOKEN)" "$JTOKEN" "HIVE_TOKEN from the env in .env"
+assert_eq "$(perm "$HH/.env")" "600" "Hermes .env is mode 600"
+assert_not_contains "$(cat "$FAKE_LOG")" "$JTOKEN" "the token is in no argv"
+assert_contains "$(grep /v1/status "$FAKE_LOG")" "-K " "the bearer goes in a curl config"
+assert_contains "$(cat "$FAKE_LOG")" "hermes config set memory.provider hive (HERMES_HOME=$HH)" "join activates hive with HERMES_HOME"
+assert_contains "$(cat "$FAKE_LOG")" "hermes memory status (HERMES_HOME=$HH)" "join checks the memory status"
+assert_not_contains "$(cat "$FAKE_LOG")" "docker" "join makes no docker calls"
+assert_eq "$(ls -A "$HH/plugins")" "hive" "no staging dir left behind"
+
+# re-join: keys replaced, not duplicated; unrelated keys kept; the old plugin dir replaced
+printf 'OPENAI_API_KEY=keepme\n' >> "$HH/.env"
+echo stale > "$HH/plugins/hive/STALE"
+out="$(join --url http://other.test:8800 --token tok2 2>&1)"; code=$?
+assert_eq "$code" "0" "re-join succeeds"
+assert_eq "$(grep -c '^HIVE_URL=' "$HH/.env")" "1" "re-join: one HIVE_URL"
+assert_eq "$(grep -c '^HIVE_TOKEN=' "$HH/.env")" "1" "re-join: one HIVE_TOKEN"
+assert_eq "$(jget HIVE_URL)" "http://other.test:8800" "re-join: new HIVE_URL"
+assert_eq "$(jget HIVE_TOKEN)" "tok2" "re-join: --token wins"
+assert_eq "$(jget OPENAI_API_KEY)" "keepme" "re-join keeps unrelated keys"
+assert_no_file "$HH/plugins/hive/STALE" "re-join replaces the old plugin dir"
+assert_eq "$(perm "$HH/.env")" "600" "re-join: .env still mode 600"
+
+# version -> source
+new_join_case
+out="$(join FAKE_HEALTH_VERSION=main-abc1234 --url http://hive.test:8800 --token t 2>&1)"; code=$?
+assert_eq "$code" "0" "join against a main build succeeds"
+assert_contains "$(cat "$FAKE_LOG")" "codeload.github.com/bennybrau/hive/tar.gz/abc1234" "main-<sha7> => the repo tarball"
+assert_eq "$(cat "$HH/plugins/hive/FROM" 2>/dev/null)" "codeload" "main-<sha7> => plugins/hive from the repo tarball"
+for v in 0.0.1 dev; do
+  new_join_case
+  out="$(join FAKE_HEALTH_VERSION=$v --url http://hive.test:8800 --token t 2>&1)"; code=$?
+  [ "$code" -ne 0 ] && pass || fail "/health version $v => join refuses"
+  assert_contains "$out" "--version <v>" "/health version $v => asks for --version"
+  assert_no_file "$HH" "/health version $v => nothing written"
+done
+new_join_case
+out="$(join FAKE_HEALTH_VERSION=dev --url http://hive.test:8800 --token t --version 2.0.0 2>&1)"; code=$?
+assert_eq "$code" "0" "an explicit --version X.Y.Z is accepted"
+assert_contains "$(cat "$FAKE_LOG")" "releases/download/v2.0.0/hive-plugin.tar.gz" "--version 2.0.0 => that release's plugin"
+
+# a bad token writes nothing
+new_join_case
+out="$(join FAKE_STATUS_CODE=401 --url http://hive.test:8800 --token bad 2>&1)"; code=$?
+assert_eq "$code" "1" "/v1/status 401 => exit 1"
+assert_contains "$out" "/v1/status answered 401" "/v1/status 401 => says so"
+assert_no_file "$HH" "/v1/status 401 => nothing written"
+assert_not_contains "$(cat "$FAKE_LOG")" "hive-plugin.tar.gz" "/v1/status 401 => nothing downloaded"
+
+# a symlinked plugin dir (a checkout) is refused without --force, replaced with it; its target is kept
+new_join_case
+mkdir -p "$TMP/home$CASE/checkout/plugins/hive" "$HH/plugins"
+echo mine > "$TMP/home$CASE/checkout/plugins/hive/KEEP"
+ln -s "$TMP/home$CASE/checkout/plugins/hive" "$HH/plugins/hive"
+out="$(join --url http://hive.test:8800 --token t 2>&1)"; code=$?
+assert_eq "$code" "1" "symlinked plugin dir => exit 1"
+assert_contains "$out" "--force" "symlinked plugin dir => suggests --force"
+[ -L "$HH/plugins/hive" ] && pass || fail "refused => the symlink is still there"
+assert_eq "$(cat "$TMP/home$CASE/checkout/plugins/hive/KEEP")" "mine" "refused => the link target is untouched"
+assert_no_file "$HH/.env" "refused => no .env"
+out="$(join --url http://hive.test:8800 --token t --force 2>&1)"; code=$?
+assert_eq "$code" "0" "--force replaces the symlink"
+[ ! -L "$HH/plugins/hive" ] && [ -d "$HH/plugins/hive" ] && pass || fail "--force => a real plugin dir"
+assert_eq "$(cat "$HH/plugins/hive/FROM" 2>/dev/null)" "release" "--force => the downloaded plugin"
+assert_eq "$(cat "$TMP/home$CASE/checkout/plugins/hive/KEEP" 2>/dev/null)" "mine" "--force => the link target is kept"
+
+# the provider check reads the Provider: line only
+new_join_case
+out="$(join FAKE_HERMES_STATUS=$'Memory status\n  Provider:  hive\n' --url http://hive.test:8800 --token t 2>&1)"; code=$?
+assert_eq "$code" "0" "Provider:  hive => join passes"
+new_join_case
+status=$'Memory status\n  Built-in:  on\n  Provider:  (none — built-in only)\n\nInstalled plugins:\n  • hive\n'
+out="$(join FAKE_HERMES_STATUS="$status" --url http://hive.test:8800 --token t 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "Provider: (none) with hive installed => join fails"
+assert_contains "$out" "Provider:  (none — built-in only)" "a failed provider check shows the Provider line"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

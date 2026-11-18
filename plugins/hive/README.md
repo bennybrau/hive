@@ -59,6 +59,15 @@ candidate that supersedes a fact replaces that fact; a `fix` whose text already 
 
 ## Install (any machine running Hermes)
 
+One line does all of it: it downloads the plugin matching the Hive's version, writes `HIVE_URL` and `HIVE_TOKEN`
+into `~/.hermes/.env` and makes `hive` the memory provider (see [docs/INSTALL.md](../../docs/INSTALL.md#join)):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/bennybrau/hive/main/scripts/install.sh | bash -s -- join --url http://<hive-host>:8800 --token hive_...
+```
+
+From a checkout, by hand:
+
 ```bash
 # 1. make the plugin visible to Hermes (directory name = provider name)
 ln -s ~/dev/hive/plugins/hive ~/.hermes/plugins/hive
