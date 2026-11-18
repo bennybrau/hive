@@ -7,6 +7,7 @@
 #   ~/hive/install.sh                                  # re-run: keeps .env, fills what is missing
 #   HIVE_DISTILL=skip ~/hive/install.sh --non-interactive
 #   curl -fsSL .../install.sh | bash -s -- join --url http://hive:8800 --token hive_...   # connect this Hermes
+#   ~/hive/install.sh doctor | upgrade [--version v] | uninstall [--purge]                # day 2
 #
 # Every prompt, its default and its env var: docs/INSTALL.md. All checks run before anything is written.
 # The whole body is in main(), called on the last line, so a truncated download runs nothing.
@@ -28,7 +29,7 @@ fi
 FAILURES=0
 ok()   { printf '  %s✓%s %s\n' "$C_GREEN" "$C_RESET" "$1"; }
 bad()  { printf '  %s✗%s %s\n' "$C_RED" "$C_RESET" "$1"; [ -n "${2:-}" ] && printf '      %s%s%s\n' "$C_DIM" "$2" "$C_RESET"; FAILURES=$((FAILURES + 1)); }
-warn() { printf '  %s!%s %s\n' "$C_YELLOW" "$C_RESET" "$1"; }
+warn() { printf '  %s!%s %s\n' "$C_YELLOW" "$C_RESET" "$1"; if [ -n "${2:-}" ]; then printf '      %s%s%s\n' "$C_DIM" "$2" "$C_RESET"; fi; }
 info() { printf '    %s\n' "$1"; }
 section() { printf '\n%s%s%s\n' "$C_BOLD" "$1" "$C_RESET"; }
 die() { printf '%s%s%s\n' "$C_RED" "$1" "$C_RESET" >&2; exit "${2:-1}"; }
@@ -67,6 +68,17 @@ HIVE_URL and HIVE_TOKEN into $HERMES_HOME/.env and makes hive the memory provide
   --version <v>       plugin version, X.Y.Z or main-<sha7> (default: the version the Hive reports)
   --force             replace a plugin dir that is a symlink (e.g. into a checkout)
   HERMES_HOME         the Hermes home (default ~/.hermes): plugin dir, .env and config
+
+Day 2, on an install dir (--dir, else $HIVE_HOME, else this script's dir if it holds .env, else ~/hive; the
+project is --project, else HIVE_PROJECT in its .env):
+  install.sh doctor [--dir <path>] [--project <name>]
+      check the containers, /health, meaning search, the worker, the fact agent credential, disk and version;
+      exits 1 if anything is bad
+  install.sh upgrade [--version <v>] [--dir <path>] [--project <name>]
+      move to release <v> (default: the latest): new compose file, HIVE_VERSION, install.sh; pull, up, doctor
+  install.sh uninstall [--purge] [--yes] [--non-interactive] [--dir <path>] [--project <name>]
+      stop and remove the containers; --purge also deletes the volumes (all Hive data) and the install dir,
+      after you type the project name (--yes skips that)
 EOF
 }
 
@@ -76,8 +88,17 @@ dc() { docker compose --project-directory "$HIVE_HOME" -p "$HIVE_PROJECT" "$@"; 
 
 # Stop when compose project $1 already belongs to another install dir than $2 (containers carry the dir they
 # were started from). Prints the problem and returns 1; returns 0 when the project is free or already ours.
+# Returns 1 too when docker can't list the containers: an unchecked project is not a free one.
 check_project_owner() {
-  local project=$1 dir=$2 wd
+  local project=$1 dir=$2 wd wds err
+  err="$(mktemp)"
+  if ! wds="$(docker ps -a --filter "label=com.docker.compose.project=${project}" \
+      --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>"$err")"; then
+    bad "cannot list containers for project ${project}" "$(cat "$err")"
+    rm -f "$err"
+    return 1
+  fi
+  rm -f "$err"
   while IFS= read -r wd; do
     [ -n "$wd" ] || continue
     if [ "$wd" != "$dir" ]; then
@@ -86,8 +107,7 @@ check_project_owner() {
       return 1
     fi
   done <<EOF
-$(docker ps -a --filter "label=com.docker.compose.project=${project}" \
-    --format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null || true)
+$wds
 EOF
   return 0
 }
@@ -188,6 +208,30 @@ plain_linux_engine() {
   case "$(docker info --format '{{.OperatingSystem}} {{.Name}}' 2>/dev/null | tr '[:upper:]' '[:lower:]')" in
     *"docker desktop"*|*rancher*) return 1 ;;
   esac
+  return 0
+}
+
+latest_release() { # prints the latest release's version without the v (blank when GitHub can't be reached)
+  curl -fsSL -m 10 "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"tag_name" *: *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1 || true
+}
+
+set_urls() { # $1 = bind, $2 = port, $3 = short host name -> LOCAL_URL (this machine), PUBLIC_URL (for teammates)
+  local host_ip=$1
+  [ "$host_ip" = "0.0.0.0" ] && host_ip=127.0.0.1
+  LOCAL_URL="http://${host_ip}:$2"
+  PUBLIC_URL="$LOCAL_URL"
+  [ "$1" = "0.0.0.0" ] && PUBLIC_URL="http://${3:-localhost}:$2"
+  return 0
+}
+
+disk_free() { # -> DISK_DIR (Docker's root dir, else $HOME) and DISK_GB (blank if df can't tell)
+  DISK_DIR="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+  [ -d "$DISK_DIR" ] || DISK_DIR=$HOME
+  local kb
+  kb="$(df -Pk "$DISK_DIR" 2>/dev/null | awk 'NR==2 {print $4}' || true)"
+  DISK_GB=""
+  [ -n "$kb" ] && DISK_GB=$((kb / 1024 / 1024))
   return 0
 }
 
@@ -297,8 +341,7 @@ cmd_install() {
 
   local latest=""
   if [ -z "${HIVE_VERSION:-}" ] && [ -z "$(read_env_key "$ENV_FILE" HIVE_VERSION)" ]; then
-    latest="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null \
-      | sed -n 's/.*"tag_name" *: *"v\{0,1\}\([^"]*\)".*/\1/p' | head -1 || true)"
+    latest="$(latest_release)"
   fi
   ask HIVE_VERSION "Hive version" "$(prev HIVE_VERSION "$latest")" '^v?[0-9A-Za-z._-]+$'
   HIVE_VERSION=${HIVE_VERSION#v}
@@ -354,12 +397,9 @@ cmd_install() {
   if port_in_use "$HIVE_PORT" && [ "$OURS" -eq 0 ]; then
     bad "port ${HIVE_PORT} is in use" "choose another (HIVE_PORT), or stop what holds it"
   else ok "port ${HIVE_PORT}"; fi
-  local disk_dir avail_kb
-  disk_dir="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
-  [ -d "$disk_dir" ] || disk_dir=$HOME
-  avail_kb="$(df -Pk "$disk_dir" 2>/dev/null | awk 'NR==2 {print $4}' || true)"
-  if [ -n "$avail_kb" ] && [ "$((avail_kb / 1024 / 1024))" -lt 5 ]; then
-    warn "only $((avail_kb / 1024 / 1024)) GB free at ${disk_dir}; the images and the database want 5 GB or more"
+  disk_free
+  if [ -n "$DISK_GB" ] && [ "$DISK_GB" -lt 5 ]; then
+    warn "only ${DISK_GB} GB free at ${DISK_DIR}; the images and the database want 5 GB or more"
   fi
 
   # Fetch into a temp dir now, so a failed download writes nothing.
@@ -447,11 +487,7 @@ EOF
   fi
   [ -f "$HIVE_HOME/install.sh" ] && chmod +x "$HIVE_HOME/install.sh" && ok "${HIVE_HOME}/install.sh (re-run it to change answers)"
 
-  local host_ip="$HIVE_BIND"
-  [ "$host_ip" = "0.0.0.0" ] && host_ip=127.0.0.1
-  LOCAL_URL="http://${host_ip}:${HIVE_PORT}"
-  PUBLIC_URL="$LOCAL_URL"
-  [ "$HIVE_BIND" = "0.0.0.0" ] && PUBLIC_URL="http://${host_short:-localhost}:${HIVE_PORT}"
+  set_urls "$HIVE_BIND" "$HIVE_PORT" "$host_short"
 
   if [ "$NO_UP" -eq 1 ]; then
     section "Done (--no-up)"
@@ -654,13 +690,268 @@ cmd_join() {
   printf '\n'
 }
 
+# --- day 2: doctor, upgrade, uninstall ---------------------------------------
+# Finds the install: dir $1 (--dir, may be blank) > $HIVE_HOME > this script's dir if it holds .env > ~/hive;
+# project $2 (--project, may be blank) > HIVE_PROJECT in its .env > hive. Sets HIVE_HOME, HIVE_PROJECT, ENV_FILE.
+day2_setup() {
+  local dir=${1:-${HIVE_HOME:-}} self_dir=""
+  if [ -z "$dir" ] && [ -n "$SELF" ] && [ -f "$SELF" ]; then
+    self_dir="$(dirname "$SELF")"
+    [ -f "$self_dir/.env" ] && dir=$self_dir
+  fi
+  HIVE_HOME="$(expand_dir "${dir:-~/hive}")"
+  ENV_FILE="$HIVE_HOME/.env"
+  [ -f "$ENV_FILE" ] || die "no Hive install at ${HIVE_HOME} (no .env): pass --dir <install dir>" 2
+  HIVE_PROJECT=${2:-$(read_env_key "$ENV_FILE" HIVE_PROJECT)}
+  HIVE_PROJECT=${HIVE_PROJECT:-hive}
+  [[ "$HIVE_PROJECT" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "project '${HIVE_PROJECT}' is not a valid compose project name (a-z, 0-9, - and _)" 2
+  return 0
+}
+
+# The project must be ours before any compose call: another dir's containers under this name are another Hive.
+day2_owner() {
+  check_project_owner "$HIVE_PROJECT" "$HIVE_HOME" \
+    || die "not touching project ${HIVE_PROJECT}: cannot confirm it belongs to ${HIVE_HOME} (see above); use --project <name> for this install"
+}
+
+# Prints ok/bad/warn lines; returns the number of bad ones (0 = healthy).
+run_doctor() {
+  section "Doctor (${HIVE_HOME}, project ${HIVE_PROJECT})"
+  local svc state health n=0
+  while read -r svc state health; do
+    [ -n "$svc" ] || continue
+    n=$((n + 1))
+    # A service without a healthcheck (ollama) has no health: running is enough there.
+    if [ "$state" = "running" ] && { [ -z "$health" ] || [ "$health" = "healthy" ]; }; then
+      ok "${svc}: ${state}${health:+, ${health}}"
+    else
+      bad "${svc}: ${state:-unknown}${health:+, ${health}}" "docker compose -p ${HIVE_PROJECT} logs ${svc}"
+    fi
+  done <<EOF
+$(dc ps -a --format '{{.Service}} {{.State}} {{.Health}}' 2>/dev/null || true)
+EOF
+  [ "$n" -gt 0 ] || bad "no containers in project ${HIVE_PROJECT}" "start it: ${HIVE_HOME}/install.sh upgrade, or docker compose -p ${HIVE_PROJECT} up -d --wait"
+
+  local bind port h version=""
+  bind="$(read_env_key "$ENV_FILE" HIVE_BIND)"; port="$(read_env_key "$ENV_FILE" HIVE_PORT)"
+  set_urls "${bind:-127.0.0.1}" "${port:-8800}" ""
+  h="$(curl -fsS -m 10 "${LOCAL_URL}/health" 2>/dev/null || true)"
+  if [[ "$h" =~ \"ok\"[[:space:]]*:[[:space:]]*true ]]; then
+    version="$(printf '%s' "$h" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')"
+    ok "${LOCAL_URL}/health ok (version ${version:-unknown})"
+  else
+    bad "${LOCAL_URL}/health does not answer ok" "${h:-no answer}"
+  fi
+
+  # Before /v1/status: that call, with the worker's token, would itself count as the worker being seen.
+  local age
+  if age="$(psql_count "select coalesce(floor(extract(epoch from now() - max(last_seen_at)))::bigint::text, 'never') from instances where role='worker' and revoked_at is null" 2>/dev/null)" && [[ "$age" =~ ^([0-9]+|never)$ ]]; then
+    if [ "$age" = "never" ]; then warn "hive-worker: never seen by the Hive" "check HIVE_WORKER_TOKEN in .env and docker compose -p ${HIVE_PROJECT} logs hive-worker"
+    elif [ "$age" -gt 600 ]; then warn "hive-worker: last seen $((age / 60)) min ago" "docker compose -p ${HIVE_PROJECT} logs hive-worker"
+    else ok "hive-worker: last seen ${age}s ago"; fi
+  else
+    warn "cannot read the worker's last_seen_at from the database"
+  fi
+
+  local wtoken cfg st state
+  wtoken="$(read_env_key "$ENV_FILE" HIVE_WORKER_TOKEN)"
+  if [ -z "$wtoken" ]; then
+    warn "no HIVE_WORKER_TOKEN in .env; cannot read /v1/status" "re-run ${HIVE_HOME}/install.sh to mint one"
+  else
+    cfg="$(mktemp)"; chmod 600 "$cfg"
+    printf 'header = "Authorization: Bearer %s"\n' "$wtoken" > "$cfg"
+    st="$(curl -fsS -m 10 -K "$cfg" "${LOCAL_URL}/v1/status" 2>/dev/null || true)"
+    rm -f "$cfg"
+    state="$(printf '%s' "$st" | sed -n 's/.*"state" *: *"\([^"]*\)".*/\1/p')"
+    case "$state" in
+      ok)    ok "meaning search: ok" ;;
+      off)   ok "meaning search: off (keyword-only)" ;;
+      error) warn "meaning search: error" "$(printf '%s' "$st" | sed -n 's/.*"error" *: *"\([^"]*\)".*/\1/p')" ;;
+      *)     bad "/v1/status gave no embeddings state" "${st:-no answer}" ;;
+    esac
+  fi
+
+  if [ "$(read_env_key "$ENV_FILE" HIVE_DISTILL)" = "ollama" ]; then
+    ok "fact agent credential: n/a (the fact agent runs on Ollama)"
+  else
+    local have
+    have="$(psql_count "select count(*) from settings where key='agent_credential'" 2>/dev/null || true)"
+    if [ -n "$have" ] && [ "$have" != "0" ]; then ok "fact agent credential: set"
+    else warn "fact agent credential: missing" "set it in the dashboard, Settings (sign in with the curator token)"; fi
+  fi
+
+  disk_free
+  if [ -z "$DISK_GB" ]; then warn "cannot tell the free disk at ${DISK_DIR}"
+  elif [ "$DISK_GB" -lt 5 ]; then warn "only ${DISK_GB} GB free at ${DISK_DIR}; the images and the database want 5 GB or more"
+  else ok "disk: ${DISK_GB} GB free at ${DISK_DIR}"; fi
+
+  local latest
+  latest="$(latest_release)"
+  if [ -z "$latest" ]; then warn "cannot reach GitHub for the latest release"
+  elif [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || [[ ! "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    warn "version ${version:-unknown} cannot be compared with the latest release ${latest}"
+  elif version_lt "$version" "$latest"; then
+    warn "version ${version}; ${latest} is out" "${HIVE_HOME}/install.sh upgrade"
+  else
+    ok "version ${version} (latest ${latest})"
+  fi
+  return "$FAILURES"
+}
+
+version_lt() { # $1 < $2, both X.Y.Z
+  local a b i
+  IFS=. read -r -a a <<< "$1"; IFS=. read -r -a b <<< "$2"
+  for i in 0 1 2; do
+    [ "$((10#${a[i]}))" -lt "$((10#${b[i]}))" ] && return 0
+    [ "$((10#${a[i]}))" -gt "$((10#${b[i]}))" ] && return 1
+  done
+  return 1
+}
+
+cmd_doctor() {
+  local dir="" project=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dir) dir="${2:?--dir needs a value}"; shift 2 ;;
+      --project) project="${2:?--project needs a value}"; shift 2 ;;
+      --help|-h) usage; exit 0 ;;
+      *) printf 'unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+    esac
+  done
+  day2_setup "$dir" "$project"
+  if run_doctor; then printf '\n%sAll checks passed.%s\n' "$C_GREEN" "$C_RESET"; exit 0; fi
+  printf '\n%s%d check(s) failed.%s\n' "$C_RED" "$FAILURES" "$C_RESET" >&2
+  exit 1
+}
+
+cmd_upgrade() {
+  local dir="" project="" version=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --version) version="${2:?--version needs a value}"; shift 2 ;;
+      --dir) dir="${2:?--dir needs a value}"; shift 2 ;;
+      --project) project="${2:?--project needs a value}"; shift 2 ;;
+      --help|-h) usage; exit 0 ;;
+      *) printf 'unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+    esac
+  done
+  day2_setup "$dir" "$project"
+  day2_owner
+  if [ -z "$version" ]; then
+    version="$(latest_release)"
+    [ -n "$version" ] || die "cannot look up the latest release (offline?): re-run with --version <v>"
+  fi
+  [[ "$version" =~ ^v?[0-9A-Za-z._-]+$ ]] || die "--version '${version}' is not valid" 2
+  version=${version#v}
+
+  section "Upgrade (${HIVE_HOME}, project ${HIVE_PROJECT}) to v${version}"
+  # Stage in the install dir, so a failed download changes nothing and the move is a rename.
+  UPG_STAGE="$(mktemp -d "$HIVE_HOME/.hive-upgrade.XXXXXX")"
+  trap 'rm -rf "$UPG_STAGE"' EXIT
+  if [ -n "${HIVE_COMPOSE_SRC:-}" ]; then
+    cp "$HIVE_COMPOSE_SRC" "$UPG_STAGE/compose.yml" 2>/dev/null || die "cannot read HIVE_COMPOSE_SRC=${HIVE_COMPOSE_SRC}"
+    ok "compose file from ${HIVE_COMPOSE_SRC}"
+  else
+    curl -fsSL -o "$UPG_STAGE/compose.yml" "${RELEASES}/download/v${version}/docker-compose.release.yml" \
+      || die "cannot download release v${version}: check the version (${RELEASES}) and the network. Nothing changed."
+    ok "downloaded the v${version} compose file"
+  fi
+  # Pull with the staged file and the new version first: until the images are here, nothing changes.
+  local img images missing=0
+  staged_dc() { HIVE_VERSION="$version" docker compose -f "$UPG_STAGE/compose.yml" --project-directory "$HIVE_HOME" -p "$HIVE_PROJECT" "$@"; }
+  if ! staged_dc pull; then
+    images="$(staged_dc config --images 2>/dev/null)" || missing=1
+    [ -n "$images" ] || missing=1
+    while IFS= read -r img; do
+      [ -n "$img" ] || continue
+      docker image inspect "$img" >/dev/null 2>&1 || missing=1
+    done <<EOF
+$images
+EOF
+    [ "$missing" -eq 0 ] || die "pull failed and the v${version} images are not here; nothing changed"
+    warn "pull failed; the v${version} images are already here, carrying on"
+  fi
+
+  set_env_key "$ENV_FILE" HIVE_VERSION "$version"
+  mv "$UPG_STAGE/compose.yml" "$HIVE_HOME/docker-compose.yml"
+  ok "docker-compose.yml and HIVE_VERSION=${version} in .env"
+
+  dc up -d --wait || bad "the stack did not become healthy" "docker compose -p ${HIVE_PROJECT} logs"
+  if ! run_doctor; then
+    printf '\n%s%d check(s) failed after the upgrade; kept the old %s/install.sh.%s\n' "$C_RED" "$FAILURES" "$HIVE_HOME" "$C_RESET" >&2
+    exit 1
+  fi
+
+  # Only a healthy upgrade refreshes install.sh. A new file renamed over the old one: this running script keeps
+  # reading the old inode.
+  if curl -fsSL -o "$UPG_STAGE/install.sh" "${HIVE_INSTALL_URL:-https://raw.githubusercontent.com/${REPO}/main/scripts/install.sh}"; then
+    chmod +x "$UPG_STAGE/install.sh"
+    mv "$UPG_STAGE/install.sh" "$HIVE_HOME/install.sh"
+    ok "${HIVE_HOME}/install.sh refreshed"
+  else
+    warn "could not refresh ${HIVE_HOME}/install.sh; keeping the old one"
+  fi
+  printf '\n%sUpgraded to v%s.%s\n' "$C_GREEN" "$version" "$C_RESET"
+  exit 0
+}
+
+cmd_uninstall() {
+  local dir="" project="" purge=0 yes=0 interactive=1
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --purge) purge=1; shift ;;
+      --yes) yes=1; shift ;;
+      --non-interactive) interactive=0; shift ;;
+      --dir) dir="${2:?--dir needs a value}"; shift 2 ;;
+      --project) project="${2:?--project needs a value}"; shift 2 ;;
+      --help|-h) usage; exit 0 ;;
+      *) printf 'unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
+    esac
+  done
+  day2_setup "$dir" "$project"
+  day2_owner
+
+  if [ "$purge" -eq 1 ] && [ "$yes" -ne 1 ]; then
+    local tty="${HIVE_TTY:-/dev/tty}" reply=""
+    if [ "$interactive" -eq 0 ] || ! (: <"$tty") 2>/dev/null; then
+      die "refusing --purge without a terminal to confirm on: add --yes to delete all Hive data in project ${HIVE_PROJECT}" 2
+    fi
+    exec 3<"$tty"
+    printf '%s--purge deletes every fact, token and setting in project %s, and %s.%s\n' "$C_RED" "$HIVE_PROJECT" "$HIVE_HOME" "$C_RESET"
+    printf '  Type the project name to confirm: '
+    IFS= read -r -u 3 reply || true
+    [ "$reply" = "$HIVE_PROJECT" ] || die "not confirmed; nothing removed"
+  fi
+
+  section "Uninstall (${HIVE_HOME}, project ${HIVE_PROJECT})"
+  if [ "$purge" -eq 0 ]; then
+    dc down --remove-orphans || die "docker compose down failed"
+    ok "containers removed; the data volumes and ${HIVE_HOME} are kept (re-run ${HIVE_HOME}/install.sh to start again)"
+    return 0
+  fi
+  dc down -v --remove-orphans || die "docker compose down -v failed"
+  ok "containers and volumes removed"
+  local why=""
+  if [ "$HIVE_HOME" = "/" ] || [ "$HIVE_HOME" -ef "$HOME" ]; then why="it is / or \$HOME"
+  elif ! grep -q '^HIVE_PROJECT=' "$HIVE_HOME/.env" 2>/dev/null; then why="its .env has no HIVE_PROJECT line"
+  elif [ ! -f "$HIVE_HOME/docker-compose.yml" ]; then why="it has no docker-compose.yml"
+  elif [ -e "$HIVE_HOME/.git" ] || [ -L "$HIVE_HOME/.git" ]; then why="it holds a .git"
+  fi
+  if [ -n "$why" ]; then
+    warn "not deleting ${HIVE_HOME} (${why}); remove it yourself"
+  else
+    rm -rf "$HIVE_HOME"
+    ok "deleted ${HIVE_HOME}"
+  fi
+}
+
 main() {
   local cmd=install
   case "${1:-}" in
     install) shift ;;
-    join) cmd=join; shift ;;
+    join|doctor|upgrade|uninstall) cmd=$1; shift ;;
     -*|"") ;;
-    *) printf 'unknown command: %s (install or join)\n' "$1" >&2; usage >&2; exit 2 ;;
+    *) printf 'unknown command: %s (install, join, doctor, upgrade or uninstall)\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
   "cmd_${cmd}" "$@"
 }
