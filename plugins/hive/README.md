@@ -22,7 +22,7 @@ how to turn it down or off.
 | `hive_remember` | everyone | save a fact; `supersedes: <full id>` when it corrects a fact you were shown |
 | `hive_retract` | author or curator | mark a fact wrong |
 | `hive_status` | everyone | who this instance is, counts, embedding health |
-| `hive_review` | curators only | `list` the candidate queue, then `approve`, `fix` (with `new_text`) or `reject` one by full id |
+| `hive_review` | curators; members for their own personal candidates | `list` the candidate queue, then `approve`, `fix` (with `new_text`) or `reject` one by full id |
 
 Prefetch and `hive_recall` also send the files you've changed (`git status`, at most 200) so facts located
 there rank higher, and a fact whose source was edited or deleted is marked "source changed since" / "source gone".
@@ -55,7 +55,9 @@ directory, not the gateway process's);
 `personal`, `repo`, `team: <name> (your team|other team)` or `organisation`.
 
 Review flow: the plugin asks `GET /v1/status` once (again later only if that call failed) and offers `hive_review` only when the token's
-role is `curator` (if the hive can't be reached, the tool isn't offered; the server refuses non-curators anyway).
+role is `curator` or `member` (if the hive can't be reached, the tool isn't offered; the server refuses workers anyway).
+A member's `hive_review` lists and acts on only their own personal candidates (facts Hive proposed from their
+conversations), at the level they are at, with nothing in `flagged`; a curator's covers every readable candidate.
 `hive_review action=list` shows up to 20 candidates, oldest first: full id and `id8`, text, kind, scope, the
 `id8` of the fact it would supersede, and very similar active facts as `"[id8] text (0.91)"`. Approving a
 candidate that supersedes a fact replaces that fact; a `fix` whose text already exists is merged into that fact.

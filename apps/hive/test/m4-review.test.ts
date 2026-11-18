@@ -457,9 +457,9 @@ describe("queue last_distill_at", () => {
 });
 
 describe("access and errors", () => {
-  it("members get 403, non-candidates 409, unknown ids 404, fix without text 400", async () => {
+  it("members get 403 on shared facts, non-candidates 409, unknown ids 404, fix without text 400", async () => {
     const f = await remember(alice.token, { text: "Members cannot approve this" });
-    expect((await get(alice.token, "/v1/review/queue")).statusCode).toBe(403);
+    expect((await get(alice.token, "/v1/review/queue")).json().candidates).toEqual([]); // only their own personal ones
     expect((await review(alice.token, f.id, { action: "approve" })).statusCode).toBe(403);
     expect((await factRow(f.id)).status).toBe("candidate");
 

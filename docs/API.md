@@ -111,10 +111,15 @@ Readable scopes for every call: `global`, all `repo:*` (or only `repo:<repo_key>
 where a call takes them), every `team:*` (whatever your teams, `repo_key` or not), and
 your own `personal:<user>`. Other users' personal facts are never returned.
 
-## Review (curator only; members get 403)
+## Review (curators; members for their own personal candidates; workers get 403)
 
 Shared-scope facts from members, and every distilled fact, start as `candidate` and are not recalled until a curator decides.
 The queue only lists scopes the curator can read (never another user's personal facts).
+
+A member reviews only their own distilled personal candidates (`personal:<own user>`): their queue lists just those
+(`scope` and `origin` narrow it further) and `flagged` is always `[]`. On review a member may not send `scope` (400
+"members cannot move a fact to another level"); another user's personal fact is 404 "no such fact", as if it weren't
+there, and a shared fact (any other scope) is 403. Approve, fix and reject then work as below, within that personal scope.
 
 - `GET /v1/review/queue?scope=&origin=&limit=20` — candidates, asked candidates first, then oldest (`scope` as stored, e.g. `repo:<key>`;
   `origin`: `authored | distilled | ingested`; `limit` ≤ 100). `{candidates, flagged, last_distill_at}`; each candidate is `{...fact, supersedes, anchors, similar, replaces}`:

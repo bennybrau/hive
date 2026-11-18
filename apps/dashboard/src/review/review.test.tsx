@@ -901,8 +901,8 @@ describe("empty and gated", () => {
     expect(screen.queryByRole("article", { name: "Fact" })).toBeNull();
   });
 
-  it("members get a note and nothing is fetched", async () => {
-    render(<Review role="member" />);
+  it("workers get a note and nothing is fetched", async () => {
+    render(<Review role="worker" />);
     expect(screen.getByRole("note").textContent).toMatch(/curators only/);
     await tick(100);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -915,6 +915,45 @@ describe("empty and gated", () => {
     expect(timeAgo("2026-11-01T09:00:00Z", now)).toBe("3 hours ago");
     expect(timeAgo("2026-10-31T12:00:00Z", now)).toBe("yesterday");
     expect(timeAgo("2026-08-01T12:00:00Z", now)).toBe("3 months ago");
+  });
+});
+
+describe("a member's own candidates", () => {
+  beforeEach(() => {
+    queue.candidates = [candidate("c1", { scope: "personal:u1" }), candidate("c2", { scope: "personal:u1" })];
+  });
+  async function openAsMember() {
+    render(<Review role="member" />);
+    await screen.findByText("candidate c1", { selector: ".proposed" });
+  }
+
+  it("shows the queue under a lede of its own, with no Level filter", async () => {
+    await openAsMember();
+    expect(fetchMock.mock.calls.some(([u]) => String(u) === "/v1/review/queue?limit=100")).toBe(true);
+    expect(document.querySelector(".lede")!.textContent).toBe("Facts Hive proposed from your conversations, visible only to you.");
+    expect(screen.queryByLabelText("Level")).toBeNull();
+    expect(at()).toBe("c1 1/2");
+  });
+
+  it("has no level to move to: no Change…, Approve for Just me sends no scope, and so does a", async () => {
+    await openAsMember();
+    expect(within(card()).queryByRole("button", { name: "Change…" })).toBeNull();
+    expect(within(card()).queryByRole("radiogroup")).toBeNull();
+    fireEvent.click(decide().getByRole("button", { name: "Approve for Just me" }));
+    await screen.findByText("candidate c2", { selector: ".proposed" });
+    press("a");
+    await tick(5000);
+    expect(posts()).toEqual([
+      ["c1", { action: "approve" }],
+      ["c2", { action: "approve" }],
+    ]);
+  });
+
+  it("shows nothing flagged, even if the hive sent some", async () => {
+    queue.flagged = [flaggedFact("f1", { scope: "personal:u1" })];
+    await openAsMember();
+    expect(screen.queryByRole("region", { name: "Corrected after citation" })).toBeNull();
+    expect(screen.queryByText("flagged f1")).toBeNull();
   });
 });
 
