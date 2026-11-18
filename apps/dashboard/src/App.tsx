@@ -11,6 +11,7 @@ import { Shell } from "./Shell";
 import { Stale } from "./stale/Stale";
 import { Stats } from "./stats/Stats";
 import { Teams } from "./teams/Teams";
+import { Tokens } from "./tokens/Tokens";
 import { SignIn } from "./SignIn";
 import { Link, PageHeader } from "./ui";
 
@@ -68,6 +69,8 @@ export function App() {
         <Settings role={status.instance.role} />
       ) : path === "/teams" ? (
         <Teams role={status.instance.role} />
+      ) : path === "/tokens" ? (
+        <Tokens role={status.instance.role} selfId={status.instance.id} />
       ) : path === "/repos" ? (
         <Repos role={status.instance.role} />
       ) : path === "/playbooks" || path.startsWith("/playbooks/") ? (

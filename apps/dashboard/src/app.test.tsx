@@ -137,6 +137,25 @@ describe("dashboard shell", () => {
     expect(screen.getByRole("link", { name: "Teams" }).getAttribute("aria-current")).toBe("page");
   });
 
+  it("shows Admin's Tokens tab to curators only, and /tokens opens it", async () => {
+    sessionStorage.setItem("hive.token", "good-token");
+    history.replaceState(null, "", "/repos");
+    const { unmount } = render(<App />);
+    await screen.findByText("bennys-laptop");
+    expect(screen.queryByRole("link", { name: "Tokens" })).toBeNull();
+    unmount();
+
+    fetchMock.mockImplementation(asCurator({ repos: [], instances: [{ ...STATUS.instance, role: "curator", created_at: "2026-10-01T00:00:00Z", last_seen_at: null, revoked_at: null, rotated_at: null }] }));
+    history.replaceState(null, "", "/repos");
+    render(<App />);
+    const tabs = await screen.findByRole("navigation", { name: "Admin pages" });
+    fireEvent.click(within(tabs).getByRole("link", { name: "Tokens" }));
+    expect(location.pathname).toBe("/tokens");
+    expect(await screen.findByRole("heading", { name: "Tokens" })).toBeTruthy();
+    expect(within(document.querySelector('tr[data-id="i1"]') as HTMLElement).getByText("you")).toBeTruthy();
+    expect(within(screen.getByRole("navigation", { name: "Admin pages" })).getByRole("link", { name: "Tokens" }).getAttribute("aria-current")).toBe("page");
+  });
+
   it("sign-in says what to paste and where a token comes from", () => {
     render(<App />);
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Hive");
