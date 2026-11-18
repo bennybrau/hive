@@ -190,7 +190,13 @@ table.stats .num { text-align: right; font-variant-numeric: tabular-nums; }
 .repos-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; color: var(--muted); }
 .repos-anchors { display: flex; flex-wrap: wrap; gap: 4px; margin: 0; }
 .repos-anchors .badge.verify-unverifiable_here, .repos-anchors .badge.verify-unverified { color: var(--muted); }
-.repos-actions { display: flex; gap: 8px; }
+.repos-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.repos-add { display: grid; gap: 10px; max-width: 100ch; padding: 4px 0 16px; border-bottom: 1px solid var(--line); }
+.repos-add h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.repos-add-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(24ch, 1fr)); gap: 12px; align-items: start; }
+.repos-add-fields > .ui-field { grid-row: span 3; grid-template-rows: subgrid; row-gap: var(--s-2); }
+.repos-token { display: grid; gap: 8px; max-width: 48ch; }
+.repos-source { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
 .repos-files { border-collapse: collapse; background: var(--surface); }
 .repos-files th { text-align: left; font-size: 13px; font-weight: 500; color: var(--muted); }
 .repos-files th, .repos-files td { padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }

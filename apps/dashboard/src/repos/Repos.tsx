@@ -1,12 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { apiFetch, type Role } from "../api";
-import { EmptyState, PageHeader } from "../ui";
+import { EmptyState, Field, PageHeader } from "../ui";
 import { PHRASE, VERIFY, when } from "../words";
 
 export type AnchorStatus = "verified" | "drifted" | "missing" | "unverifiable_here" | "unverified";
 
 export interface Repo {
   key: string;
+  source: "path" | "url";
+  url: string | null;
+  has_token: boolean;
+  last_fetched_at: string | null;
   host_path: string | null;
   remote_url: string | null;
   default_branch: string | null;
@@ -33,6 +37,8 @@ interface SyncResult {
   };
   verify: { checked: number; verified: number; drifted: number; missing: number; unverifiable_here: number; retracted: number };
 }
+
+const NO_SECRET_KEY = "Hive can't store tokens: HIVE_SECRET_KEY is not set on the server.";
 
 const ANCHOR_STATES: AnchorStatus[] = ["verified", "drifted", "missing", "unverifiable_here", "unverified"];
 
@@ -102,11 +108,126 @@ function summary(r: SyncResult): string {
   );
 }
 
+function AddByUrl({ onAdded }: { onAdded: () => void }) {
+  const [url, setUrl] = useState("");
+  const [key, setKey] = useState("");
+  const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const body: { url: string; key?: string; token?: string } = { url: url.trim() };
+    if (key.trim()) body.key = key.trim();
+    if (token) body.token = token;
+    setToken("");
+    try {
+      const res = await apiFetch("/v1/repos", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.status === 201) {
+        setUrl("");
+        setKey("");
+        onAdded();
+      } else if (res.status === 409) {
+        setError("That key is already registered.");
+      } else if (res.status === 503) {
+        setError(NO_SECRET_KEY);
+      } else {
+        setError(await errorOf(res));
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't add the repo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="repos-add" onSubmit={(e) => void submit(e)}>
+      <h2>Add by URL</h2>
+      <div className="repos-add-fields">
+        <Field label="GitHub URL">
+          {(p) => <input {...p} type="url" required value={url} disabled={busy} onChange={(e) => setUrl(e.target.value)} />}
+        </Field>
+        <Field label="Key (optional)" help="Defaults to gh/owner/repo">
+          {(p) => <input {...p} type="text" value={key} disabled={busy} onChange={(e) => setKey(e.target.value)} />}
+        </Field>
+        <Field label="Access token (optional, for private repos)">
+          {(p) => (
+            <input {...p} type="password" autoComplete="off" value={token} disabled={busy} onChange={(e) => setToken(e.target.value)} />
+          )}
+        </Field>
+      </div>
+      <div className="repos-actions">
+        <button type="submit" disabled={busy}>
+          {busy ? "Cloning…" : "Add repo"}
+        </button>
+      </div>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 function RepoItem({ repo, curator, onIngested }: { repo: Repo; curator: boolean; onIngested: () => void }) {
   const [open, setOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [newToken, setNewToken] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function saveToken() {
+    const token = newToken ?? "";
+    setNewToken("");
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await apiFetch(`/v1/repos/${encodeURIComponent(repo.key)}/token`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      if (res.ok) {
+        setNewToken(null);
+        onIngested();
+      } else {
+        setResult({ ok: false, text: res.status === 503 ? NO_SECRET_KEY : await errorOf(res) });
+      }
+    } catch (err) {
+      setResult({ ok: false, text: err instanceof Error ? err.message : "Couldn't save the token." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await apiFetch(`/v1/repos/${encodeURIComponent(repo.key)}`, { method: "DELETE" });
+      if (res.ok) {
+        onIngested();
+      } else {
+        setRemoving(false);
+        setResult({ ok: false, text: await errorOf(res) });
+      }
+    } catch (err) {
+      setRemoving(false);
+      setResult({ ok: false, text: err instanceof Error ? err.message : "Couldn't remove the repo." });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function ingest() {
     setRunning(true);
@@ -137,14 +258,36 @@ function RepoItem({ repo, curator, onIngested }: { repo: Repo; curator: boolean;
     <li data-key={repo.key}>
       <div className="repos-head">
         <h2>{repo.key}</h2>
-        {repo.host_path && (
-          <details className="repos-path">
-            <summary>Where it is on disk</summary>
-            <code>{repo.host_path}</code>
-          </details>
-        )}
       </div>
-      <p className="repos-meta">
+      <div className="repos-meta">
+        {repo.source === "url" ? (
+          <>
+            <span>
+              Cloned from <code>{repo.url}</code>
+            </span>
+            {repo.has_token && <span>token set</span>}
+            {repo.last_fetched_at ? (
+              <span>
+                Fetched{" "}
+                <time dateTime={repo.last_fetched_at} title={when(repo.last_fetched_at).title}>
+                  {when(repo.last_fetched_at).text}
+                </time>
+              </span>
+            ) : (
+              <span>Not fetched yet</span>
+            )}
+          </>
+        ) : (
+          <div className="repos-source">
+            Folder on this machine
+            {repo.host_path && (
+              <details className="repos-path">
+                <summary>Where it is on disk</summary>
+                <code>{repo.host_path}</code>
+              </details>
+            )}
+          </div>
+        )}
         {repo.last_ingested_at ? (
           <>
             Read{" "}
@@ -164,7 +307,7 @@ function RepoItem({ repo, curator, onIngested }: { repo: Repo; curator: boolean;
         <span>
           {repo.docs} docs, {repo.chunks} chunks, {repo.commits} commits
         </span>
-      </p>
+      </div>
       <p className="repos-anchors" aria-label="Anchor health">
         {ANCHOR_STATES.map((s) => (
           <span key={s} className={`badge verify-${s}`} title={VERIFY[s]!.hint || undefined}>
@@ -173,19 +316,64 @@ function RepoItem({ repo, curator, onIngested }: { repo: Repo; curator: boolean;
         ))}
       </p>
       {repo.ingest_error && <p className="error">Last read failed: {repo.ingest_error}</p>}
-      <div className="repos-actions">
-        <button type="button" aria-expanded={open} aria-controls={filesId} onClick={() => {
-            setOpen(!open);
-            setLoaded(true);
-          }}>
-          Files not indexed
-        </button>
-        {curator && (
-          <button type="button" disabled={running} onClick={() => void ingest()}>
-            {running ? PHRASE.ingesting : PHRASE.ingestNow}
+      {removing ? (
+        <div className="repos-actions">
+          <span>Remove {repo.key}? Its indexed docs and clone are deleted; facts stay.</span>
+          <button type="button" className="danger" disabled={busy} onClick={() => void remove()}>
+            Yes
           </button>
-        )}
-      </div>
+          <button type="button" disabled={busy} onClick={() => setRemoving(false)}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="repos-actions">
+          <button type="button" aria-expanded={open} aria-controls={filesId} onClick={() => {
+              setOpen(!open);
+              setLoaded(true);
+            }}>
+            Files not indexed
+          </button>
+          {curator && (
+            <button type="button" disabled={running} onClick={() => void ingest()}>
+              {running ? PHRASE.ingesting : PHRASE.ingestNow}
+            </button>
+          )}
+          {curator && repo.source === "url" && (
+            <>
+              <button type="button" aria-expanded={newToken !== null} onClick={() => setNewToken(newToken === null ? "" : null)}>
+                Replace token
+              </button>
+              <button type="button" onClick={() => setRemoving(true)}>
+                Remove
+              </button>
+            </>
+          )}
+        </div>
+      )}
+      {newToken !== null && !removing && (
+        <form
+          className="repos-token"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveToken();
+          }}
+        >
+          <Field label="New access token">
+            {(p) => (
+              <input {...p} type="password" autoComplete="off" required value={newToken} disabled={busy} onChange={(e) => setNewToken(e.target.value)} />
+            )}
+          </Field>
+          <div className="repos-actions">
+            <button type="submit" disabled={busy}>
+              Save
+            </button>
+            <button type="button" disabled={busy} onClick={() => setNewToken(null)}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
       {result && (
         <p className={result.ok ? "help" : "error"} role={result.ok ? "status" : "alert"}>
           {result.text}
@@ -226,6 +414,7 @@ export function Repos({ role }: { role: Role }) {
   return (
     <main className="page repos-page">
       <PageHeader title="Sources" lede="The repos Hive reads, and whether what it learned from them still matches." />
+      {role === "curator" && <AddByUrl onAdded={() => void load()} />}
       {error && (
         <p className="error" role="alert">
           {error}
@@ -234,7 +423,7 @@ export function Repos({ role }: { role: Role }) {
       {!repos && !error && <p className="help">Loading repos…</p>}
       {repos && repos.length === 0 && (
         <EmptyState title="No repos yet">
-          A curator adds a repo by pointing Hive at its checkout; Hive then reads its docs and commits.{" "}
+          A curator adds a repo by its GitHub URL, or by pointing Hive at its checkout; Hive then reads its docs and commits.{" "}
           <span className="help">
             (Through the API: <code>POST /v1/repos</code>.)
           </span>
