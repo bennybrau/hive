@@ -21,6 +21,7 @@ import { settingsRoutes } from "./routes/settings.js";
 import { statsRoutes } from "./routes/stats.js";
 import { statusRoutes } from "./routes/status.js";
 import { teamRoutes } from "./routes/teams.js";
+import { tokenRoutes } from "./routes/tokens.js";
 import { webhookRoutes } from "./routes/webhooks.js";
 import { workerRoutes } from "./routes/worker.js";
 
@@ -77,6 +78,7 @@ export function buildApp(pool: pg.Pool, opts: AppOptions): FastifyInstance {
     reviewRoutes(v1, pool, onWrite);
     playbookRoutes(v1, pool);
     teamRoutes(v1, pool);
+    tokenRoutes(v1, pool);
     settingsRoutes(v1, pool, opts.secretKey ?? null);
     reviewDigestRoutes(v1, pool, opts.secretKey ?? null, opts.reviewDigest ?? {});
     statsRoutes(v1, pool);

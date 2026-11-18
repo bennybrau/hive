@@ -201,6 +201,22 @@ The brief's `gotchas` stay newest first, with the level breaking only a tie; oth
 last, into what the rest of the brief leaves of the budget, so they are dropped first. With no team at all, every read
 ranks as it did before teams.
 
+## Instances and tokens (curator only; members get 403)
+
+An instance is one bearer token: `{id, name, user_id, role, created_at, last_seen_at, revoked_at, rotated_at}`. Only
+the token's sha256 is stored and no route returns it; the token itself is in the response that creates or rotates it,
+and nowhere else. `last_seen_at` is updated at most once a minute. Worker tokens get 403 here, like everywhere outside
+`/v1/worker/*`.
+
+- `GET /v1/instances` → `{instances}`, unrevoked, oldest first. `?revoked=true` includes revoked ones.
+- `POST /v1/instances` `{name, user_id, role: member|curator|worker}` → 201 `{instance, token}`. All three are
+  required (400 otherwise). 409 if the name is taken, by a revoked instance too.
+- `POST /v1/instances/:id/revoke` → `{instance}`; the token stops working at once (401). 404 unknown id (or not a
+  uuid); 409 if already revoked; 409 for the token you are calling with (rotate it instead).
+- `POST /v1/instances/:id/rotate` → `{instance, token}`: a new token for the same instance (its episodes, facts and
+  reviews stay attributed to it); the old token gets 401 at once. Rotating your own token is allowed. 404 unknown id;
+  409 if revoked.
+
 ## Stats (curator only)
 
 - `GET /v1/stats?days=30` — `days` 1–365 (400 otherwise); members get 403 `{error: "only a curator can see stats"}`.

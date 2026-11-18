@@ -42,14 +42,35 @@ export async function createInstance(
   return { instance: rows[0]!, token };
 }
 
+/** last_seen_at is written at most once a minute per instance, not on every request. */
 export async function findInstanceByToken(pool: pg.Pool, token: string): Promise<Instance | null> {
   const { rows } = await pool.query<Instance>(
-    `update instances set last_seen_at = now()
-     where token_hash = $1 and revoked_at is null
-     returning id, name, user_id, role`,
+    "select id, name, user_id, role from instances where token_hash = $1 and revoked_at is null",
     [hashToken(token)],
   );
-  return rows[0] ?? null;
+  const instance = rows[0];
+  if (!instance) return null;
+  await pool.query(
+    `update instances set last_seen_at = now()
+     where id = $1 and (last_seen_at is null or last_seen_at < now() - interval '60 seconds')`,
+    [instance.id],
+  );
+  return instance;
+}
+
+/** A new token for an unrevoked instance; the old one stops working at once. null = unknown or revoked. */
+export async function rotateInstanceToken(
+  pool: pg.Pool,
+  id: string,
+): Promise<{ instance: Instance; token: string } | null> {
+  const token = generateToken();
+  const { rows } = await pool.query<Instance>(
+    `update instances set token_hash = $2, rotated_at = now()
+     where id = $1 and revoked_at is null
+     returning id, name, user_id, role`,
+    [id, hashToken(token)],
+  );
+  return rows[0] ? { instance: rows[0], token } : null;
 }
 
 export function bearerAuth(pool: pg.Pool) {
