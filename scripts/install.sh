@@ -72,13 +72,16 @@ HIVE_URL and HIVE_TOKEN into $HERMES_HOME/.env and makes hive the memory provide
 Day 2, on an install dir (--dir, else $HIVE_HOME, else this script's dir if it holds .env, else ~/hive; the
 project is --project, else HIVE_PROJECT in its .env):
   install.sh doctor [--dir <path>] [--project <name>]
-      check the containers, /health, meaning search, the worker, the fact agent credential, disk and version;
-      exits 1 if anything is bad
+      check the containers, /health, meaning search, the worker, the fact agent credential, the newest
+      backup, disk and version; exits 1 if anything is bad
   install.sh upgrade [--version <v>] [--dir <path>] [--project <name>]
       move to release <v> (default: the latest): new compose file, HIVE_VERSION, install.sh; pull, up, doctor
   install.sh uninstall [--purge] [--yes] [--non-interactive] [--dir <path>] [--project <name>]
-      stop and remove the containers; --purge also deletes the volumes (all Hive data) and the install dir,
-      after you type the project name (--yes skips that)
+      stop and remove the containers; --purge also deletes the volumes (all Hive data, the backups too) and the
+      install dir, after you type the project name (--yes skips that). A HIVE_BACKUP_DIR or HIVE_BACKUP_COPY_DIR
+      on the host is never deleted.
+Backups run nightly in the backup service; take one now from the install dir with
+  docker compose -p <project> run --rm --no-deps -T backup once
 EOF
 }
 
@@ -780,6 +783,26 @@ EOF
     else warn "fact agent credential: missing" "set it in the dashboard, Settings (sign in with the curator token)"; fi
   fi
 
+  if [ "$(read_env_key "$ENV_FILE" HIVE_BACKUPS)" = "off" ]; then
+    ok "backups: off"
+  else
+    local newest
+    newest="$(dc run --rm --no-deps -T backup newest 2>/dev/null || true)"
+    newest="${newest%%[[:space:]]}"
+    if [ "$newest" = "none" ]; then
+      warn "backups: none yet" "take one now: docker compose -p ${HIVE_PROJECT} run --rm --no-deps -T backup once"
+    elif [[ "$newest" =~ ^([0-9]+)\ (hive-[0-9]{8}-[0-9]{4}\.dump)$ ]]; then
+      # 26 h: a nightly backup plus slack for a slow dump or a clock change.
+      if [ "${BASH_REMATCH[1]}" -gt 93600 ]; then
+        warn "backups: the newest (${BASH_REMATCH[2]}) is $((BASH_REMATCH[1] / 3600)) h old" "docker compose -p ${HIVE_PROJECT} logs backup"
+      else
+        ok "backups: newest ${BASH_REMATCH[2]} ($((BASH_REMATCH[1] / 3600)) h old)"
+      fi
+    else
+      warn "cannot read the backups" "docker compose -p ${HIVE_PROJECT} logs backup"
+    fi
+  fi
+
   disk_free
   if [ -z "$DISK_GB" ]; then warn "cannot tell the free disk at ${DISK_DIR}"
   elif [ "$DISK_GB" -lt 5 ]; then warn "only ${DISK_GB} GB free at ${DISK_DIR}; the images and the database want 5 GB or more"
@@ -917,7 +940,7 @@ cmd_uninstall() {
       die "refusing --purge without a terminal to confirm on: add --yes to delete all Hive data in project ${HIVE_PROJECT}" 2
     fi
     exec 3<"$tty"
-    printf '%s--purge deletes every fact, token and setting in project %s, and %s.%s\n' "$C_RED" "$HIVE_PROJECT" "$HIVE_HOME" "$C_RESET"
+    printf '%s--purge deletes every fact, token and setting in project %s, its backups, and %s.%s\n' "$C_RED" "$HIVE_PROJECT" "$HIVE_HOME" "$C_RESET"
     printf '  Type the project name to confirm: '
     IFS= read -r -u 3 reply || true
     [ "$reply" = "$HIVE_PROJECT" ] || die "not confirmed; nothing removed"
@@ -926,17 +949,26 @@ cmd_uninstall() {
   section "Uninstall (${HIVE_HOME}, project ${HIVE_PROJECT})"
   if [ "$purge" -eq 0 ]; then
     dc down --remove-orphans || die "docker compose down failed"
-    ok "containers removed; the data volumes and ${HIVE_HOME} are kept (re-run ${HIVE_HOME}/install.sh to start again)"
+    ok "containers removed; the data volumes, the backups and ${HIVE_HOME} are kept (re-run ${HIVE_HOME}/install.sh to start again)"
     return 0
   fi
   dc down -v --remove-orphans || die "docker compose down -v failed"
-  ok "containers and volumes removed"
-  local why=""
+  ok "containers and volumes removed (the backups too; a HIVE_BACKUP_DIR or HIVE_BACKUP_COPY_DIR on the host is kept)"
+  local why="" key bdir
   if [ "$HIVE_HOME" = "/" ] || [ "$HIVE_HOME" -ef "$HOME" ]; then why="it is / or \$HOME"
   elif ! grep -q '^HIVE_PROJECT=' "$HIVE_HOME/.env" 2>/dev/null; then why="its .env has no HIVE_PROJECT line"
   elif [ ! -f "$HIVE_HOME/docker-compose.yml" ]; then why="it has no docker-compose.yml"
   elif [ -e "$HIVE_HOME/.git" ] || [ -L "$HIVE_HOME/.git" ]; then why="it holds a .git"
   fi
+  # A backup bind dir is never deleted: one at or under the install dir keeps the whole dir. Compose resolves
+  # ~ and relative paths, relative to the install dir.
+  for key in HIVE_BACKUP_DIR HIVE_BACKUP_COPY_DIR; do
+    [ -z "$why" ] || break
+    bdir="$(read_env_key "$HIVE_HOME/.env" "$key")"
+    [ -n "$bdir" ] || continue
+    bdir="$(cd "$HIVE_HOME" && expand_dir "$bdir")"
+    case "$bdir/" in "$HIVE_HOME/"*) why="it holds the backups (${key}=${bdir})" ;; esac
+  done
   if [ -n "$why" ]; then
     warn "not deleting ${HIVE_HOME} (${why}); remove it yourself"
   else

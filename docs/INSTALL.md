@@ -165,6 +165,7 @@ else `HIVE_PROJECT` in that `.env`, else `hive`. Without a `.env` there, each on
 | Meaning search (`embeddings.state` on `/v1/status`, asked with the worker token) | no answer | `error` (`off` is fine) |
 | The worker's last contact with the Hive | | over 10 minutes ago, or never |
 | The fact agent credential (not needed with `ollama`) | | missing |
+| The newest backup (`backup newest`; `HIVE_BACKUPS=off` is fine) | | over 26 hours old, none, or can't be read |
 | Free disk where Docker keeps its data | | under 5 GB |
 | The version on `/health` against the latest release | | behind, or GitHub can't be reached, or not a release version |
 
@@ -176,12 +177,34 @@ stack with `up -d --wait` and runs `doctor`, whose exit code is the upgrade's. O
 refresh `install.sh` from `main` (or `HIVE_INSTALL_URL`). A failed upgrade is not rolled back: run
 `upgrade --version <old version>`.
 
-`uninstall` stops and removes the containers and keeps the data volumes and the install directory, so a re-run
-of `install.sh` brings the same Hive back. `uninstall --purge` also deletes the volumes (every fact, token and
-setting) and the install directory. It asks you to type the project name first. Without a terminal, or with
-`--non-interactive`, it refuses unless you pass `--yes`. It only deletes the install directory when it isn't `/`
-or your home, its `.env` has a `HIVE_PROJECT=` line, it holds `docker-compose.yml`, and it has no `.git`.
-Otherwise it says why and leaves the directory for you to remove (the volumes are already gone).
+`uninstall` stops and removes the containers and keeps the data volumes (the backups too) and the install
+directory, so a re-run of `install.sh` brings the same Hive back. `uninstall --purge` also deletes the volumes
+(every fact, token and setting, and the backups in the `hive-backups` volume) and the install directory. It asks
+you to type the project name first. Without a terminal, or with `--non-interactive`, it refuses unless you pass
+`--yes`. It never deletes a `HIVE_BACKUP_DIR` or `HIVE_BACKUP_COPY_DIR` on the host. It only deletes the install
+directory when it isn't `/` or your home, its `.env` has a `HIVE_PROJECT=` line, it holds `docker-compose.yml`, it
+has no `.git`, and neither backup directory is inside it. Otherwise it says why and leaves the directory for you to
+remove (the volumes are already gone).
 
 `upgrade` and `uninstall` stop before any compose call when the project's containers run from another directory,
 or when Docker can't list them, as the installer does: name this install's project with `--project <name>`.
+
+## Backups
+
+The `backup` service dumps the database every night at `HIVE_BACKUP_TIME` (default `03:00`, in `TZ`, default
+`UTC`) to `hive-YYYYMMDD-HHMM.dump` (`pg_dump -Fc`). The dumps go in the `hive-backups` volume, or in
+`HIVE_BACKUP_DIR` on the host. Each night it keeps the newest dump of each of the last 7 days and of each of the
+last 4 Sundays, and always the newest one. Files with any other name are left alone. With `HIVE_BACKUP_COPY_DIR`
+set, each dump is also copied there (a NAS or a synced folder, off this disk), with the same retention.
+`HIVE_BACKUPS=off` turns the nightly dump off; the service then idles.
+
+Take one now from the install directory (no checkout needed):
+
+```
+docker compose -p <project> run --rm --no-deps -T backup once
+```
+
+In a checkout, `scripts/backup-now.sh [--dir <d>] [--project <p>]` does the same. It finds the install like
+`doctor` (but falls back to the checkout instead of `~/hive`) and refuses, like `upgrade`, when the project runs
+from another directory or Docker can't list it. `docker compose -p <project> logs backup` shows one line per dump:
+the file, its size and how long it took.

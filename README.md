@@ -93,6 +93,18 @@ Repos to ingest: set `HIVE_REPOS_HOST_ROOT` in `.env` (unset = none). Ollama in 
 `OLLAMA_URL=http://ollama:11434` and `docker compose --profile ollama up -d`. Upgrade: change `HIVE_VERSION`, then
 `docker compose pull && docker compose up -d --wait`.
 
+## Backups
+
+The `backup` service runs `pg_dump` every night at `HIVE_BACKUP_TIME` (default 03:00, in `TZ`, default UTC). The
+dumps are `hive-YYYYMMDD-HHMM.dump` (`pg_dump -Fc`, mode 600) in the `hive-backups` volume, or in `HIVE_BACKUP_DIR`
+on the host when set. It keeps the newest dump of each of the last 7 days and of each of the last 4 Sundays, and
+always the newest one; other files there are left alone. Set `HIVE_BACKUP_COPY_DIR` to a second host directory (a
+NAS, a synced folder) to get a copy of each dump there, with the same retention. `HIVE_BACKUPS=off` turns it off.
+
+Take one now: `scripts/backup-now.sh` in a checkout, or from the install directory
+`docker compose -p <project> run --rm --no-deps -T backup once`. `install.sh doctor` warns when the newest dump is
+over 26 hours old, or when there is none.
+
 ## Tests
 
 ```bash

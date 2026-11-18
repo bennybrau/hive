@@ -57,6 +57,8 @@ jobs:
       - run: scripts/test-release.sh
       # the installer against fake docker/curl/uname: preflight, .env keys, --project, the override, prompts
       - run: bash scripts/install.test.sh
+      # the backup script: retention, temp + rename, the copies embedded in both compose files, backup-now's refusals
+      - run: bash scripts/backup.test.sh
 
   plugin:
     name: hermes plugin (pytest vs pinned hermes-agent)
