@@ -43,24 +43,28 @@ All six steps are built and running on my Mac: the service and search, the Herme
 documents, suggesting facts from conversations with a web page to approve them, a short briefing at the start of
 each task, and the test.
 
-**The test (November 7):** 16 real questions about one of our projects, each asked three times with the Hive on and
-three times with it off, 96 conversations in all, graded against an answer key.
+**The test.** 16 real questions about one of our projects, each asked three times of an assistant with the Hive and
+three times of one without it, graded by a separate AI against an answer key. The last run added a third assistant
+with every Hive fact pasted into its instructions file (CLAUDE.md) instead. We ran it four times between November 7
+and 15.
 
-- **Cheaper answers:** about 9.7 cents per question with the Hive, 11.6 cents without.
-- **More right answers:** 85% with the Hive, 75% without. The clearest gain was on questions about things that don't
-  exist, where the assistant without the Hive tended to make something up.
-- **But the Hive cost more than it saved:** after every conversation it paid about 4 cents to read it in case there
-  was something to learn, and in these question-only conversations there never was.
+- **The first run looked good on answers and bad on cost:** 85% right with the Hive against 75% without, but the Hive
+  spent more reading conversations for things to learn than it saved.
+- **We fixed the cost:** the Hive now skips conversations where someone only asked questions and reads only what
+  people said. Learning from my real day-to-day conversations costs about 19 cents a day, and 15 of the 18 facts it
+  proposed in ten days were worth keeping.
+- **The accuracy gap didn't hold up:** on the last run the Hive was 75% right, the plain assistant 71%, and the
+  pasted-in file 77%. Those are within the normal run-to-run swing. The Hive was the cheapest of the three.
 
-So the idea works, and the cost is in the wrong place.
+So on questions our code and docs can already answer, the Hive is as good as a well-kept instructions file, and a
+little cheaper. It is not better at that, and we've stopped claiming it is.
 
 ## What's next
 
-We're changing how the Hive learns before deciding anything else: it will skip conversations where someone only
-asked questions, read only what people said rather than everything the assistant looked at, and borrow the habits
-our assistant already uses to improve itself (keep lessons short and general, update an old fact instead of adding
-a new one, retire facts nobody uses). Then we run the same test again. The rule stands: if the savings don't clearly
-beat the cost, we stop.
+What a file can't do is the loop: someone corrects an assistant once, a reviewer approves it, and the next piece of
+work follows it without anyone editing a file. That's what we measure next, on real work rather than a quiz. In the
+meantime we're making the Hive installable by other people (published images and a one-line installer are done), so
+a second person can run one.
 
 ## Deliberately left out for now
 

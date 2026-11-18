@@ -1,6 +1,6 @@
 # M5b — Learn like Hermes: cheaper, cleaner learning
 
-Status: **IN PROGRESS** — milestone https://github.com/bennybrau/hive/milestone/8. WP1 (#73), WP3 (#75) and WP7 (#79) done; WP2 dropped; WP1b (#85) added.
+Status: **DONE (2026-11-17)** — milestone https://github.com/bennybrau/hive/milestone/8. All WPs done except WP2 (dropped) and WP6d–e (held in bennybrau/hive#10). Final reading and decision: [EXPERIMENT_RESULTS.md § Re-run after M5b](EXPERIMENT_RESULTS.md#re-run-after-m5b-final-2026-11-17).
 
 **Scope rule:** Hermes is not changed. M5b takes ideas from how Hermes self-improves and applies them inside Hive only.
 
@@ -132,7 +132,7 @@ citations in answers. A fact unused for `HIVE_STALE_DAYS` (default 60) is marked
 *Stale* tab for the curator to keep, fix or retire; nothing is retired automatically. A fact cited in an answer a
 person then corrects goes back to the review queue with the correction attached.
 
-**WP8 — Final re-run (#80).** After WP6 and WP7, re-run the experiment and update [the results](EXPERIMENT_RESULTS.md) and
+**WP8 — Final re-run (#80).** Done (2026-11-17): decision continue to M6, see the results. After WP6 and WP7, re-run the experiment and update [the results](EXPERIMENT_RESULTS.md) and
 the explainer.
 
 ## Order
