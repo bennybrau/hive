@@ -129,6 +129,21 @@ The installer copies itself to `<install dir>/install.sh`. Re-run that copy to c
   - Without a curator token, it points to Settings.
   - With an empty Claude token, it keeps whatever the Hive already has.
 
+## Repos on a host with no checkout
+
+On a cloud host there is usually no `~/dev` to mount. Register repos by URL instead: the Hive clones them into its
+`<project>_hive-clones` volume and fetches before every ingest (see Repos in [API.md](API.md)):
+
+```bash
+curl -X POST <url>/v1/repos -H "Authorization: Bearer <curator token>" -H 'Content-Type: application/json' \
+  -d '{"url": "https://github.com/<owner>/<repo>", "token": "<PAT>"}'
+```
+
+Only `https://github.com/<owner>/<repo>` URLs are accepted. A public repo needs no `token`. For a private one, use
+a fine-grained personal access token limited to that repo with **Contents: read-only** and nothing else. The Hive
+stores it encrypted under `HIVE_SECRET_KEY` (so that must be set) and never shows it again; replace it with
+`PUT /v1/repos/gh%2F<owner>%2F<repo>/token` when it expires.
+
 ## Day-2: doctor, upgrade, uninstall
 
 ```

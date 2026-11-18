@@ -484,11 +484,28 @@ an expired lease puts it back in the queue, and after 3 attempts (expired or fai
 
 ## Repos (ingest + verify)
 
-The hive reads repos through a read-only mount (`HIVE_REPOS_HOST_ROOT`, default `~/dev`, at `/repos`).
+A repo is registered one of two ways (`source`): by **path**, read through a read-only mount
+(`HIVE_REPOS_HOST_ROOT`, default `~/dev`, at `/repos`), or by **URL**, which the hive clones into its own
+`hive-clones` volume (`HIVE_CLONES_ROOT`, `/data/repos`) and fetches before every ingest. Use a URL on a host with no
+checkout (a cloud box).
 
-- `POST /v1/repos` `{path, key?}` — curator. Register a git repo by its host path (or a path relative to the
-  root). `key` defaults from `origin` (`github.com/o/r` → `gh/o/r`, same rule as the plugin). Idempotent.
-- `GET /v1/repos` — every repo with `host_path`, last ingested sha/time, `ingest_summary`, `ingest_error`, and
+- `POST /v1/repos` — curator. One of:
+  - `{path, key?}`: a git repo by its host path (or a path relative to the root). `key` defaults from `origin`
+    (`github.com/o/r` → `gh/o/r`, same rule as the plugin). Re-registering a path repo updates it (`200`; new is `201`).
+  - `{url, key?, token?}`: `url` must be `https://github.com/<owner>/<repo>` (optionally `.git`); ssh, scp-style,
+    `http:`, `file:` and other hosts are `400`. `key` defaults to `gh/<owner>/<repo>`. `token` (a fine-grained,
+    read-only PAT, for private repos) is stored encrypted under `HIVE_SECRET_KEY` and is write-only: no answer, log or
+    file in the clone ever contains it. Clones the default branch (a failed clone leaves nothing behind and answers
+    `400` with `repository not found`, `authentication failed: ...` or `network: ...`), then `201`.
+  - `409` if the key is already registered in the other form, or (for a URL) at all. `503` if a `token` is sent and
+    `HIVE_SECRET_KEY` is not set. Request bodies are never logged.
+- `PUT /v1/repos/:key/token` `{token}` — curator. Replace a URL repo's token (URL-encode the `/` in the key). `400` for a
+  path repo, `404` for an unknown key, `503` without `HIVE_SECRET_KEY`. Answers `{repo: {key, has_token: true}}`.
+- `DELETE /v1/repos/:key` — curator. Unregister: the repo row, its indexed docs and chunks, and its team links go, in one
+  transaction; facts and commit episodes stay. A URL repo's clone directory is removed too (only if it is inside
+  `HIVE_CLONES_ROOT`); a path repo's directory is never touched. `404` for an unknown key.
+- `GET /v1/repos` — every repo with `source` (`path | url`), `url` (URL repos), `has_token`, `last_fetched_at`,
+  `host_path` (path repos; `null` for URL repos), last ingested sha/time, `ingest_summary`, `ingest_error`, and
   counts of indexed docs, chunks and commits, and `anchors: {verified, drifted, missing, unverifiable_here, unverified}`:
   the anchors of active + candidate facts in that repo (by the anchor's `repo_key`, else the fact's `repo:` scope), by verify status.
 - `GET /v1/repo-keys` — members and curators. `{repo_keys}`: the keys of registered repos plus every `repo:<key>` scope of an
@@ -497,10 +514,15 @@ The hive reads repos through a read-only mount (`HIVE_REPOS_HOST_ROOT`, default 
   and why (`no text layer (scanned PDF?)`, `too large`, ...).
 - `POST /v1/repos/ingest` `{key}` — curator. Ingest now, then verify that repo; returns both summaries. `409` if
   one is already running. Also runs for every repo every `HIVE_REPO_SYNC_MINUTES` (15; 0 = on demand only).
+  For a URL repo it first fetches `origin` and resets the clone to the default branch, then sets `last_fetched_at`.
+  If the fetch fails, `ingest_error` says why (`authentication failed: the token was refused or expired`,
+  `repository not found`, `network: <reason>`), ingest and verify are skipped and the last good index stays; this
+  route answers `400`, and a timer pass logs it and goes on to the next repo.
 - `POST /v1/jobs/verify` `{repo_key?}` — curator. Re-check anchors now.
 
 **Ingest** reads the committed state of the repo's **default branch**, never the working tree or the branch the
-checkout is on: `origin/HEAD`, else `origin/main` / `origin/master` (as last fetched; the hive never fetches),
+checkout is on: `origin/HEAD`, else `origin/main` / `origin/master` (as last fetched; the hive never fetches a path
+repo, and fetches a URL repo's clone before every ingest),
 else local `main` / `master`, else the checkout's `HEAD`. That branch is stored as `default_branch`, its tip as
 `last_ingested_sha`, so doc links point at a commit the remote has. Incremental: files whose blob is
 unchanged are skipped; deleted files' chunks are removed; only commits after the last ingested tip are read
@@ -509,7 +531,8 @@ unchanged are skipped; deleted files' chunks are removed; only commits after the
 never `node_modules`, `vendor`, `dist`, etc. PDF via `pdftotext`; Office files are unzipped and their XML text
 read directly (no Office needed). Chunks are ~1500 chars, split at headings and paragraphs, with line ranges.
 
-**Verify** re-reads each anchor's file in the working tree (what you see now) and looks for its quote:
+**Verify** re-reads each anchor's file in the working tree (for a path repo, what you see now; for a URL repo, the
+clone, reset to the committed default branch, never anyone's unsaved edits) and looks for its quote:
 `verified` (found; if it moved, `verify_note` says from where to where and `found_line` is updated),
 `drifted` (not verbatim, but a ≥60% similar passage is there: the source was edited), `missing` (file deleted
 or nothing similar), `unverifiable_here` (repo not registered, or nothing to check). Quotes from conversations
