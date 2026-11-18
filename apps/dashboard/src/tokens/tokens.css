@@ -1,0 +1,9 @@
+.tokens-create, .tokens-new { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin-bottom: 16px; }
+.tokens-create .error { flex-basis: 100%; }
+.tokens-new { padding: 12px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface); max-width: 100ch; }
+.tokens-new .ui-field { flex: 1 1 40ch; }
+.tokens-new input { font-family: var(--font-mono, monospace); }
+.tokens-toggle { display: inline-flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.tokens-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tokens-actions .error { flex-basis: 100%; }
+table.tokens tr.revoked { opacity: 0.55; }

@@ -92,6 +92,7 @@ export const SECTIONS: Section[] = [
       { to: "/repos", label: "Sources" },
       { to: "/stats", label: "Usage and cost", curatorOnly: true },
       { to: "/settings", label: "Notifications", curatorOnly: true },
+      { to: "/tokens", label: "Tokens", curatorOnly: true },
     ],
   },
 ];

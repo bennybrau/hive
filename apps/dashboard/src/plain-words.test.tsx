@@ -13,6 +13,7 @@ import { Settings } from "./settings/Settings";
 import { SignIn } from "./SignIn";
 import { Stats, type StatsBody } from "./stats/Stats";
 import { Teams } from "./teams/Teams";
+import { Tokens } from "./tokens/Tokens";
 import { JOB, RAW_VALUES, VERIFY } from "./words";
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
@@ -87,6 +88,12 @@ const TEAMS = [
   { key: "billing", name: "Billing", created_at: "2026-10-01T00:00:00Z", members: [{ user_id: "ana", role: "member" }, { user_id: "bo", role: "reviewer" }], repos: ["acme/widgets"] },
 ];
 
+const INSTANCES = [
+  { id: "i1", name: "laptop", user_id: "u1", role: "curator", created_at: "2026-10-01T00:00:00Z", last_seen_at: AGO, revoked_at: null, rotated_at: AGO },
+  { id: "i2", name: "worker-a", user_id: "hive", role: "worker", created_at: "2026-10-01T00:00:00Z", last_seen_at: null, revoked_at: null, rotated_at: null },
+  { id: "i3", name: "old-laptop", user_id: "ana", role: "member", created_at: "2026-10-01T00:00:00Z", last_seen_at: AGO, revoked_at: AGO, rotated_at: null },
+];
+
 const playbook = (id: string, over: object) => ({
   id, scope: "global", title: `Playbook ${id}`, applies_paths: ["src/**"], applies_words: ["deploy"], steps: [{ text: "Step one", fact_ids: [] }],
   pitfalls: [], status: "active", supersedes: null, author_user_id: "u1", created_at: "2026-11-01T12:00:00Z", ...over,
@@ -109,6 +116,7 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   if (path === "/v1/playbooks/p3") return json({ playbook: RETIRED });
   if (path === "/v1/review/count") return json({ count: 0 });
   if (path === "/v1/teams") return json({ teams: TEAMS });
+  if (path === "/v1/instances") return json({ instances: INSTANCES });
   if (path === "/v1/teams/mine") return json({ teams: [] });
   if (path === "/v1/search") return json({ mode: "hybrid", facts: FACTS, results: HITS });
   if (path === "/v1/facts") return json({ facts: FACTS, has_more: false });
@@ -168,6 +176,13 @@ const PAGES: { name: string; render: () => Promise<void> }[] = [
     render: async () => {
       render(<Teams role="curator" />);
       await screen.findByText("bo");
+    },
+  },
+  {
+    name: "Tokens",
+    render: async () => {
+      render(<Tokens role="curator" selfId="i1" />);
+      await screen.findByText("old-laptop");
     },
   },
   {
