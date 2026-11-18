@@ -10,15 +10,18 @@ import { sourceOf, type SourceColumns } from "../source.js";
 const SIMILAR_MIN = 0.85;
 const SNIPPET_CHARS = 300;
 
-function curatorOnly(req: FastifyRequest, reply: FastifyReply): boolean {
-  if (req.instance!.role === "curator") return true;
+/** Who is reviewing: a curator (everything readable) or a member (their own personal candidates); null = 403 sent. */
+function reviewerRole(req: FastifyRequest, reply: FastifyReply): "curator" | "member" | null {
+  const role = req.instance!.role;
+  if (role === "curator" || role === "member") return role;
   reply.code(403).send({ error: "only a curator can review facts" });
-  return false;
+  return null;
 }
 
 /**
  * The review gate: curators see shared-scope candidates (asked first, then oldest) and approve, fix or reject them,
- * and the active facts flagged as corrected (`flagged`, curated with /v1/facts/:id/curate).
+ * and the active facts flagged as corrected (`flagged`, curated with /v1/facts/:id/curate). Members see and decide
+ * only their own personal candidates, at the level they are at; nothing flagged.
  */
 export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () => void): void {
   app.get<{ Querystring: { scope?: string; origin?: string; limit?: number } }>(
@@ -36,9 +39,14 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
       },
     },
     async (req, reply) => {
-      if (!curatorOnly(req, reply)) return reply;
+      const role = reviewerRole(req, reply);
+      if (!role) return reply;
       const qs = req.query;
-      const { candidates, flagged } = await loadReviewQueueItems(pool, req.instance!, { ...qs, limit: qs.limit ?? 20 });
+      const { candidates, flagged } = await loadReviewQueueItems(pool, req.instance!, {
+        ...qs,
+        limit: qs.limit ?? 20,
+        ownPersonalOnly: role === "member",
+      });
       const ids = candidates.map((c) => c.id);
       // Anchors, and for conversation anchors ~300 chars of the episode around the quote (start of it when not found)
       // plus the exchange the quote came from; `content` is only read here, never sent.
@@ -120,9 +128,20 @@ export function reviewRoutes(app: FastifyInstance, pool: pg.Pool, onWrite: () =>
       },
     },
     async (req, reply) => {
-      if (!curatorOnly(req, reply)) return reply;
+      const role = reviewerRole(req, reply);
+      if (!role) return reply;
       if (req.body.action === "fix" && !req.body.new_text) return reply.code(400).send({ error: "fix needs new_text" });
       if (req.body.action === "reject" && req.body.scope !== undefined) return reply.code(400).send({ error: "reject takes no scope" });
+      if (role === "member") {
+        if (req.body.scope !== undefined) return reply.code(400).send({ error: "members cannot move a fact to another level" });
+        // Another user's personal fact is not there for a member (readableScopes); a shared one is a curator's to decide.
+        const { rows } = await pool.query<{ scope: string }>("select scope from facts where id = $1", [req.params.id]);
+        const scope = rows[0]?.scope;
+        if (scope === undefined || (scope.startsWith("personal:") && scope !== `personal:${req.instance!.user_id}`)) {
+          return reply.code(404).send({ error: "no such fact" });
+        }
+        if (scope !== `personal:${req.instance!.user_id}`) return reply.code(403).send({ error: "only a curator can review shared facts" });
+      }
       try {
         const out = await reviewFact(pool, req.params.id, req.instance!, req.body);
         if (!out) return reply.code(404).send({ error: "no such fact" });

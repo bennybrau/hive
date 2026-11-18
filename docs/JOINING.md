@@ -70,8 +70,8 @@ How a fact gets in:
 - **The Hive proposes it** from your conversations. It is a candidate. A shared one goes to the curator's review
   queue. Only what a person said that a bot would otherwise get wrong (a correction, a decision, an explicit
   "remember this") is meant to be proposed.
-- A proposed **personal** fact is not shown to the curator (nobody sees your personal facts), and approving one
-  yourself isn't built yet, so for now it simply stays unused.
+- A proposed **personal** fact is not shown to the curator (nobody sees your personal facts). You review it
+  yourself: in the dashboard's **Review**, or with `hive_review` in Hermes. Until you approve it, it stays unused.
 - Candidates are never handed to Hermes automatically, and recall never returns them; `hive_search` lists shared
   candidates only when asked to include them.
 

@@ -76,10 +76,10 @@ export const SECTIONS: Section[] = [
   {
     key: "review",
     label: "Review",
-    curatorOnly: true,
+    curatorOnly: false,
     tabs: [
       { to: "/review", label: "New" },
-      { to: "/stale", label: "Out of date" },
+      { to: "/stale", label: "Out of date", curatorOnly: true },
     ],
   },
   { key: "playbooks", label: "Playbooks", curatorOnly: true, tabs: [{ to: "/playbooks", label: "Playbooks", match: (p) => p === "/playbooks" || p.startsWith("/playbooks/") }] },
@@ -104,23 +104,32 @@ function sectionsFor(role: string) {
   return SECTIONS.filter((s) => curator || !s.curatorOnly).map((s) => ({ ...s, tabs: s.tabs.filter((t) => curator || !t.curatorOnly) }));
 }
 
-/** How many facts wait for review (curators only); refreshed whenever the page changes. */
-function useWaiting(curator: boolean, path: string): number | null {
+/**
+ * How many facts wait for review: the whole backlog for curators, a member's own personal candidates (up to 100)
+ * for members. Refreshed whenever the page changes.
+ */
+function useWaiting(role: string, path: string): number | null {
   const [n, setN] = useState<number | null>(null);
   useEffect(() => {
-    if (!curator) return;
+    if (role !== "curator" && role !== "member") return;
     let live = true;
-    apiFetch("/v1/stats?days=1")
-      .then((r) => (r.ok ? (r.json() as Promise<{ backlog?: { candidates?: number } }>) : null))
-      .then((s) => {
-        const c = s?.backlog?.candidates;
+    const count =
+      role === "curator"
+        ? apiFetch("/v1/stats?days=1")
+            .then((r) => (r.ok ? (r.json() as Promise<{ backlog?: { candidates?: number } }>) : null))
+            .then((s) => s?.backlog?.candidates)
+        : apiFetch("/v1/review/queue?limit=100")
+            .then((r) => (r.ok ? (r.json() as Promise<{ candidates?: unknown[] }>) : null))
+            .then((q) => q?.candidates?.length);
+    count
+      .then((c) => {
         if (live) setN(typeof c === "number" ? c : null);
       })
       .catch(() => undefined);
     return () => {
       live = false;
     };
-  }, [curator, path]);
+  }, [role, path]);
   return n;
 }
 
@@ -128,7 +137,7 @@ export function Shell({ status, path, children }: { status: Status; path: string
   const role = status.instance.role;
   const sections = sectionsFor(role);
   const here = sections.find((s) => s.tabs.some((t) => isCurrent(t, path)));
-  const waiting = useWaiting(role === "curator", path);
+  const waiting = useWaiting(role, path);
   const [menuOpen, setMenuOpen] = useState(false);
   useEffect(() => setMenuOpen(false), [path]);
 

@@ -72,12 +72,19 @@ describe("dashboard shell", () => {
     expect(authOf(last)).toBe("Bearer good-token");
   });
 
-  it("shows the Review nav link to curators only, and /review opens it", async () => {
+  it("shows the Review nav link to members too, counting their own candidates, and /review opens it", async () => {
     sessionStorage.setItem("hive.token", "good-token");
+    const own = { candidates: [{ id: "c1" }, { id: "c2" }], flagged: [], last_distill_at: null };
+    fetchMock.mockImplementation(async (url: RequestInfo | URL) =>
+      String(url) === "/v1/status" ? json(200, STATUS) : String(url) === "/v1/home" ? json(200, HOME) : json(200, own),
+    );
     const { unmount } = render(<App />);
     await screen.findByText("bennys-laptop");
     expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBe("page");
-    expect(screen.queryByRole("link", { name: "Review" })).toBeNull();
+    const main = screen.getByRole("navigation", { name: "Main" });
+    expect((await within(main).findByLabelText("2 waiting")).closest("a")!.getAttribute("href")).toBe("/review");
+    expect(fetchMock.mock.calls.some(([u]) => String(u) === "/v1/review/queue?limit=100")).toBe(true);
+    expect(fetchMock.mock.calls.some(([u]) => String(u).startsWith("/v1/stats"))).toBe(false);
     unmount();
 
     fetchMock.mockImplementation(asCurator({ candidates: [], flagged: [], last_distill_at: null }));

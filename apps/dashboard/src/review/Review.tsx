@@ -404,9 +404,12 @@ function isTyping(t: EventTarget | null): boolean {
   return t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
 }
 
-/** The review queue: one fact at a time, oldest first, decided from the keyboard or the card's buttons. */
+/**
+ * The review queue: one fact at a time, oldest first, decided from the keyboard or the card's buttons. Members get
+ * their own personal candidates only: no level to move them to, no Level filter and nothing flagged.
+ */
 export function Review({ role }: { role: Role }) {
-  if (role !== "curator") {
+  if (role !== "curator" && role !== "member") {
     return (
       <main className="page">
         <h1>Review</h1>
@@ -416,10 +419,10 @@ export function Review({ role }: { role: Role }) {
       </main>
     );
   }
-  return <ReviewQueue />;
+  return <ReviewQueue curator={role === "curator"} />;
 }
 
-function ReviewQueue() {
+function ReviewQueue({ curator }: { curator: boolean }) {
   const [queue, setQueue] = useState<Queue | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [active, setActive] = useState(0);
@@ -452,8 +455,8 @@ function ReviewQueue() {
     [queue, hidden, level],
   );
   const flagged = useMemo(
-    () => queue?.flagged.filter((f) => !hidden.has(f.id) && matchesLevel(f, level)) ?? [],
-    [queue, hidden, level],
+    () => (curator && queue?.flagged.filter((f) => !hidden.has(f.id) && matchesLevel(f, level))) || [],
+    [curator, queue, hidden, level],
   );
   const index = Math.min(active, Math.max(shown.length - 1, 0));
   const current = shown[index];
@@ -550,8 +553,13 @@ function ReviewQueue() {
     <main className="page review-queue">
       <PageHeader
         title="Review"
-        lede="Hive proposes facts from what people say. Nothing reaches an agent until a curator approves it."
+        lede={
+          curator
+            ? "Hive proposes facts from what people say. Nothing reaches an agent until a curator approves it."
+            : "Facts Hive proposed from your conversations, visible only to you."
+        }
         action={
+          curator &&
           queue &&
           (queue.candidates.length > 0 || queue.flagged.length > 0) && (
             <LevelFilter id="r-level" value={level} teams={levels.teams} onChange={setLevel} />
@@ -601,6 +609,7 @@ function ReviewQueue() {
           anchorRepo={current.anchors[0]?.repo_key}
           choice={choice}
           onChoose={setChoice}
+          canMove={curator}
           editor={
             editing?.kind === "fix" ? (
               <Field label="Edit the fact" help="Enter saves and approves, Shift+Enter adds a line, Esc cancels.">

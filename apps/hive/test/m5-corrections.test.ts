@@ -252,7 +252,7 @@ describe("flagged in the queue, and curating clears it", () => {
     const { rows } = await pool.query("select id from episodes limit 1");
     await flagCorrection(pool, first, { text: "y".repeat(800), episode_id: rows[0].id, candidate_id: null });
     expect(((await correction(first))!.text as string).length).toBe(500);
-    expect((await app.inject({ url: "/v1/review/queue", headers: auth(alice.token) })).statusCode).toBe(403);
+    expect((await app.inject({ url: "/v1/review/queue", headers: auth(alice.token) })).json().flagged).toEqual([]); // members: none
   });
 
   it("keep, fix and retire each clear the flag; pin does not", async () => {

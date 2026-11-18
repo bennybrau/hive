@@ -13,7 +13,8 @@ What it does each turn:
   * sync_turn  - after the reply: POST the turn to /v1/episodes (Hermes already runs this on its
                  background worker and has redacted secrets).
   * session end- POST the whole transcript as a `session` episode (input for M4 distill).
-Tools: hive_recall, hive_remember, hive_search, hive_retract, hive_status; hive_review for curators only.
+Tools: hive_recall, hive_remember, hive_search, hive_retract, hive_status; hive_review for curators and members
+(members: their own personal candidates only).
 
 Config (env, via `hermes memory setup` or the profile's .env):
   HIVE_URL               e.g. http://studio.local:8800                     (required)
@@ -451,13 +452,31 @@ _SCHEMAS = [
     },
 ]
 
-# Offered only to curators (see HiveMemoryProvider._is_curator); the server answers 403 to anyone else.
+# Offered to curators and members (see HiveMemoryProvider._review_role); the server answers 403 to anyone else.
 _REVIEW_SCHEMA = {
     "name": "hive_review",
     "description": "Curator only: review candidate facts waiting for approval before other assistants see them. "
                    "action=list shows the queue (oldest first) with each candidate's full id, the fact it would "
                    "supersede and similar active facts, plus `flagged`: active facts a person corrected after an "
                    "answer cited them. approve / fix (with new_text) / reject need the full id.",
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "action": {"type": "string", "enum": ["list", "approve", "fix", "reject"]},
+            "id": {"type": "string", "description": "Full candidate id (36 chars) from action=list."},
+            "note": {"type": "string", "description": "Why (recorded with the decision)."},
+            "new_text": {"type": "string", "description": "action=fix: the corrected statement."},
+        },
+        "required": ["action"],
+    },
+}
+
+# A member reviews only their own personal candidates, at the level they are at; the server keeps it that way.
+_MEMBER_REVIEW_SCHEMA = {
+    "name": "hive_review",
+    "description": "Review your own personal candidate facts: ones Hive proposed from your conversations, visible "
+                   "only to you. action=list shows them (oldest first) with each candidate's full id, the fact it "
+                   "would supersede and similar active facts. approve / fix (with new_text) / reject need the full id.",
     "parameters": {
         "type": "object",
         "properties": {
@@ -490,8 +509,8 @@ class HiveMemoryProvider(MemoryProvider):
         self._briefed: set[str] = set()  # sessions that already asked for a brief (ok or not)
         self._brief_size: dict[str, dict[str, int]] = {}  # session_id -> {tokens, items} of its brief
         self._last_count: Optional[int] = None
-        self._curator: Optional[bool] = None  # cached after the first successful /v1/status
-        self._curator_key: Optional[tuple[str, str]] = None  # (url, token) the cached role belongs to
+        self._role: Optional[str] = None  # cached after the first successful /v1/status
+        self._role_key: Optional[tuple[str, str]] = None  # (url, token) the cached role belongs to
 
     @property
     def name(self) -> str:
@@ -509,8 +528,8 @@ class HiveMemoryProvider(MemoryProvider):
     def initialize(self, session_id: str, **kwargs) -> None:
         self._client = HiveClient(get_secret("HIVE_URL", "") or "", get_secret("HIVE_TOKEN", "") or "")
         # Keep a role learned at registration time if it was for this same Hive and token.
-        if self._curator_key != (self._client.base_url, self._client.token):
-            self._curator = None
+        if self._role_key != (self._client.base_url, self._client.token):
+            self._role = None
         self._session_id = session_id
         self._agent_context = kwargs.get("agent_context") or "primary"
         self._cwd = session_cwd(kwargs)
@@ -679,24 +698,24 @@ class HiveMemoryProvider(MemoryProvider):
     # -- tools --------------------------------------------------------------------
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
-        return list(_SCHEMAS) + ([_REVIEW_SCHEMA] if self._is_curator() else [])
+        role = self._review_role()
+        return list(_SCHEMAS) + ([_REVIEW_SCHEMA] if role == "curator" else [_MEMBER_REVIEW_SCHEMA] if role else [])
 
-    def _is_curator(self) -> bool:
-        """Whether this instance's token is a curator's. Errors count as "not curator" and aren't cached."""
-        if self._curator is not None:
-            return self._curator
-        # Hermes asks for the tool schemas when it registers the provider (MemoryManager.add_provider), which
-        # builds its tool routing table, BEFORE initialize(). Answer from the env then too, or hive_review is
-        # left out of the routes while later schema lists include it, and the model's call fails "Unknown tool".
-        client = self._client or self._env_client()
-        if client is None:
-            return False
-        res = client.get("/v1/status", timeout=PREFETCH_TIMEOUT_S)
-        if not res.get("ok"):
-            return False
-        self._curator = (res.get("instance") or {}).get("role") == "curator"
-        self._curator_key = (client.base_url, client.token)
-        return self._curator
+    def _review_role(self) -> Optional[str]:
+        """"curator" or "member" when this instance's token may review, else None (a worker, or an error: not cached)."""
+        if self._role is None:
+            # Hermes asks for the tool schemas when it registers the provider (MemoryManager.add_provider), which
+            # builds its tool routing table, BEFORE initialize(). Answer from the env then too, or hive_review is
+            # left out of the routes while later schema lists include it, and the model's call fails "Unknown tool".
+            client = self._client or self._env_client()
+            if client is None:
+                return None
+            res = client.get("/v1/status", timeout=PREFETCH_TIMEOUT_S)
+            if not res.get("ok"):
+                return None
+            self._role = str((res.get("instance") or {}).get("role") or "")
+            self._role_key = (client.base_url, client.token)
+        return self._role if self._role in ("curator", "member") else None
 
     @staticmethod
     def _env_client() -> Optional["HiveClient"]:
@@ -793,8 +812,8 @@ class HiveMemoryProvider(MemoryProvider):
         return {"ok": True, "id": fid, "status": (res.get("fact") or {}).get("status")}
 
     def _tool_review(self, args: dict[str, Any]) -> dict[str, Any]:
-        if not self._is_curator():
-            return {"ok": False, "error": "only a curator can review facts"}
+        if not self._review_role():
+            return {"ok": False, "error": "only a curator or member can review facts"}
         action = str(args.get("action", "")).strip()
         if action == "list":
             res = self._client.get("/v1/review/queue", {"limit": REVIEW_QUEUE_LIMIT})  # type: ignore[union-attr]

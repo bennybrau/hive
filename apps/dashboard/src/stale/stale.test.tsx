@@ -318,7 +318,7 @@ describe("out of date facts", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("The hive answered 500.");
   });
 
-  it("members get a note, nothing is fetched, and the Shell has no Stale link", () => {
+  it("members get a note, nothing is fetched, and the Shell has Review but no Stale link", () => {
     render(<Stale role="member" />);
     expect(screen.getByRole("note").textContent).toMatch(/curators only/);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -327,7 +327,7 @@ describe("out of date facts", () => {
     const status = (role: "member" | "curator") => ({ version: "t", instance: { id: "i1", name: "x", user_id: "u1", role } });
     const { unmount } = render(<Shell status={status("member")} path="/facts">{null}</Shell>);
     expect(screen.queryByRole("link", { name: "Out of date" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Review" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Review" }).getAttribute("href")).toBe("/review");
     unmount();
     render(<Shell status={status("curator")} path="/stale">{null}</Shell>);
     expect(screen.getByRole("link", { name: "Out of date" }).getAttribute("aria-current")).toBe("page");

@@ -53,12 +53,12 @@ afterAll(async () => {
 });
 
 describe("review stays with curators", () => {
-  it("a member, even a team reviewer, gets 403 on the queue and on review", async () => {
+  it("a member, even a team reviewer, sees no team candidate in the queue and gets 403 reviewing one", async () => {
     const id = await fact("Team A ships on Tuesdays", "team:a");
     for (const who of [alice, rita]) {
-      expect((await call(who, "GET", "/v1/review/queue")).statusCode).toBe(403);
+      expect((await call(who, "GET", "/v1/review/queue")).json().candidates).toEqual([]); // only their own personal ones
       expect((await review(who, id, { action: "approve" })).statusCode).toBe(403);
-      expect((await review(who, id, { action: "approve", scope: "team:a" })).statusCode).toBe(403);
+      expect((await review(who, id, { action: "approve", scope: "team:a" })).statusCode).toBe(400); // no moves either
     }
     expect((await row(id)).status).toBe("candidate");
   });

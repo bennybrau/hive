@@ -58,11 +58,11 @@ class FakeHive:
         if u.path == "/v1/status":
             return 200, {"instance": {"name": "t", "user_id": "jon", "role": self.role}, "counts": {"facts": 3}}
         if u.path == "/v1/review/queue":
-            if self.role != "curator":
+            if self.role not in ("curator", "member"):
                 return 403, {"error": "only a curator can review facts"}
             return 200, {"candidates": self.queue[: int(q.get("limit", 20))], "flagged": self.flagged}
         if u.path.endswith("/review") and method == "POST":
-            if self.role != "curator":
+            if self.role not in ("curator", "member"):
                 return 403, {"error": "only a curator can review facts"}
             status = {"approve": "active", "fix": "active", "reject": "retracted"}[body["action"]]
             return 200, {"fact": {"id": u.path.split("/")[3], "status": status}, "merged_into": None}
@@ -150,7 +150,7 @@ def test_is_a_memory_provider_with_all_tools(monkeypatch, fake):
     p = _provider(monkeypatch, fake.url)
     assert isinstance(p, MemoryProvider) and p.name == "hive"
     assert [s["name"] for s in p.get_tool_schemas()] == [
-        "hive_recall", "hive_remember", "hive_search", "hive_retract", "hive_status"]
+        "hive_recall", "hive_remember", "hive_search", "hive_retract", "hive_status", "hive_review"]  # fake: a member
 
 
 def test_unavailable_without_env(monkeypatch):
@@ -901,7 +901,7 @@ def test_a_superseding_fact_is_one_prefetch_line(monkeypatch, fake):
     assert block.splitlines()[1:] == ["- [hive:11111111] Use vitest, never jest. (organisation, convention)"]
 
 
-# --- review (curator only) ------------------------------------------------------------
+# --- review (curators; members for their own personal candidates) -------------------------
 
 C1 = {"id": "55555555-aaaa-bbbb-cccc-000000000005", "text": "Use vitest 2.", "kind": "convention", "scope": "global",
       "status": "candidate", "supersedes": F1["id"],
@@ -915,20 +915,34 @@ def _names(p):
     return [s["name"] for s in p.get_tool_schemas()]
 
 
-def test_review_tool_offered_to_curators_only(monkeypatch, fake):
-    assert "hive_review" not in _names(_provider(monkeypatch, fake.url))
+def _review_schema(p):
+    return next((s for s in p.get_tool_schemas() if s["name"] == "hive_review"), None)
+
+
+def test_review_tool_offered_to_curators_and_members_not_workers(monkeypatch, fake):
     fake.role = "curator"
     p = _provider(monkeypatch, fake.url)
     assert _names(p)[-1] == "hive_review"
+    assert _review_schema(p)["description"].startswith("Curator only: review candidate facts")
     _names(p)
-    assert len(fake.last("/v1/status")) == 2  # one per provider: the role is cached
+    assert len(fake.last("/v1/status")) == 1  # the role is cached
+    fake.role = "member"
+    member = _review_schema(_provider(monkeypatch, fake.url))
+    assert member["description"].startswith("Review your own personal candidate facts")
+    assert "flagged" not in member["description"]
+    assert "scope" not in member["parameters"]["properties"]
+    fake.role = "worker"
+    assert "hive_review" not in _names(_provider(monkeypatch, fake.url))
 
 
-def test_member_role_is_cached_too_after_a_successful_status_call(monkeypatch, fake):
-    p = _provider(monkeypatch, fake.url)
-    assert "hive_review" not in _names(p)
-    assert "hive_review" not in _names(p)
-    assert len(fake.last("/v1/status")) == 1  # a successful "member" result is cached too
+def test_member_and_worker_roles_are_cached_too_after_a_successful_status_call(monkeypatch, fake):
+    for role in ("member", "worker"):
+        fake.role = role
+        fake.requests.clear()
+        p = _provider(monkeypatch, fake.url)
+        _names(p)
+        _names(p)
+        assert len(fake.last("/v1/status")) == 1, role  # a successful non-curator result is cached too
 
 
 def test_review_tool_hidden_when_status_fails_and_retried_later(monkeypatch, fake):
@@ -965,16 +979,33 @@ def test_curator_review_tool_is_routed_when_registered_before_initialize(monkeyp
     assert len(fake.last("/v1/status")) == 1  # role learned at registration is kept through initialize()
 
 
-def test_member_never_gets_a_review_route(monkeypatch, fake, tmp_path):
+def test_member_review_tool_is_routed_and_list_passes_through(monkeypatch, fake, tmp_path):
+    fake.queue = [{**C1, "scope": "personal:jon", "supersedes": None, "similar": []}]
+    mm = _registered_like_hermes(monkeypatch, fake.url, tmp_path)
+    assert mm.has_tool("hive_review")
+    assert "hive_review" in [s["name"] for s in mm.get_all_tool_schemas()]
+    out = json.loads(mm.handle_tool_call("hive_review", {"action": "list"}))
+    assert out == {"ok": True, "candidates": [
+        {"id": C1["id"], "id8": "55555555", "text": "Use vitest 2.", "kind": "convention", "scope": "personal:jon",
+         "supersedes": None, "similar": []}], "flagged": []}
+    assert fake.last("/v1/review/queue")[0]["query"] == {"limit": "20"}
+    out = json.loads(mm.handle_tool_call("hive_review", {"action": "approve", "id": C1["id"]}))
+    assert out == {"ok": True, "id": C1["id"], "status": "active"}
+    assert fake.last(f"/v1/facts/{C1['id']}/review")[0]["body"] == {"action": "approve"}
+
+
+def test_worker_never_gets_a_review_route(monkeypatch, fake, tmp_path):
+    fake.role = "worker"
     mm = _registered_like_hermes(monkeypatch, fake.url, tmp_path)
     assert not mm.has_tool("hive_review")
     assert "hive_review" not in [s["name"] for s in mm.get_all_tool_schemas()]
 
 
-def test_review_by_a_member_is_refused_without_calling_the_api(monkeypatch, fake):
+def test_review_by_a_worker_is_refused_without_calling_the_api(monkeypatch, fake):
+    fake.role = "worker"
     p = _provider(monkeypatch, fake.url)
     out = call(p, "hive_review", action="list")
-    assert not out["ok"] and "curator" in out["error"]
+    assert not out["ok"] and "curator or member" in out["error"]
     assert fake.last("/v1/review/queue") == []
 
 

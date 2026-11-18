@@ -22,6 +22,7 @@ export function FactCard({
   anchorRepo,
   choice,
   onChoose,
+  canMove = true,
   editor,
   why,
   children,
@@ -37,6 +38,8 @@ export function FactCard({
   anchorRepo?: string | null;
   choice: Choice;
   onChoose: (c: Choice) => void;
+  /** false: no Change… (a member's own personal candidates stay at their level). */
+  canMove?: boolean;
   /** Shown instead of the text while editing; the who-gets-it box is hidden then. */
   editor?: ReactNode;
   why?: ReactNode;
@@ -76,10 +79,12 @@ export function FactCard({
           <span className="t">
             <b>Who gets it:</b> {levelLabel(labelled, levels.teams, levels.mine).hint}
           </span>
-          <Button variant="quiet" className="end" aria-expanded={changing} onClick={() => setChanging(!changing)}>
-            Change…
-          </Button>
-          {changing && (
+          {canMove && (
+            <Button variant="quiet" className="end" aria-expanded={changing} onClick={() => setChanging(!changing)}>
+              Change…
+            </Button>
+          )}
+          {canMove && changing && (
             <WhoGetsThis
               fact={fact}
               anchorRepo={anchorRepo}

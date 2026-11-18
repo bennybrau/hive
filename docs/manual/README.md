@@ -13,7 +13,7 @@ automatically. The dashboard is where a person looks in and decides.
 - [Facts](#facts): browse everything the hive knows
 - [Search](#search): ask across facts, conversations, commits and docs
 - [Sources](#sources): the code and docs the hive has read
-- [Review](#review-curators): approve, fix or reject what's new (curators)
+- [Review](#review): approve, fix or reject what's new (curators; members for their own personal facts)
 - [Usage and cost](#usage-and-cost-curators): cost, growth and health (curators)
 - [Notifications](#notifications-curators): the daily review digest (curators)
 - [Keyboard shortcuts](#keyboard-shortcuts)
@@ -23,8 +23,9 @@ automatically. The dashboard is where a person looks in and decides.
 | | Member | Curator |
 |---|---|---|
 | Home, Knowledge (Facts, Search), Admin › Sources (Repos) | ✓ | ✓ |
+| Review › New | your own personal facts | ✓ |
 | **Read again now** on Sources | | ✓ |
-| Review (New, Out of date), Playbooks, Teams, Admin › Usage and cost (Stats), Admin › Notifications (Settings) | | ✓ |
+| Review › Out of date, Playbooks, Teams, Admin › Usage and cost (Stats), Admin › Notifications (Settings) | | ✓ |
 
 Everyone sees shared facts (`global` and every `repo:…`) plus **their own** personal facts. Nobody, curators
 included, ever sees another person's personal facts.
@@ -56,12 +57,13 @@ The menu runs down the left side. On a phone it sits behind the **Menu** button 
 |---|---|---|
 | **Home** | [Home](#home), at `/`, where signing in lands | everyone |
 | **Knowledge** | [Facts](#facts), [Search](#search) | everyone |
-| **Review** | New ([Review](#review-curators)), Out of date (facts nobody has used in a while) | curators |
+| **Review** | New ([Review](#review)), Out of date (facts nobody has used in a while) | everyone sees New; Out of date is curators only |
 | **Playbooks** | step-by-step instructions agents follow for a kind of task | curators |
 | **Teams** | teams, their people and repos | curators |
 | **Admin** | [Sources](#sources), [Usage and cost](#usage-and-cost-curators), [Notifications](#notifications-curators) | everyone sees Sources; the rest is curators only |
 
-A number next to **Review** is how many facts are waiting for a curator. The page addresses haven't changed
+A number next to **Review** is how many facts are waiting for you: for a curator, everything waiting for review;
+for a member, their own personal facts waiting. The page addresses haven't changed
 (`/` is Home; `/facts`, `/review`, `/stale`, `/repos`, `/stats`, `/settings`), so old links and the daily digest's link still
 work. The screenshots in this manual show the dashboard before the redesign; they are replaced as each page is
 rebuilt.
@@ -95,7 +97,7 @@ How a fact goes live:
 - Facts for **Just me** are live at once.
 - Shared facts written by a **curator** are live at once.
 - Shared facts written by a **member**, and everything **learned from a conversation**, start as **Waiting for
-  review** in [Review](#review-curators).
+  review** in [Review](#review).
 
 ## Home
 
@@ -262,7 +264,7 @@ for a one-line explanation):
 A curator adds a repo by pointing Hive at its checkout; for now that's done through the API (`POST /v1/repos`), not
 in the dashboard. With no repos yet, the page says so.
 
-## Review (curators)
+## Review
 
 ![Review queue](img/review.png)
 
@@ -290,6 +292,11 @@ Each card, top to bottom:
 Below the card, **Corrected after citation** lists live facts someone corrected after an answer cited them, with
 **Keep**, **Fix** and **Retire**. **Replaced by a new fact** links to the card that would replace it.
 
+**Members** see the same page for their own facts only: "Facts Hive proposed from your conversations, visible only
+to you." Each card is one of your personal facts, for **Just me**. There is no **Level** filter, no **Change…** (it
+stays yours) and no **Corrected after citation**. Approve, **Edit…**, Reject, Undo and the keys work as below.
+Shared facts and other people's are a curator's to review.
+
 ### Deciding
 
 The buttons at the bottom of the card:
@@ -314,7 +321,7 @@ The buttons at the bottom of the card:
 
 **Review › Out of date** shows live facts no agent has used for a while (60 days unless the hive is set up
 differently; the line under the title says how long and how many). Pinned facts never show here. It uses the same
-card as [Review](#review-curators), **one fact at a time**, with **Fact n of N** and **‹ ›**, the fact, **Who gets
+card as [Review](#review), **one fact at a time**, with **Fact n of N** and **‹ ›**, the fact, **Who gets
 it** and **Change…**.
 
 **Why Hive thinks so** says how long nobody has used it and when it was last used ("Nobody has used it in 60 days.
@@ -356,7 +363,7 @@ days**. Members who open the page see a note that only a Curator can see it.
 Who hears about facts waiting for review, and when. Members who open the page see a note that only a Curator can
 change it.
 
-**Daily review digest** is a short message, once a day, saying what is waiting in [Review](#review-curators),
+**Daily review digest** is a short message, once a day, saying what is waiting in [Review](#review),
 with a link to it. It goes by email, Telegram or both, and it is built for the curator who last saved the settings.
 
 1. Turn on **Send the daily digest** and pick the **time** and **time zone**.
@@ -399,7 +406,8 @@ Shortcuts are ignored while you're typing in a box.
 
 - **"The hive didn't accept that token."**: the token was revoked or mistyped. Ask for a new one.
 - **"Couldn't reach the hive."**: the hive is down, or you're off the tailnet.
-- **Review, Playbooks and Teams are missing from the menu, and Admin only has Sources**: your token is a member token.
+- **Playbooks and Teams are missing from the menu, Review has no Out of date, and Admin only has Sources**: your token
+  is a member token.
 - **A doc you expected isn't in Search**: open Repos → **Files not indexed**. Check that the change is on the
   repo's default branch and was fetched from origin.
 - **No new candidates after a session**: check Stats → Workers (stale?) and Backlog.

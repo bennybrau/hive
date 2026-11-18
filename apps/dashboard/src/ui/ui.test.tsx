@@ -28,10 +28,21 @@ afterEach(() => {
 const menuNames = () => within(screen.getByRole("navigation", { name: "Main" })).getAllByRole("link").map((a) => a.textContent);
 
 describe("shell menu", () => {
-  it("members get Home, Knowledge and Admin only, with no curator group and no review count fetch", () => {
+  it("members get Home, Knowledge, Review and Admin, with no curator group", () => {
     render(<Shell status={status("member")} path="/facts">{null}</Shell>);
-    expect(menuNames()).toEqual(["Home", "Knowledge", "Admin"]);
+    expect(menuNames()).toEqual(["Home", "Knowledge", "Review", "Admin"]);
     expect(screen.queryByText("Curator", { selector: ".group" })).toBeNull();
+  });
+
+  it("counts a member's own candidates from their queue, not the stats backlog", async () => {
+    fetchMock.mockImplementation(async () => json({ candidates: [{ id: "c1" }, { id: "c2" }], flagged: [], last_distill_at: null }));
+    render(<Shell status={status("member")} path="/facts">{null}</Shell>);
+    expect((await screen.findByLabelText("2 waiting")).textContent).toBe("2");
+    expect(fetchMock.mock.calls.map(([u]) => String(u))).toEqual(["/v1/review/queue?limit=100"]);
+  });
+
+  it("workers get no review count fetch", () => {
+    render(<Shell status={status("worker")} path="/facts">{null}</Shell>);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

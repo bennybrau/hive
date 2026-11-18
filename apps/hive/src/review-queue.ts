@@ -11,6 +11,8 @@ export interface QueueOptions {
   origin?: string;
   /** No limit when left out. */
   limit?: number;
+  /** A member's queue: only their own personal candidates, and nothing flagged. */
+  ownPersonalOnly?: boolean;
 }
 
 /**
@@ -23,7 +25,9 @@ export async function loadReviewQueueItems(
   instance: Pick<Instance, "user_id">,
   opts: QueueOptions = {},
 ): Promise<{ candidates: QueueCandidate[]; flagged: QueueFlagged[] }> {
-  const [scopeSql, params] = readableScopes(instance, undefined, 1);
+  const [scopeSql, params]: [string, unknown[]] = opts.ownPersonalOnly
+    ? ["scope = $1", [`personal:${instance.user_id}`]]
+    : readableScopes(instance, undefined, 1);
   const where = ["status = 'candidate'", scopeSql];
   if (opts.scope) {
     params.push(opts.scope);
@@ -43,6 +47,7 @@ export async function loadReviewQueueItems(
      order by (metadata->>'asked')::boolean is true desc, recorded_at, id${limit}`,
     params,
   );
+  if (opts.ownPersonalOnly) return { candidates, flagged: [] };
 
   const [flagScopeSql, flagParams] = readableScopes(instance, undefined, 1, "f.scope");
   let flagScope = "";
