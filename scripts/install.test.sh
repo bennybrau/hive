@@ -29,11 +29,16 @@ export FAKE_LOG="$TMP/argv.log" FAKE_STDIN="$TMP/stdin.log"
 
 # docker: FAKE_INFO_FAIL=1 (daemon down), FAKE_COMPOSE_V1=1 (no compose v2), FAKE_OS (docker info --format),
 # FAKE_VOLUMES (existing volume names), FAKE_PS_PROJECT + FAKE_PS_WORKDIR (a project's containers),
-# FAKE_CURATORS (live curator count), FAKE_USERS (users that already have a token).
+# FAKE_CURATORS (live curator count), FAKE_USERS (users that already have a token), FAKE_PS_HEALTH (every service's
+# health in `docker compose ps`, default healthy), FAKE_PS_FAIL=1 (`docker ps` fails), FAKE_PULL_FAIL=1 (`compose pull`
+# fails), FAKE_IMAGES (images `image inspect` finds; `compose config --images` prints hive's two at $HIVE_VERSION).
 cat > "$FAKE_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
 printf 'docker %s\n' "$*" >> "$FAKE_LOG"
 case "$1" in
+  image)
+    for i in ${FAKE_IMAGES:-}; do [ "$3" = "$i" ] && exit 0; done
+    exit 1 ;;
   info)
     [ "${FAKE_INFO_FAIL:-}" = 1 ] && exit 1
     [ "${2:-}" = "--format" ] && echo "${FAKE_OS:-Ubuntu 24.04 LTS testhost}"
@@ -42,6 +47,7 @@ case "$1" in
     for v in ${FAKE_VOLUMES:-}; do [ "$3" = "$v" ] && exit 0; done
     exit 1 ;;
   ps)
+    [ "${FAKE_PS_FAIL:-}" = 1 ] && { echo "permission denied while trying to connect to the Docker daemon" >&2; exit 1; }
     case "$*" in *"label=com.docker.compose.project=${FAKE_PS_PROJECT:-none} "*)
       case "$*" in *"-q"*) echo abc123 ;; *) echo "${FAKE_PS_WORKDIR:-}" ;; esac ;;
     esac
@@ -57,6 +63,9 @@ case "$1" in
           prev=$a
         done
         echo "{\"id\":\"x\",\"name\":\"n\",\"user_id\":\"$user\",\"role\":\"$role\",\"token\":\"tok-$user-$role\"}" ;;
+      *" pull"*) [ "${FAKE_PULL_FAIL:-}" = 1 ] && exit 1 ;;
+      *"config --images"*) echo "ghcr.io/bennybrau/hive:${HIVE_VERSION:-}"; echo "ghcr.io/bennybrau/hive-worker:${HIVE_VERSION:-}" ;;
+      *" ps "*) for s in postgres hive hive-worker; do echo "$s running ${FAKE_PS_HEALTH:-healthy}"; done ;;
       *"psql"*"role='curator'"*) echo "${FAKE_CURATORS:-0}" ;;
       *"psql"*"user_id="*)
         n=0; for u in ${FAKE_USERS:-}; do case "$*" in *"user_id='$u'"*) n=1 ;; esac; done; echo "$n" ;;
@@ -68,7 +77,7 @@ exit 0
 EOF
 
 # curl: FAKE_OLLAMA=1 (a host Ollama answers), FAKE_NO_GITHUB=1 (no latest release), FAKE_HEALTH_VERSION (/health),
-# FAKE_STATUS_CODE (/v1/status, default 200). Plugin tarballs come from $FAKE_TARS. Records stdin when the body is read from it.
+# FAKE_STATUS_CODE (/v1/status, default 200; its body has embeddings state ok). Plugin tarballs come from $FAKE_TARS. Records stdin when the body is read from it.
 cat > "$FAKE_BIN/curl" <<'EOF'
 #!/usr/bin/env bash
 printf 'curl %s\n' "$*" >> "$FAKE_LOG"
@@ -83,7 +92,7 @@ case "$url" in
   *api.github.com*) [ "${FAKE_NO_GITHUB:-}" = 1 ] && exit 22; echo '{"tag_name": "v9.9.9"}' ;;
   *:11434*) [ "${FAKE_OLLAMA:-}" = 1 ] || exit 7 ;;
   */health) echo "{\"ok\":true,\"db\":\"up\",\"version\":\"${FAKE_HEALTH_VERSION:-1.2.3}\"}" ;;
-  */v1/status) [ -n "$wfmt" ] && printf '%s' "${FAKE_STATUS_CODE:-200}" ;;
+  */v1/status) if [ -n "$wfmt" ]; then printf '%s' "${FAKE_STATUS_CODE:-200}"; else echo '{"embeddings":{"state":"ok"}}'; fi ;;
   *hive-plugin.tar.gz) cp "$FAKE_TARS/release.tar.gz" "$out" ;;
   *codeload.github.com*) cp "$FAKE_TARS/codeload.tar.gz" "$out" ;;
   */agent-credential) printf 204 ;;
@@ -418,6 +427,138 @@ new_case
 run HIVE_DISTILL=skip HIVE_MEMBERS="ann,bob" FAKE_USERS=ann bash "$INSTALL_SH" --non-interactive >/dev/null 2>&1
 assert_eq "$(grep -c -- '--user ann ' "$FAKE_LOG")" "0" "an existing member is skipped"
 assert_eq "$(grep -c -- '--user bob ' "$FAKE_LOG")" "1" "a new member gets one token"
+
+# --- day 2: doctor, upgrade, uninstall (on a --no-up install) ---------------------------------------
+new_day2_case() { new_case; run HIVE_DISTILL=skip bash "$INSTALL_SH" --non-interactive --no-up >/dev/null 2>&1; : > "$FAKE_LOG"; }
+
+new_day2_case
+printf 'HIVE_WORKER_TOKEN=tok-worker-SECRET\n' >> "$H/.env"
+out="$(run bash "$INSTALL_SH" doctor 2>&1)"; code=$?
+assert_eq "$code" "0" "doctor on healthy containers exits 0"
+assert_contains "$out" "hive-worker: running, healthy" "doctor lists each service"
+assert_contains "$out" "meaning search: ok" "doctor reads /v1/status"
+assert_contains "$(grep /v1/status "$FAKE_LOG")" "-K " "doctor's worker token goes in a curl config"
+assert_not_contains "$(cat "$FAKE_LOG")" "tok-worker-SECRET" "doctor's worker token is in no argv"
+out="$(run FAKE_PS_HEALTH=unhealthy bash "$INSTALL_SH" doctor 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "doctor with an unhealthy container exits non-zero"
+assert_contains "$out" "running, unhealthy" "doctor names the unhealthy container"
+out="$(run HIVE_HOME="$TMP/home$CASE/nothing" bash "$INSTALL_SH" doctor 2>&1)"; code=$?
+assert_eq "$code" "2" "doctor without a .env exits 2"
+
+new_day2_case
+out="$(run bash "$INSTALL_SH" upgrade --project p2 2>&1)"; code=$?
+assert_eq "$code" "0" "upgrade succeeds"
+assert_eq "$(get HIVE_VERSION)" "9.9.9" "upgrade writes the latest release into HIVE_VERSION"
+assert_contains "$(cat "$FAKE_LOG")" "releases/download/v9.9.9/docker-compose.release.yml" "upgrade downloads the release's compose file"
+assert_contains "$(cat "$FAKE_LOG")" "-p p2 pull" "upgrade pulls"
+assert_contains "$(cat "$FAKE_LOG")" "-p p2 up -d --wait" "upgrade starts the stack"
+assert_eq "$(head -1 "$H/install.sh")" "#!/bin/sh" "upgrade refreshes install.sh"
+[ -x "$H/install.sh" ] && pass || fail "the refreshed install.sh is executable"
+assert_eq "$(ls -A "$H" | grep -c '^\.hive-upgrade')" "0" "upgrade leaves no staging dir"
+: > "$FAKE_LOG"
+out="$(run bash "$INSTALL_SH" upgrade --version v2.0.0 2>&1)"; code=$?
+assert_eq "$(get HIVE_VERSION)" "2.0.0" "upgrade --version v2.0.0 => HIVE_VERSION=2.0.0"
+assert_contains "$(cat "$FAKE_LOG")" "releases/download/v2.0.0/docker-compose.release.yml" "upgrade --version => that release's compose file"
+out="$(run FAKE_NO_GITHUB=1 bash "$INSTALL_SH" upgrade 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "upgrade without a version and offline exits non-zero"
+assert_eq "$(get HIVE_VERSION)" "2.0.0" "an offline upgrade changes nothing"
+
+# a failed pull: nothing changes unless the new images are already here
+new_day2_case
+K="$TMP/keep$CASE"; mkdir -p "$K"; cp "$H/.env" "$H/docker-compose.yml" "$H/install.sh" "$K/"
+out="$(run FAKE_PULL_FAIL=1 bash "$INSTALL_SH" upgrade --version 2.0.0 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "failed pull, images absent => exits non-zero"
+assert_contains "$out" "nothing changed" "failed pull, images absent => says nothing changed"
+for f in .env docker-compose.yml install.sh; do
+  cmp -s "$K/$f" "$H/$f" && pass || fail "failed pull, images absent => $f unchanged"
+done
+assert_not_contains "$(cat "$FAKE_LOG")" " up -d" "failed pull, images absent => no up"
+: > "$FAKE_LOG"
+out="$(run FAKE_PULL_FAIL=1 FAKE_IMAGES="ghcr.io/bennybrau/hive:2.0.0 ghcr.io/bennybrau/hive-worker:2.0.0" \
+  bash "$INSTALL_SH" upgrade --version 2.0.0 2>&1)"; code=$?
+assert_eq "$code" "0" "failed pull, images present => upgrade succeeds"
+assert_contains "$out" "images are already here" "failed pull, images present => warns"
+assert_eq "$(get HIVE_VERSION)" "2.0.0" "failed pull, images present => HIVE_VERSION written"
+
+# doctor fails after the upgrade: exit 1, install.sh kept
+new_day2_case
+cp "$H/install.sh" "$TMP/keep-install$CASE.sh"
+out="$(run FAKE_PS_HEALTH=unhealthy bash "$INSTALL_SH" upgrade --version 2.0.0 2>&1)"; code=$?
+assert_eq "$code" "1" "upgrade with an unhealthy stack exits 1"
+cmp -s "$TMP/keep-install$CASE.sh" "$H/install.sh" && pass || fail "upgrade with an unhealthy stack keeps install.sh"
+
+new_day2_case
+out="$(run bash "$INSTALL_SH" uninstall 2>&1)"; code=$?
+assert_eq "$code" "0" "uninstall succeeds"
+assert_contains "$(cat "$FAKE_LOG")" "-p hive down --remove-orphans" "uninstall runs compose down"
+assert_not_contains "$(cat "$FAKE_LOG")" " -v" "uninstall without --purge keeps the volumes"
+assert_file "$H/.env" "uninstall without --purge keeps the dir"
+: > "$FAKE_LOG"
+out="$(run bash "$INSTALL_SH" uninstall --purge --non-interactive 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "--purge without --yes, non-interactive => refused"
+assert_contains "$out" "--yes" "--purge refused => points to --yes"
+assert_file "$H/.env" "--purge refused => the dir stays"
+assert_eq "$(grep -c '^docker compose ' "$FAKE_LOG")" "0" "--purge refused => no compose calls"
+printf 'wrong\n' > "$TMP/tty"
+out="$(run HIVE_TTY="$TMP/tty" bash "$INSTALL_SH" uninstall --purge 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "--purge with the wrong name typed => refused"
+assert_file "$H/.env" "--purge with the wrong name => the dir stays"
+printf 'hive\n' > "$TMP/tty"
+out="$(run HIVE_TTY="$TMP/tty" bash "$INSTALL_SH" uninstall --purge 2>&1)"; code=$?
+assert_eq "$code" "0" "--purge with the project name typed succeeds"
+assert_contains "$(cat "$FAKE_LOG")" "-p hive down -v --remove-orphans" "--purge removes the volumes"
+assert_no_file "$H" "--purge deletes the install dir"
+
+new_day2_case
+out="$(run bash "$INSTALL_SH" uninstall --purge --yes 2>&1)"; code=$?
+assert_eq "$code" "0" "--purge --yes succeeds without a terminal"
+assert_no_file "$H" "--purge --yes deletes the install dir"
+
+# --purge keeps a dir that doesn't look like an install dir
+new_day2_case
+mkdir "$H/.git"
+out="$(run bash "$INSTALL_SH" uninstall --purge --yes 2>&1)"; code=$?
+assert_file "$H/.env" "--purge on a dir with .git => the dir stays"
+assert_contains "$out" "not deleting" "--purge on a dir with .git => warns"
+new_day2_case
+grep -v '^HIVE_PROJECT=' "$H/.env" > "$H/.env.new"; mv "$H/.env.new" "$H/.env"
+out="$(run bash "$INSTALL_SH" uninstall --purge --yes 2>&1)"; code=$?
+assert_file "$H/.env" "--purge on a .env without HIVE_PROJECT => the dir stays"
+assert_contains "$out" "no HIVE_PROJECT" "--purge on a .env without HIVE_PROJECT => warns"
+new_day2_case
+cp "$H/.env" "$H/docker-compose.yml" "$TMP/home$CASE/"
+out="$(run bash "$INSTALL_SH" uninstall --purge --yes --dir "$TMP/home$CASE" 2>&1)"; code=$?
+assert_file "$TMP/home$CASE/.env" "--purge on \$HOME => the dir stays"
+assert_contains "$out" "not deleting" "--purge on \$HOME => warns"
+
+# another dir's containers under the same project: no compose call at all
+new_day2_case
+for c in "upgrade --version 2.0.0" "uninstall" "uninstall --purge --yes"; do
+  : > "$FAKE_LOG"
+  out="$(run FAKE_PS_PROJECT=hive FAKE_PS_WORKDIR=/somewhere/else bash "$INSTALL_SH" $c 2>&1)"; code=$?
+  [ "$code" -ne 0 ] && pass || fail "$c on another dir's project => exits non-zero"
+  assert_contains "$out" "--project <name>" "$c on another dir's project => suggests --project"
+  assert_eq "$(grep -c '^docker compose ' "$FAKE_LOG")" "0" "$c on another dir's project => no compose calls"
+done
+assert_file "$H/.env" "refused on another dir's project => the dir stays"
+assert_eq "$(get HIVE_VERSION)" "1.2.3" "refused upgrade => HIVE_VERSION unchanged"
+
+# docker can't list the project's containers: install, upgrade and uninstall refuse before any compose call
+new_case
+out="$(run FAKE_PS_FAIL=1 HIVE_DISTILL=skip bash "$INSTALL_SH" --non-interactive 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "install when docker ps fails => exits non-zero"
+assert_contains "$out" "cannot list containers for project hive" "install when docker ps fails => says so"
+assert_eq "$(grep '^docker compose ' "$FAKE_LOG" | grep -vc '^docker compose version')" "0" "install when docker ps fails => no compose calls"
+assert_no_file "$H" "install when docker ps fails => no install dir"
+new_day2_case
+for c in "upgrade --version 2.0.0" "uninstall" "uninstall --purge --yes"; do
+  : > "$FAKE_LOG"
+  out="$(run FAKE_PS_FAIL=1 bash "$INSTALL_SH" $c 2>&1)"; code=$?
+  [ "$code" -ne 0 ] && pass || fail "$c when docker ps fails => exits non-zero"
+  assert_contains "$out" "cannot list containers" "$c when docker ps fails => says so"
+  assert_eq "$(grep -c '^docker compose ' "$FAKE_LOG")" "0" "$c when docker ps fails => no compose calls"
+done
+assert_eq "$(get HIVE_VERSION)" "1.2.3" "upgrade when docker ps fails => HIVE_VERSION unchanged"
 
 # --- join ----------------------------------------------------------------------------------
 JTOKEN="hive_JOINSECRETTOKEN"

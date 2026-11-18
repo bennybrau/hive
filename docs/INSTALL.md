@@ -12,6 +12,7 @@ line.
 ```
 install.sh [install] [--version <v>] [--dir <path>] [--project <name>] [--non-interactive] [--no-up] [--force]
 install.sh join --url <hive url> [--token <t>] [--version <v>] [--force]
+install.sh doctor | upgrade [--version <v>] | uninstall [--purge] [--yes]   # see Day-2
 ```
 
 - `--no-up` writes the install directory and starts nothing.
@@ -127,3 +128,45 @@ The installer copies itself to `<install dir>/install.sh`. Re-run that copy to c
     read hidden, or from `HIVE_CURATOR_TOKEN`.
   - Without a curator token, it points to Settings.
   - With an empty Claude token, it keeps whatever the Hive already has.
+
+## Day-2: doctor, upgrade, uninstall
+
+```
+install.sh doctor    [--dir <path>] [--project <name>]
+install.sh upgrade   [--version <v>] [--dir <path>] [--project <name>]
+install.sh uninstall [--purge] [--yes] [--non-interactive] [--dir <path>] [--project <name>]
+```
+
+Each one works on an install directory: `--dir`, else `HIVE_HOME`, else the directory of the `install.sh` you run
+if it holds a `.env`, else `~/hive`. So `~/hive2/install.sh doctor` checks `~/hive2`. The project is `--project`,
+else `HIVE_PROJECT` in that `.env`, else `hive`. Without a `.env` there, each one stops.
+
+`doctor` prints one line per check. It exits 1 if any line is bad (✗); warnings (!) don't fail it.
+
+| Check | Bad | Warning |
+|---|---|---|
+| Every container of the project (`docker compose ps`) | not running, or not healthy | |
+| `/health` | doesn't answer `ok` | |
+| Meaning search (`embeddings.state` on `/v1/status`, asked with the worker token) | no answer | `error` (`off` is fine) |
+| The worker's last contact with the Hive | | over 10 minutes ago, or never |
+| The fact agent credential (not needed with `ollama`) | | missing |
+| Free disk where Docker keeps its data | | under 5 GB |
+| The version on `/health` against the latest release | | behind, or GitHub can't be reached, or not a release version |
+
+`upgrade` moves to release `<v>`, by default the latest (it stops if that can't be looked up). It downloads the
+release's compose file (or copies `HIVE_COMPOSE_SRC`) and pulls that release's images first. If the pull fails
+and the images aren't already on this machine, it stops and changes nothing: `.env`, `docker-compose.yml` and
+`install.sh` stay as they were. Then it sets `HIVE_VERSION` in `.env`, puts the compose file in place, starts the
+stack with `up -d --wait` and runs `doctor`, whose exit code is the upgrade's. Only when `doctor` passes does it
+refresh `install.sh` from `main` (or `HIVE_INSTALL_URL`). A failed upgrade is not rolled back: run
+`upgrade --version <old version>`.
+
+`uninstall` stops and removes the containers and keeps the data volumes and the install directory, so a re-run
+of `install.sh` brings the same Hive back. `uninstall --purge` also deletes the volumes (every fact, token and
+setting) and the install directory. It asks you to type the project name first. Without a terminal, or with
+`--non-interactive`, it refuses unless you pass `--yes`. It only deletes the install directory when it isn't `/`
+or your home, its `.env` has a `HIVE_PROJECT=` line, it holds `docker-compose.yml`, and it has no `.git`.
+Otherwise it says why and leaves the directory for you to remove (the volumes are already gone).
+
+`upgrade` and `uninstall` stop before any compose call when the project's containers run from another directory,
+or when Docker can't list them, as the installer does: name this install's project with `--project <name>`.

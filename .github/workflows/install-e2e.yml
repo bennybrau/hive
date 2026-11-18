@@ -1,0 +1,104 @@
+# The installer end to end on a real Docker engine: build both images, install from the release compose file
+# with scripts/install.sh, remember a fact and recall it, run doctor, then uninstall --purge and check nothing of
+# the project is left. A throwaway project and a spare port, never the default `hive` one.
+name: install-e2e
+
+on:
+  pull_request:
+    paths:
+      - scripts/install.sh
+      - docker-compose.release.yml
+      - apps/hive/Dockerfile
+      - apps/worker/Dockerfile
+      - .github/workflows/install-e2e.yml
+      - .github/workflows/images.yml
+      - .env.example
+  schedule:
+    - cron: "23 4 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: install-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The installer's answers, and the locally built images for every compose call (shell env beats .env).
+      HIVE_PROJECT_NAME: hive-e2e
+      HIVE_IMAGE: hive
+      HIVE_WORKER_IMAGE: hive-worker
+      HIVE_VERSION: e2e
+      HIVE_PORT: "18800"
+      HIVE_EMBED: "off"
+      HIVE_DISTILL: skip
+      HIVE_CURATOR_USER: alice
+      HIVE_CURATOR_NAME: alice-e2e
+      URL: http://127.0.0.1:18800
+    steps:
+      # The runner context isn't available in a job's env:, so HIVE_HOME is set here for every later step.
+      - run: echo "HIVE_HOME=$RUNNER_TEMP/hive-e2e" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+
+      - run: docker build -f apps/hive/Dockerfile --build-arg HIVE_VERSION=e2e -t hive:e2e .
+      - run: docker build -f apps/worker/Dockerfile -t hive-worker:e2e .
+
+      - name: install
+        run: |
+          HIVE_COMPOSE_SRC="$PWD/docker-compose.release.yml" bash scripts/install.sh --non-interactive \
+            --project "$HIVE_PROJECT_NAME" | tee "$RUNNER_TEMP/install.log"
+
+      - name: alice's token from the install output
+        run: |
+          token="$(grep -A1 'Curator token for alice' "$RUNNER_TEMP/install.log" | tail -1 | tr -d '[:space:]')"
+          [ -n "$token" ] || { echo "no curator token for alice in the install output" >&2; exit 1; }
+          echo "::add-mask::$token"
+          echo "TOKEN=$token" >> "$GITHUB_ENV"
+
+      - name: /health
+        run: |
+          health="$(curl -fsS "$URL/health")"
+          echo "$health"
+          grep -q '"ok":true' <<<"$health"
+          grep -q '"version":"e2e"' <<<"$health"
+
+      - name: remember a fact, recall it
+        run: |
+          word="zebrafinch${GITHUB_RUN_ID}"
+          code="$(curl -sS -o "$RUNNER_TEMP/fact.json" -w '%{http_code}' -X POST "$URL/v1/facts" \
+            -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+            --data "{\"text\":\"The install e2e probe word is ${word}.\",\"kind\":\"convention\",\"scope\":\"personal\"}")"
+          cat "$RUNNER_TEMP/fact.json"; echo
+          [ "$code" = "201" ] || { echo "POST /v1/facts answered $code" >&2; exit 1; }
+          grep -q '"status":"active"' "$RUNNER_TEMP/fact.json"
+          recall="$(curl -fsS -H "Authorization: Bearer $TOKEN" "$URL/v1/recall?q=${word}")"
+          echo "$recall"
+          grep -q "$word" <<<"$recall"
+
+      - run: bash "$HIVE_HOME/install.sh" doctor
+
+      - run: bash "$HIVE_HOME/install.sh" uninstall --purge --yes
+
+      - name: nothing of the project is left
+        run: |
+          left="$(docker ps -aq --filter "label=com.docker.compose.project=$HIVE_PROJECT_NAME")"
+          vols="$(docker volume ls -q --filter "label=com.docker.compose.project=$HIVE_PROJECT_NAME")"
+          [ -z "$left" ] || { echo "containers left: $left" >&2; exit 1; }
+          [ -z "$vols" ] || { echo "volumes left: $vols" >&2; exit 1; }
+          [ ! -e "$HIVE_HOME" ] || { echo "$HIVE_HOME is still there" >&2; exit 1; }
+
+      - name: logs and cleanup
+        if: always()
+        run: |
+          if [ -f "$HIVE_HOME/docker-compose.yml" ]; then
+            dc() { docker compose --project-directory "$HIVE_HOME" -p "$HIVE_PROJECT_NAME" "$@"; }
+            dc ps -a || true
+            dc logs --tail 100 || true
+            dc down -v --remove-orphans || true
+          fi
