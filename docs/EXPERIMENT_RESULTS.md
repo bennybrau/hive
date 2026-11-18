@@ -1,7 +1,9 @@
 # M5 experiment: does the Hive pay for itself?
 
-Status: **baseline done (2026-11-07). Decision: change, not stop.** The follow-up work is
-[M5b](M5B_LEARNING_LOOP.md); its last step re-runs this experiment against the numbers below.
+Status: **closed (2026-11-17).** Baseline 2026-11-07 (decision: change, not stop), re-runs during and after
+[M5b](M5B_LEARNING_LOOP.md), and a final reading against the M5b bar with ten days of real-session spend: see
+[Re-run after M5b](#re-run-after-m5b-final-2026-11-17). Decision: continue to M6; stop using question accuracy as the
+go/stop measure.
 
 ## Method
 
@@ -158,3 +160,65 @@ questions the repo can answer, Hive is as accurate as a hand-kept file holding t
 They do not show Hive beating a file. What Hive adds and a file doesn't is the loop: a person's correction is
 captured, reviewed, and reaches the next ticket without anyone editing a file (shown live in the Nov 13 rehearsal).
 That loop is what to measure next: corrections that didn't have to be repeated, on real tickets.
+
+## Re-run after M5b (final, 2026-11-17)
+
+M5b's last step: re-run the experiment once playbooks (WP6a–c) and use counts with retirement (WP7) were in, and
+judge the result against the bar set after the baseline. Both were merged and running by 2026-11-08, so the
+head-to-head above (2026-11-15) is that re-run: same 16 questions, answer key, judge and seed, with a third arm added.
+No further run was made; another one would only add a fifth sample of the same spread. Playbook learning from
+sessions (WP6d–e) is held in bennybrau/hive#10 and was not part of it.
+
+### Baseline → after the cost fix → after M5b
+
+| | baseline (11-07) | after the cost fix (11-08) | after M5b (11-15) |
+|---|---|---|---|
+| off: correct | 75% | 67% | 71% |
+| on: correct | 85% | 81% | 75% |
+| on minus off | +10 points | +14 points | +4 points |
+| file arm (CLAUDE.md with every fact): correct | | | 77% |
+| off: cost per question | $0.116 | $0.115 | $0.092 |
+| on: cost per question | $0.097 | $0.097 | $0.084 |
+| Hive spend in the run | $1.84 | $0.053 | $0.041 |
+| **net over 48 on-arm questions** | **−$0.91** | **+$0.81** | **+$0.31** |
+
+Costs fell in the last column for every arm, because the runner moved to detached worktrees of a newer ASF commit;
+compare costs within a column, not across.
+
+### Real-session spend (2026-11-08 to 2026-11-17)
+
+The 11-07 decision asked for a week of real use before this reading, because every experiment session is a question
+and question-only sessions are now skipped, which makes the run's Hive spend look smaller than real work's. Jon's own
+Hermes has used the Hive plugin since 2026-11-08 (instance `jon-hermes`). From `llm_calls` joined to that instance's
+episodes:
+
+- **49 sessions read, $1.86 in all**, about 19¢ a day. Per session: median 2.3¢, mean 3.8¢, 90th percentile 8.1¢, max
+  26¢. One session was skipped as question-only. The five largest reads were 40% of the spend.
+- **The 1¢-per-session estimate above was low.** It came from one short correction session; real sessions run
+  2.5k–29k input tokens a read (daily mean), so the cost follows session length.
+- **18 candidate facts, 15 kept.** 4 are active where they were proposed, 11 were kept but moved to a better level
+  (most from Everyone to the Hive repo, three about a family project to Just me) or merged into one fact, 1 was retired
+  as a duplicate, 2 were rejected. About 12¢ per kept fact.
+- Across the whole Hive, 121 of the 140 active facts have been handed to an agent at least once, and 17 have been cited.
+
+### Against the bar
+
+The bar from the baseline: **net ≥ $0 with on-arm accuracy at least 85%.**
+
+- **Cost: passes on the experiment, not proven on real work.** The run nets +$0.31 and Hive was the cheapest arm. Real
+  sessions cost about 19¢ a day to learn from; at the measured 0.8¢ saved per question that needs about 24 questions a
+  day to break even, and what the Hive saves on real work (not questions) is unmeasured.
+- **Accuracy: fails, and the measure is the wrong one.** 75% on the on-arm, under 85%. Across four runs the off-arm
+  alone has scored 67–75%, so a 10-point bar sits inside the spread, and a CLAUDE.md holding the same facts scores
+  the same as Hive. Questions the repo can already answer don't show what the Hive is for.
+
+### Decision: continue to M6, measure the loop instead
+
+Close M5b. The learning is now cheap enough to leave on (about 19¢ a day for one person, 15 of 18 proposals worth
+keeping), and the experiment has said what it can: on questions the repo answers, Hive is as accurate as a hand-kept
+file and slightly cheaper, not better. M5b's 85% bar is retired rather than chased with more prompt work. M6 (ship
+as images, harden for other people) continues; its first pieces (release images, installer) are already merged.
+The next measure is the one a file can't match: on real tickets, how often a correction said once is applied by later
+work without being repeated, and what that costs, once a second person's Hive is running. Two things to watch in the
+meantime: real-session spend as sessions get longer (cap or trim the largest reads if it climbs past ~50¢ a day), and
+the playbook learning held in bennybrau/hive#10, which waits for more procedural facts from real sessions.
