@@ -20,6 +20,7 @@ Status: an MVP, used daily by one small team. "Hive" is a working name. Licensed
 
 ## Read first
 
+- [docs/JOINING.md](docs/JOINING.md) — for a teammate joining a Hive: what is sent, who sees it, how to turn it off.
 - [docs/HIVE-EXPLAINER.md](docs/HIVE-EXPLAINER.md) — short, simple explainer to share: the problem, the idea, what's built, what's next.
 - [docs/MVP-OVERVIEW.md](docs/MVP-OVERVIEW.md) — longer plain-English description of the full MVP plan.
 - [docs/MVP-PLAN.md](docs/MVP-PLAN.md) — the implementation plan: scope, data model, HTTP API, plugin hooks, milestones M0–M6, experiment harness.

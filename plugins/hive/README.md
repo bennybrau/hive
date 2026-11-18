@@ -2,6 +2,9 @@
 
 Connects a Hermes instance to the team's Hive. Stdlib only, no new dependencies for Hermes.
 
+Joining someone else's Hive? Start with [docs/JOINING.md](../../docs/JOINING.md): what is sent, who sees it, and
+how to turn it down or off.
+
 ## What it does
 
 | When | What | Cost |
@@ -9,7 +12,7 @@ Connects a Hermes instance to the team's Hive. Stdlib only, no new dependencies 
 | First turn of a session in a repo (`prefetch`) | `POST /v1/brief` with your message as the task, the repo and your changed files; injects a compact brief (playbook, gotchas, facts as `[hive:<id>]` lines, where to look, past runs, tests; ~600 tokens) instead of recall. Asked once per session (`/new` asks again); if it fails, that turn uses recall | one HTTP POST, no LLM |
 | Before each turn (`prefetch`) | `GET /v1/recall` with your message, the current repo, and a strict relevance gate; injects at most 5 facts as `[hive:<id>]` lines | ~30 ms, no LLM |
 | After each turn (`sync_turn`) | records the turn as an episode (Hermes redacts secrets first and runs this off the response path) | one HTTP POST |
-| Session end | records the whole transcript (tool output clipped) as a `session` episode, input for distill in M4 | one HTTP POST |
+| Session end | records the whole transcript (tool output clipped to 1,500 chars per call) as a `session` episode, which distill reads to propose facts | one HTTP POST |
 | Tools | see below | only when the model calls them |
 
 | Tool | Who | What |
@@ -82,7 +85,8 @@ hermes memory status
 ```
 
 Optional: `HIVE_PREFETCH_K` (default 5, `0` = no automatic injection), `HIVE_PREFETCH_MIN_SIM` (0.62),
-`HIVE_REPO_KEY` (override the detected repo), `HIVE_SYNC=off` (don't record turns/sessions),
+`HIVE_REPO_KEY` (override the detected repo), `HIVE_SYNC=off` (don't record turns/sessions; explicit
+`hive_remember` still saves),
 `HIVE_BRIEF=off` (no first-turn brief; `HIVE_PREFETCH_K=0` doesn't turn it off).
 
 Activating it replaces any other external provider you have on. Built-in MEMORY.md/USER.md keep working.

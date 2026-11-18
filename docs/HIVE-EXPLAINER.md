@@ -1,6 +1,6 @@
 # The Hive: one shared memory for our AI assistants
 
-*A short explainer of what I'm building and why. Status as of October 28, 2026.*
+*A short explainer of what I'm building and why. Status as of November 18, 2026.*
 
 ## The problem
 
@@ -63,13 +63,15 @@ little cheaper. It is not better at that, and we've stopped claiming it is.
 
 What a file can't do is the loop: someone corrects an assistant once, a reviewer approves it, and the next piece of
 work follows it without anyone editing a file. That's what we measure next, on real work rather than a quiz. In the
-meantime we're making the Hive installable by other people (published images and a one-line installer are done), so
-a second person can run one.
+meantime we're making the Hive ready for other people: published images, a one-line installer, nightly backups,
+a page to hand out and revoke tokens, and reading code straight from GitHub are done. If you're joining, read
+[JOINING.md](JOINING.md) first: it says exactly what your assistant sends, who can see it, and how to turn it off.
 
 ## Deliberately left out for now
 
-- Teams and permissions beyond "one token per person, one reviewer"
+- Permissions beyond "one token per person": teams decide whose facts come first, not who may read them, and
+  one reviewer approves everything
 - Deep code analysis, such as "what breaks if I change this function"
-- Any cloud hosting; it all runs on one machine for the trial
+- Running on a cloud server; it all runs on one machine for now (being able to is next on the list)
 
 These come later if the test says the idea is worth it.
