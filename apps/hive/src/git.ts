@@ -43,7 +43,10 @@ export function gitErrorText(stderr: string, token: string | null): string {
   let s = stderr;
   if (token) s = s.split(token).join("***").split(basicAuth(token)).join("***");
   if (/authentication failed|could not read (username|password)|invalid username or (password|token)|terminal prompts disabled|\b40[13]\b/i.test(s)) {
-    return "authentication failed: the token was refused or expired";
+    // GitHub answers a missing repo the same as a private one, so the message names both.
+    return token
+      ? "authentication failed: the token was refused or expired, or the repository doesn't exist"
+      : "repository not found, or it is private: add a read-only access token";
   }
   if (/repository not found|not found|does not appear to be a git repository|\b404\b/i.test(s)) return "repository not found";
   const fatal = s.split("\n").map((l) => l.trim()).filter((l) => /^(fatal|error):/i.test(l)).pop() ?? s.trim().split("\n").pop() ?? "";

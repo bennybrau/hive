@@ -531,7 +531,7 @@ checkout (a cloud box).
 - `POST /v1/repos/ingest` `{key}` — curator. Ingest now, then verify that repo; returns both summaries. `409` if
   one is already running. Also runs for every repo every `HIVE_REPO_SYNC_MINUTES` (15; 0 = on demand only).
   For a URL repo it first fetches `origin` and resets the clone to the default branch, then sets `last_fetched_at`.
-  If the fetch fails, `ingest_error` says why (`authentication failed: the token was refused or expired`,
+  If the fetch fails, `ingest_error` says why (`authentication failed: the token was refused or expired, or the repository doesn't exist` with a token, `repository not found, or it is private: add a read-only access token` without one; GitHub answers a missing repo like a private one,
   `repository not found`, `network: <reason>`), ingest and verify are skipped and the last good index stays; this
   route answers `400`, and a timer pass logs it and goes on to the next repo.
 - `POST /v1/jobs/verify` `{repo_key?}` — curator. Re-check anchors now.

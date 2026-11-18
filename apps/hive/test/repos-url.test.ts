@@ -132,9 +132,12 @@ describe("parseCloneUrl", () => {
 describe("gitErrorText", () => {
   it("maps stderr to plain text and removes the token and its base64", () => {
     expect(gitErrorText(`remote: Invalid username or token.\nfatal: Authentication failed for 'https://github.com/a/b/'`, TOKEN)).toBe(
-      "authentication failed: the token was refused or expired",
+      "authentication failed: the token was refused or expired, or the repository doesn't exist",
     );
-    expect(gitErrorText("fatal: could not read Username for 'https://github.com': terminal prompts disabled", null)).toMatch(/^authentication failed/);
+    // No token: GitHub asks for credentials for a private repo and for a missing one alike.
+    expect(gitErrorText("fatal: could not read Username for 'https://github.com': terminal prompts disabled", null)).toBe(
+      "repository not found, or it is private: add a read-only access token",
+    );
     expect(gitErrorText("remote: Repository not found.\nfatal: repository 'https://github.com/a/b/' not found", null)).toBe("repository not found");
     const net = gitErrorText(`fatal: unable to access 'https://github.com/a/b/': Could not resolve host: ${TOKEN} ${b64(TOKEN)}`, TOKEN);
     expect(net).toMatch(/^network: Could not resolve host/);
