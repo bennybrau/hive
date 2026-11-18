@@ -8,6 +8,10 @@
 #                   set), then apply retention to both
 #   keep YYYYMMDD   file names on stdin -> the ones retention keeps on that date
 #   newest          "<age seconds> <file>" of the newest dump, or "none"
+#   restore <file|latest> <db>
+#                   pg_restore a dump in /backups (latest = the newest) into a new database <db> (createdb fails if
+#                   it exists, so nothing is overwritten); <db> = hive restores over the live one (--clean)
+#   counts <db>     "<table> <rows>" for every table in <db>'s public schema, sorted
 #
 # Any caller: docker compose run --rm --no-deps -T backup <subcommand>
 set -u
@@ -102,6 +106,44 @@ cmd_newest() {
   echo "$(($(date +%s) - mtime)) $f"
 }
 
+db_name_ok() {
+  printf '%s\n' "$1" | grep -Eq '^[a-z_][a-z0-9_]*$' || { echo "'$1' is not a database name ([a-z_][a-z0-9_]*)" >&2; return 1; }
+}
+
+cmd_restore() {
+  file=${1:-} db=${2:-}
+  [ -n "$file" ] && [ -n "$db" ] || { echo "restore: want <file|latest> <db>" >&2; return 2; }
+  db_name_ok "$db" || return 2
+  if [ "$file" = latest ]; then
+    list=$(ls -1A "$BACKUPS") || return 1
+    file=$(printf '%s\n' "$list" | grep -E "$NAME_RE" | sort | tail -n 1)
+    [ -n "$file" ] || { log "no dump in $BACKUPS to restore"; return 1; }
+  fi
+  case "$file" in */*|.*) echo "restore: '$file' is not a file name in $BACKUPS" >&2; return 2 ;; esac
+  [ -f "$BACKUPS/$file" ] || { log "no $BACKUPS/$file"; return 1; }
+  log "restoring $BACKUPS/$file into database $db"
+  if [ "$db" = hive ]; then
+    pg_restore --no-owner --clean --if-exists -h postgres -U hive -d hive "$BACKUPS/$file" \
+      || { log "pg_restore of $file into hive failed"; return 1; }
+  else
+    createdb -h postgres -U hive "$db" || { log "cannot create database $db (does it exist already?)"; return 1; }
+    pg_restore --no-owner -h postgres -U hive -d "$db" "$BACKUPS/$file" \
+      || { log "pg_restore of $file into $db failed"; return 1; }
+  fi
+  log "restored $BACKUPS/$file into database $db"
+}
+
+cmd_counts() {
+  db=${1:-}
+  db_name_ok "$db" || return 2
+  tables=$(psql -X -At -h postgres -U hive -d "$db" -c "select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'") \
+    || return 1
+  for t in $(printf '%s\n' "$tables" | sort); do
+    n=$(psql -X -At -h postgres -U hive -d "$db" -c "select count(*) from public.\"$t\"") || return 1
+    printf '%s %s\n' "$t" "$n"
+  done
+}
+
 # Seconds from now until the next $1 (HH:MM) on this clock; a time that is now or past means tomorrow's.
 seconds_until() {
   h=${1%:*}; m=${1#*:}; h=${h#0}; m=${m#0}
@@ -131,5 +173,7 @@ case "${1:-}" in
   once) cmd_once ;;
   keep) shift; cmd_keep "$@" ;;
   newest) cmd_newest ;;
-  *) echo "usage: backup.sh loop|once|keep <YYYYMMDD>|newest" >&2; exit 2 ;;
+  restore) shift; cmd_restore "$@" ;;
+  counts) shift; cmd_counts "$@" ;;
+  *) echo "usage: backup.sh loop|once|keep <YYYYMMDD>|newest|restore <file|latest> <db>|counts <db>" >&2; exit 2 ;;
 esac

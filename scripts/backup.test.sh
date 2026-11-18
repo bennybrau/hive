@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Tests for scripts/backup.sh and scripts/backup-now.sh. No Docker or Postgres needed.
+# Tests for scripts/backup.sh, scripts/backup-now.sh and scripts/restore.sh. No Docker or Postgres needed.
 #
 #   bash scripts/backup.test.sh
 #
 # backup.sh runs under sh with BACKUPS/BACKUPS_COPY pointed at temp dirs and fakes on PATH: `pg_dump` (logs its argv,
 # writes FAKE_DUMP into -f; FAKE_PGDUMP_FAIL=1 writes half a dump and fails), `cp` (logs its argv), `sleep` (logs its argv; the second call
-# stops the loop) and `docker` for backup-now.sh (FAKE_PS_FAIL, FAKE_PS_PROJECT + FAKE_PS_WORKDIR, as install.test.sh).
+# stops the loop), `createdb` (FAKE_DB_EXISTS=1 fails), `pg_restore` (logs its argv), `psql` (answers the table list
+# and the counts from FAKE_TABLES "name=rows ...") and `docker` for backup-now.sh and restore.sh (FAKE_PS_FAIL,
+# FAKE_PS_PROJECT + FAKE_PS_WORKDIR, as install.test.sh; `run ... backup counts <db>` answers FAKE_COUNTS_LIVE for
+# hive, else FAKE_COUNTS_RESTORED; FAKE_RESTORE_FAIL=1 fails `run ... backup restore`).
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -49,6 +52,26 @@ cat > "$FAKE_BIN/cp" <<'EOF'
 printf 'cp %s\n' "$*" >> "$FAKE_LOG"
 PATH=/usr/bin:/bin exec cp "$@"
 EOF
+cat > "$FAKE_BIN/createdb" <<'EOF'
+#!/bin/sh
+printf 'createdb %s\n' "$*" >> "$FAKE_LOG"
+[ "${FAKE_DB_EXISTS:-}" = 1 ] && { echo "createdb: error: database creation failed: ERROR:  database already exists" >&2; exit 1; }
+exit 0
+EOF
+cat > "$FAKE_BIN/pg_restore" <<'EOF'
+#!/bin/sh
+printf 'pg_restore %s\n' "$*" >> "$FAKE_LOG"
+exit 0
+EOF
+cat > "$FAKE_BIN/psql" <<'EOF'
+#!/bin/sh
+printf 'psql %s\n' "$*" >> "$FAKE_LOG"
+for a in "$@"; do q=$a; done
+case "$q" in
+  *information_schema.tables*) for t in $FAKE_TABLES; do echo "${t%%=*}"; done ;;
+  *count*) for t in $FAKE_TABLES; do case "$q" in *"public.\"${t%%=*}\""*) echo "${t#*=}" ;; esac; done ;;
+esac
+EOF
 cat > "$FAKE_BIN/docker" <<'EOF'
 #!/usr/bin/env bash
 printf 'docker %s\n' "$*" >> "$FAKE_LOG"
@@ -57,6 +80,11 @@ case "$1" in
     [ "${FAKE_PS_FAIL:-}" = 1 ] && { echo "permission denied while trying to connect to the Docker daemon" >&2; exit 1; }
     case "$*" in *"label=com.docker.compose.project=${FAKE_PS_PROJECT:-none} "*) echo "${FAKE_PS_WORKDIR:-}" ;; esac
     exit 0 ;;
+esac
+case "$*" in
+  *" backup restore "*) [ "${FAKE_RESTORE_FAIL:-}" = 1 ] && { echo "pg_restore: error: could not connect" >&2; exit 1; } ;;
+  *" backup counts hive") printf '%s\n' "${FAKE_COUNTS_LIVE:-}" ;;
+  *" backup counts "*) printf '%s\n' "${FAKE_COUNTS_RESTORED:-}" ;;
 esac
 exit 0
 EOF
@@ -190,6 +218,60 @@ out="$(bk PATH="$BSD_BIN:$FAKE_BIN:$PATH" sh "$BACKUP_SH" newest 2>&1)"
 [[ "$out" =~ ^[0-9]+\ hive-20261118-0300\.dump$ ]] && pass || fail "newest with BSD stat => '<age> hive-20261118-0300.dump' (got '$out')"
 assert_contains "$(cat "$FAKE_LOG")" "stat -f %m $B/hive-20261118-0300.dump" "newest falls back to stat -f %m"
 
+# --- restore and counts --------------------------------------------------------------------------
+reset
+echo a > "$B/hive-20261117-0300.dump"; echo b > "$B/hive-20261118-0300.dump"; echo c > "$B/hive-20261116-2300.dump"
+echo x > "$B/hive-20261119-0300.dump.bak"
+out="$(bk sh "$BACKUP_SH" restore latest hive_restore_1 2>&1)"; code=$?
+assert_eq "$code" "0" "restore latest into a new db succeeds"
+assert_eq "$(grep -E '^(createdb|pg_restore) ' "$FAKE_LOG")" "createdb -h postgres -U hive hive_restore_1
+pg_restore --no-owner -h postgres -U hive -d hive_restore_1 $B/hive-20261118-0300.dump" \
+  "restore latest: createdb, then pg_restore of the newest dump, no --clean"
+assert_contains "$out" "restoring $B/hive-20261118-0300.dump into database hive_restore_1" "restore logs the file it used"
+assert_not_contains "$out" "pw-SECRET" "restore never logs the password"
+
+: > "$FAKE_LOG"
+out="$(bk FAKE_DB_EXISTS=1 sh "$BACKUP_SH" restore hive-20261117-0300.dump hive_restore_1 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "restore into an existing db => exits non-zero"
+assert_not_contains "$(cat "$FAKE_LOG")" "pg_restore" "restore into an existing db => no pg_restore"
+assert_contains "$out" "cannot create database hive_restore_1" "restore into an existing db => says so"
+
+: > "$FAKE_LOG"
+out="$(bk sh "$BACKUP_SH" restore hive-20261117-0300.dump hive 2>&1)"; code=$?
+assert_eq "$code" "0" "restore over hive succeeds"
+assert_eq "$(grep -E '^(createdb|pg_restore) ' "$FAKE_LOG")" \
+  "pg_restore --no-owner --clean --if-exists -h postgres -U hive -d hive $B/hive-20261117-0300.dump" \
+  "restore over hive: pg_restore --clean --if-exists, no createdb"
+
+for f in ../hive-20261117-0300.dump /etc/passwd .hive-20261118-0300.dump.tmp; do
+  : > "$FAKE_LOG"
+  out="$(bk sh "$BACKUP_SH" restore "$f" hive_restore_1 2>&1)"; code=$?
+  assert_eq "$code" "2" "restore '$f' (not a plain name) exits 2"
+  assert_eq "$(cat "$FAKE_LOG")" "" "restore '$f' => no createdb or pg_restore"
+done
+out="$(bk sh "$BACKUP_SH" restore hive-20200101-0300.dump hive_restore_1 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "restore of a missing dump exits non-zero"
+assert_eq "$(cat "$FAKE_LOG")" "" "restore of a missing dump => no createdb or pg_restore"
+out="$(bk sh "$BACKUP_SH" restore latest 'x; drop' 2>&1)"; code=$?
+assert_eq "$code" "2" "restore into a bad db name exits 2"
+out="$(bk sh "$BACKUP_SH" restore latest 2>&1)"; code=$?
+assert_eq "$code" "2" "restore without a db exits 2"
+reset
+out="$(bk sh "$BACKUP_SH" restore latest hive_restore_1 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "restore latest with no dumps exits non-zero"
+assert_eq "$(cat "$FAKE_LOG")" "" "restore latest with no dumps => no createdb"
+
+: > "$FAKE_LOG"
+out="$(bk FAKE_TABLES="facts=12 anchors=3 episodes=0" sh "$BACKUP_SH" counts hive_restore_1 2>&1)"; code=$?
+assert_eq "$code" "0" "counts succeeds"
+assert_eq "$out" "anchors 3
+episodes 0
+facts 12" "counts: '<table> <rows>', sorted"
+assert_contains "$(cat "$FAKE_LOG")" "psql -X -At -h postgres -U hive -d hive_restore_1 -c select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'" \
+  "counts lists the public base tables"
+out="$(bk sh "$BACKUP_SH" counts Hive 2>&1)"; code=$?
+assert_eq "$code" "2" "counts with a bad db name exits 2"
+
 # seconds_until, extracted from backup.sh, with `date '+%H %M %S'` answering FAKE_CLOCK (HH:MM:SS)
 CLOCK_BIN="$TMP/clock-bin"; mkdir -p "$CLOCK_BIN"
 cat > "$CLOCK_BIN/date" <<EOF
@@ -275,6 +357,84 @@ assert_contains "$(cat "$FAKE_LOG")" "--project-directory $TMP/own -p own run" "
 : > "$FAKE_LOG"
 now bash "$TMP/repo/scripts/backup-now.sh" >/dev/null 2>&1
 assert_contains "$(cat "$FAKE_LOG")" "--project-directory $TMP/repo -p hive run" "no --dir => the repo root, project hive"
+
+# --- restore.sh ----------------------------------------------------------------------------------
+RESTORE="$REPO_ROOT/scripts/restore.sh"
+printf 'HIVE_PROJECT=hb\nPOSTGRES_PASSWORD=pw-SECRET\n' > "$H/.env"
+line_of() { grep -n -m1 -F -- "$1" "$FAKE_LOG" | cut -d: -f1; }
+
+: > "$FAKE_LOG"
+out="$(now FAKE_COUNTS_RESTORED=$'anchors 3\nfacts 12\ninstances 2' FAKE_COUNTS_LIVE=$'anchors 3\nfacts 13\ninstances 2' \
+  bash "$RESTORE" latest --dir "$H" 2>&1)"; code=$?
+assert_eq "$code" "0" "restore.sh latest succeeds"
+db="$(sed -n 's/.* backup restore latest \(.*\)$/\1/p' "$FAKE_LOG")"
+[[ "$db" =~ ^hive_restore_[0-9]{14}$ ]] && pass || fail "restore.sh defaults to hive_restore_<YYYYMMDDHHMMSS> (got '$db')"
+assert_contains "$(cat "$FAKE_LOG")" "docker compose --project-directory $H -p hb run --rm --no-deps -T backup restore latest $db" \
+  "restore.sh runs the backup service's restore"
+assert_contains "$(cat "$FAKE_LOG")" "-T backup counts $db" "restore.sh counts the restored db"
+assert_contains "$(cat "$FAKE_LOG")" "-T backup counts hive" "restore.sh counts the live db"
+assert_not_contains "$(cat "$FAKE_LOG")" " stop " "the drill stops nothing"
+assert_contains "$out" "facts                                12         13  *" "a row that differs is marked"
+assert_contains "$out" "anchors                               3          3"$'\n' "a row that matches is not"
+assert_contains "$out" "3 tables, 1 differ (live db keeps changing; informational)" "restore.sh sums up"
+assert_contains "$out" "docker compose --project-directory $H -p hb exec -T postgres dropdb -U hive $db" \
+  "restore.sh prints the drop command"
+assert_not_contains "$out" "pw-SECRET" "restore.sh never prints the password"
+
+: > "$FAKE_LOG"
+out="$(now FAKE_COUNTS_RESTORED='facts 1' FAKE_COUNTS_LIVE=$'facts 1\nnewtable 4' \
+  bash "$RESTORE" hive-20261118-0300.dump --into drill_1 --dir "$H" 2>&1)"; code=$?
+assert_eq "$code" "0" "restore.sh --into a new name succeeds"
+assert_contains "$(cat "$FAKE_LOG")" "-T backup restore hive-20261118-0300.dump drill_1" "restore.sh passes the file and --into"
+assert_contains "$out" "newtable                              -          4  *" "a table on one side only shows - and is marked"
+
+: > "$FAKE_LOG"
+out="$(now FAKE_RESTORE_FAIL=1 bash "$RESTORE" latest --dir "$H" 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "restore.sh: a failed restore => exits non-zero"
+assert_not_contains "$(cat "$FAKE_LOG")" "backup counts" "restore.sh: a failed restore => no counts"
+
+: > "$FAKE_LOG"
+out="$(now bash "$RESTORE" latest --into hive --dir "$H" 2>&1)"; code=$?
+assert_eq "$code" "2" "restore.sh --into hive without --yes exits 2"
+assert_contains "$out" "--yes" "restore.sh --into hive without --yes says to add --yes"
+assert_eq "$(compose_calls)" "0" "restore.sh --into hive without --yes => no compose calls"
+
+: > "$FAKE_LOG"
+out="$(now FAKE_COUNTS_LIVE='facts 12' bash "$RESTORE" latest --into hive --yes --dir "$H" 2>&1)"; code=$?
+assert_eq "$code" "0" "restore.sh --into hive --yes succeeds"
+s1="$(line_of "-p hb stop hive hive-worker")"; s2="$(line_of "-T backup restore latest hive")"
+s3="$(line_of "-p hb up -d --wait hive hive-worker")"
+[ -n "$s1" ] && [ -n "$s2" ] && [ -n "$s3" ] && [ "$s1" -lt "$s2" ] && [ "$s2" -lt "$s3" ] && pass \
+  || fail "restore.sh --into hive: stop, then restore, then up -d --wait (lines '$s1' '$s2' '$s3')"
+assert_eq "$(grep -c ' up -d ' "$FAKE_LOG")" "1" "restore.sh --into hive starts them again once"
+assert_contains "$out" "facts                                12" "restore.sh --into hive prints the restored counts"
+assert_not_contains "$out" "dropdb" "restore.sh --into hive prints no drop command"
+
+: > "$FAKE_LOG"
+out="$(now FAKE_RESTORE_FAIL=1 bash "$RESTORE" latest --into hive --yes --dir "$H" 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "restore.sh --into hive, failed restore => exits non-zero"
+assert_contains "$(cat "$FAKE_LOG")" "-p hb up -d --wait hive hive-worker" "restore.sh --into hive, failed restore => starts them again"
+
+for bad_db in Hive 1abc a-b 'x;y'; do
+  : > "$FAKE_LOG"
+  out="$(now bash "$RESTORE" latest --into "$bad_db" --dir "$H" 2>&1)"; code=$?
+  assert_eq "$code" "2" "restore.sh --into '$bad_db' exits 2"
+  assert_eq "$(compose_calls)" "0" "restore.sh --into '$bad_db' => no compose calls"
+done
+: > "$FAKE_LOG"
+out="$(now bash "$RESTORE" --dir "$H" 2>&1)"; code=$?
+assert_eq "$code" "2" "restore.sh without a file exits 2"
+
+: > "$FAKE_LOG"
+out="$(now FAKE_PS_PROJECT=hb FAKE_PS_WORKDIR=/somewhere/else bash "$RESTORE" latest --dir "$H" 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "restore.sh on another dir's project => exits non-zero"
+assert_contains "$out" "/somewhere/else" "restore.sh on another dir's project => names it"
+assert_eq "$(compose_calls)" "0" "restore.sh on another dir's project => no compose calls"
+: > "$FAKE_LOG"
+out="$(now FAKE_PS_FAIL=1 bash "$RESTORE" latest --into hive --yes --dir "$H" 2>&1)"; code=$?
+[ "$code" -ne 0 ] && pass || fail "restore.sh when docker ps fails => exits non-zero"
+assert_contains "$out" "cannot list containers for project hb" "restore.sh when docker ps fails => says so"
+assert_eq "$(compose_calls)" "0" "restore.sh when docker ps fails => no compose calls"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
