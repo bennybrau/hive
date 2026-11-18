@@ -7,7 +7,7 @@
 # HIVE_E2E_DIGEST_OVERWRITE=1.
 #
 # Needs: the hive running (scripts/redeploy.sh) and docker. Mints a throwaway `e2e-<timestamp>` member
-# token and an `e2e-curator-<timestamp>` curator token each run (left in place). The browser shares the
+# token and an `e2e-curator-<timestamp>` curator token each run, and revokes both on exit. The browser shares the
 # hive container's network, so it reaches the hive at 127.0.0.1:8800 the same way on Mac and Linux.
 #
 # Every fact and team the specs make carries this run's marker (HIVE_E2E_RUN, `zr<timestamp>`). The four
@@ -30,8 +30,10 @@ mint() {
   docker compose exec -T hive node dist/cli/mint-token.js --name "$1" --user "$(whoami)" --role "$2" --json \
     | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])'
 }
-HIVE_E2E_TOKEN=$(mint "e2e-$(date +%s)" member)
-HIVE_E2E_CURATOR_TOKEN=$(mint "e2e-curator-$(date +%s)" curator)
+member_name="e2e-$(date +%s)"
+curator_name="e2e-curator-$(date +%s)"
+HIVE_E2E_TOKEN=$(mint "$member_name" member)
+HIVE_E2E_CURATOR_TOKEN=$(mint "$curator_name" curator)
 export HIVE_E2E_TOKEN HIVE_E2E_CURATOR_TOKEN
 
 run="zr$(date +%s)"
@@ -63,6 +65,13 @@ SQL
     curl -fsS -o /dev/null -X DELETE -H "authorization: Bearer $HIVE_E2E_CURATOR_TOKEN" "$URL/v1/teams/$key" \
       || { echo "cleanup: couldn't delete team $key" >&2; status=1; }
   done
+  # This run's two tokens are revoked last (the team deletes above use the curator one); the rows stay, as
+  # revoked instances always do.
+  psql_ -c "update instances set revoked_at = now() where name in ('$member_name', '$curator_name') and revoked_at is null" \
+    || { echo "cleanup: couldn't revoke $member_name / $curator_name" >&2; status=1; }
+  local live
+  live=$(psql_ -c "select count(*) from instances where name in ('$member_name', '$curator_name') and revoked_at is null") || live="?"
+  [ "$live" = 0 ] || { echo "cleanup: $live e2e token(s) still active" >&2; status=1; }
   local left
   left=$(psql_ -c "select count(*) from facts where $mine") || left="?"
   echo "cleanup: $left active or candidate e2e fact(s) left"
